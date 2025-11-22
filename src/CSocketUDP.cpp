@@ -59,9 +59,9 @@ int CSocketUDP::Write(char* data, int size) {
         return NET_SOCKET_ERROR;
     }
 
-    int bytesSent = sendto(this->sockfd, data, size, CSocket::NULLFlag, 
+    int bytesSent = static_cast<int>(sendto(this->sockfd, data, size, CSocket::NULLFlag, 
                           (struct sockaddr*)&this->remote_addr, 
-                          sizeof(struct sockaddr_in));
+                          sizeof(struct sockaddr_in)));
     return bytesSent;
 }
 
@@ -90,10 +90,10 @@ int CSocketUDP::Write(char* data) {
         return 0;
     }
 
-    int bytesSent = sendto(this->sockfd, data, static_cast<int>(len), 
+    int bytesSent = static_cast<int>(sendto(this->sockfd, data, static_cast<int>(len), 
                           CSocket::NULLFlag,
                           (struct sockaddr*)&this->remote_addr, 
-                          sizeof(struct sockaddr_in));
+                          sizeof(struct sockaddr_in)));
     return bytesSent;
 }
 
@@ -116,10 +116,10 @@ int CSocketUDP::Write(std::string data) {
         return NET_SOCKET_ERROR;
     }
 
-    int bytesSent = sendto(this->sockfd, data.c_str(), static_cast<int>(data.size()), 
+    int bytesSent = static_cast<int>(sendto(this->sockfd, data.c_str(), static_cast<int>(data.size()), 
                           CSocket::NULLFlag,
                           (struct sockaddr*)&this->remote_addr, 
-                          sizeof(struct sockaddr_in));
+                          sizeof(struct sockaddr_in)));
     return bytesSent;
 }
 
@@ -137,8 +137,8 @@ int CSocketUDP::Read(char* buffer, int size) {
     SafeClearBuffer(buffer, size);
     socklen_t sockaddr_size = sizeof(struct sockaddr_in);
     
-    int bytesRead = recvfrom(this->sockfd, buffer, size, CSocket::NULLFlag, 
-                            (struct sockaddr*)&this->remote_addr, &sockaddr_size);
+    int bytesRead = static_cast<int>(recvfrom(this->sockfd, buffer, size, CSocket::NULLFlag, 
+                            (struct sockaddr*)&this->remote_addr, &sockaddr_size));
     
     this->n = bytesRead;
     
@@ -166,8 +166,8 @@ std::string CSocketUDP::Read(int size) {
     SafeClearBuffer(this->inbuffer, CSocket::MaxBufferSize);
     socklen_t sockaddr_size = sizeof(struct sockaddr_in);
     
-    int bytesRead = recvfrom(this->sockfd, this->inbuffer, size, CSocket::NULLFlag, 
-                            (struct sockaddr*)&this->remote_addr, &sockaddr_size);
+    int bytesRead = static_cast<int>(recvfrom(this->sockfd, this->inbuffer, size, CSocket::NULLFlag, 
+                            (struct sockaddr*)&this->remote_addr, &sockaddr_size));
     
     this->n = bytesRead;
     

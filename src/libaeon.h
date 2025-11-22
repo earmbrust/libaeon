@@ -31,6 +31,7 @@
     #include <netdb.h>
     #include <arpa/inet.h>
     #include <netinet/in.h>
+    #include <netinet/tcp.h>
     #include <sys/types.h>
     #include <unistd.h>
 #elif defined(__linux__)
@@ -39,6 +40,7 @@
     #include <netdb.h>
     #include <arpa/inet.h>
     #include <netinet/in.h>
+    #include <netinet/tcp.h>
     #include <sys/types.h>
     #include <unistd.h>
 #else
@@ -47,6 +49,7 @@
     #include <netdb.h>
     #include <arpa/inet.h>
     #include <netinet/in.h>
+    #include <netinet/tcp.h>
     #include <sys/types.h>
     #include <unistd.h>
 #endif
