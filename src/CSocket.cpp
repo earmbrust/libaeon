@@ -11,10 +11,6 @@
 #include <cstring>
 #include <algorithm>
 
-#ifdef HAVE_CONFIG_H
-#include "../config.h"
-#endif
-
 namespace net {
 
 // Platform-specific helper macros

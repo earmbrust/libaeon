@@ -3,11 +3,6 @@
  * Copyright 2006-2025 (c) Elden Armbrust
  * This software is licensed under the BSD software license.
  *********************************************************************/
-
-#ifdef HAVE_CONFIG_H
-#include "../config.h"
-#endif
-
 #include "libaeon.h"
 
 #include "CSocket.cpp"

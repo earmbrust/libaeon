@@ -9,10 +9,6 @@
 
 #include "libaeon.h"
 
-#ifdef HAVE_CONFIG_H
-#include "../config.h"
-#endif
-
 namespace net {
 
 /**
