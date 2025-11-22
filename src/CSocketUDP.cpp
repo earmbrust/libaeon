@@ -56,7 +56,7 @@ CSocketUDP::CSocketUDP() {
  */
 int CSocketUDP::Write(char* data, int size) {
     if (!data || !IsValidSocket(this->sockfd) || size <= 0) {
-        return SOCKET_ERROR;
+        return NET_SOCKET_ERROR;
     }
 
     int bytesSent = sendto(this->sockfd, data, size, CSocket::NULLFlag, 
@@ -82,7 +82,7 @@ int CSocketUDP::Write(const char* data, int size) {
  */
 int CSocketUDP::Write(char* data) {
     if (!data || !IsValidSocket(this->sockfd)) {
-        return SOCKET_ERROR;
+        return NET_SOCKET_ERROR;
     }
 
     std::size_t len = std::strlen(data);
@@ -113,7 +113,7 @@ int CSocketUDP::Write(const char* data) {
  */
 int CSocketUDP::Write(std::string data) {
     if (!IsValidSocket(this->sockfd) || data.empty()) {
-        return SOCKET_ERROR;
+        return NET_SOCKET_ERROR;
     }
 
     int bytesSent = sendto(this->sockfd, data.c_str(), static_cast<int>(data.size()), 
@@ -131,7 +131,7 @@ int CSocketUDP::Write(std::string data) {
  */
 int CSocketUDP::Read(char* buffer, int size) {
     if (!buffer || !IsValidSocket(this->sockfd) || size <= 0) {
-        return SOCKET_ERROR;
+        return NET_SOCKET_ERROR;
     }
 
     SafeClearBuffer(buffer, size);
@@ -145,7 +145,7 @@ int CSocketUDP::Read(char* buffer, int size) {
     if (bytesRead == 0) {
         this->connected = false;
     } else if (bytesRead < 0) {
-        this->error_code = GET_SOCKET_ERROR();
+        this->error_code = GET_NET_SOCKET_ERROR();
     }
     
     return bytesRead;
@@ -177,7 +177,7 @@ std::string CSocketUDP::Read(int size) {
     } else if (bytesRead == 0) {
         this->connected = false;
     } else {
-        this->error_code = GET_SOCKET_ERROR();
+        this->error_code = GET_NET_SOCKET_ERROR();
     }
     
     return retVal;

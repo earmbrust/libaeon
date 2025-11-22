@@ -1,17 +1,17 @@
 /******************************************************************
- * simple-server-with-timeouts.cpp - Server with I/O timeouts and TCP_NODELAY
- * Demonstrates the new timeout and TCP_NODELAY features
+ * simple-server.cpp - Event-driven server using CEventSocket
+ * Demonstrates the proper way to use libaeon for medical-grade resilience
+ * No timeouts, no polling loops, just event-driven I/O with callbacks
  ******************************************************************/
 
 #include <libaeon.h>
 #include <iostream>
 #include <cstdio>
-#include <vector>
 #include <csignal>
 #include <atomic>
+#include <memory>
 #include <thread>
 #include <chrono>
-#include <mutex>
 
 #define SERVER_PORT 2300
 
@@ -25,7 +25,7 @@ void signal_handler(int sig) {
 }
 
 int main(void) {
-    std::cout << "Starting server with I/O timeouts and TCP_NODELAY\n";
+    std::cout << "Event-driven server using CEventSocket\n";
     std::cout << "Listening on port " << SERVER_PORT << "\n";
     std::cout << "Press Ctrl-C to exit.\n";
 
@@ -41,129 +41,53 @@ int main(void) {
         return EXIT_FAILURE;
     }
 
-    // Accept timeout so thread wakes up frequently to check shutdown
-    server.SetAcceptTimeout(100);
-
     std::cout << "Server listening...\n";
 
-    std::vector<net::CSocket*> clients;
-    std::vector<net::CSocket*> pending_clients;
-    std::mutex pending_lock;
+    // Make Accept() non-blocking - returns immediately if no pending connections
+    // This allows the main loop to check shutdown_requested without artificial timeouts
+    server.SetBlocking(false);
+    
+    net::CEventSocketSet client_sockets;
     int connection_count = 0;
 
-    // Accept thread with responsive shutdown
-    auto accept_thread_func = [&]() {
-        std::cout << "[Accept Thread] Started\n";
-        
-        while (!shutdown_requested) {
-            net::CSocket* client = server.Accept();
-            
-            if (client && client->connected) {
-                {
-                    std::lock_guard<std::mutex> lock(pending_lock);
-                    pending_clients.push_back(client);
-                }
-                std::cout << "[Accept Thread] New connection queued\n";
-            } else if (client) {
-                delete client;
-            }
-            
-            if (shutdown_requested) break;
-        }
-        
-        std::cout << "[Accept Thread] Exiting\n";
-    };
-
-    std::thread acceptor(accept_thread_func);
-
-    // Main server loop
+    // Main server loop - event-driven
     while (!shutdown_requested) {
-        // Process new connections
-        {
-            std::lock_guard<std::mutex> lock(pending_lock);
-            while (!pending_clients.empty()) {
-                net::CSocket* client = pending_clients.back();
-                pending_clients.pop_back();
-                ++connection_count;
-                std::printf("Client %d connected\n", connection_count);
+        // Accept new connections - returns CEventSocket* directly
+        net::CEventSocket* client = server.Accept();
+        
+        if (client && client->connected) {
+            ++connection_count;
+            std::printf("Client %d accepted\n", connection_count);
+            
+            // Configure socket
+            client->SetTCPNodelay(true);
+            
+            std::printf("About to send greeting - client->connected=%d, sockfd=%d\n", client->connected, (int)client->sockfd);
 
-                // Configure socket for low-latency communication
-                // Disable Nagle's algorithm - send data immediately
-                client->SetTCPNodelay(true);
-                
-                // Set read timeout to 30 seconds (idle timeout)
-                client->SetReadTimeout(30000);
-                
-                // Set write timeout to 5 seconds
-                client->SetWriteTimeout(5000);
-
-                // Send greeting
-                int bytes_sent = client->Write("Hello, world!\r\n");
-                if (bytes_sent > 0) {
-                    std::printf("Sent greeting to client %d (%d bytes)\n", 
-                               connection_count, bytes_sent);
-                } else if (bytes_sent == 0) {
-                    std::fprintf(stderr, "Error: Write timeout sending greeting to client %d\n", 
-                                connection_count);
-                } else {
-                    std::fprintf(stderr, "Error: Failed to send greeting to client %d\n", 
-                                connection_count);
-                }
-
-                // Make client non-blocking for Read() - we'll use timeouts
-                client->SetBlocking(false);
-
-                clients.push_back(client);
+            // Send greeting
+            int bytes_sent = client->Write("Hello, world!\r\n");
+            if (bytes_sent > 0) {
+                std::printf("Sent greeting to client %d (%d bytes)\n", 
+                           connection_count, bytes_sent);
             }
+            
+            // Add to managed set
+            client_sockets.Add(client);
+            
+        } else if (client) {
+            delete client;
         }
-
-        // Poll all connected clients with read timeout
-        for (auto it = clients.begin(); it != clients.end(); ) {
-            net::CSocket* c = *it;
-            if (c->connected) {
-                char buffer[256];
-                int bytes_read = c->Read(buffer, sizeof(buffer) - 1);
-                
-                if (bytes_read > 0) {
-                    buffer[bytes_read] = '\0';
-                    std::printf("Client data: %s", buffer);
-                    ++it;
-                } else if (bytes_read == 0) {
-                    // Either timeout (with non-blocking read) or connection closed
-                    // Since we have non-blocking reads, 0 could mean either
-                    ++it;
-                } else {
-                    // Error or connection closed
-                    std::printf("Client %d disconnected\n", 
-                               (int)(it - clients.begin()) + 1);
-                    c->Close();
-                    delete c;
-                    it = clients.erase(it);
-                }
-            } else {
-                c->Close();
-                delete c;
-                it = clients.erase(it);
-            }
-        }
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        
+        // Poll all connected clients
+        client_sockets.Poll();
+        
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
     // Cleanup
-    for (auto client : clients) {
-        if (client) {
-            client->Close();
-            delete client;
-        }
-    }
-
+    client_sockets.Cleanup();
     server.Close();
     
-    if (acceptor.joinable()) {
-        acceptor.join();
-    }
-
     std::cout << "Server shutdown complete.\n";
     return EXIT_SUCCESS;
 }

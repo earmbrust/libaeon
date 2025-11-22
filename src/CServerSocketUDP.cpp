@@ -15,10 +15,10 @@ namespace net {
 // Platform-specific helper macros
 #ifdef PLATFORM_WINDOWS
     #define CLOSE_SOCKET(s) closesocket(s)
-    #define GET_SOCKET_ERROR() WSAGetLastError()
+    #define GET_NET_SOCKET_ERROR() WSAGetLastError()
 #else
     #define CLOSE_SOCKET(s) close(s)
-    #define GET_SOCKET_ERROR() errno
+    #define GET_NET_SOCKET_ERROR() errno
 #endif
 
 /**
@@ -60,7 +60,7 @@ bool CServerSocketUDP::Listen(int port) {
                           sizeof(this->serv_addr));
     
     if (bind_result < 0) {
-        this->error_code = GET_SOCKET_ERROR();
+        this->error_code = GET_NET_SOCKET_ERROR();
         this->error_state = SOCK_ACCEPT;
         return false;
     }

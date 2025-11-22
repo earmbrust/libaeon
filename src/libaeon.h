@@ -58,15 +58,6 @@
 #include <cstring>
 #include <cstdlib>
 
-// Platform-native socket type
-#ifdef PLATFORM_WINDOWS
-    typedef SOCKET socket_t;
-    #define INVALID_SOCKET_T ((socket_t)(INVALID_SOCKET))
-#else
-    typedef int socket_t;
-    #define INVALID_SOCKET_T (-1)
-#endif
-
 // Error and state definitions
 #define SOCK_RESOLVE 1
 #define SOCK_ACCEPT 3
@@ -86,6 +77,18 @@
  * to prevent name collision with other implementations.
  */
 namespace net {
+
+    // Platform-native socket type - libaeon abstraction
+    #ifdef PLATFORM_WINDOWS
+        typedef SOCKET socket_t;
+        #define INVALID_SOCKET_T ((net::socket_t)(INVALID_SOCKET))
+    #else
+        typedef int socket_t;
+        #define INVALID_SOCKET_T (-1)
+    #endif
+
+    // Library-specific error constants
+    #define NET_SOCKET_ERROR (-1)
 
     const char* GetLibraryVersion();
 
@@ -125,6 +128,7 @@ namespace net {
         
         CSocket();
         CSocket(int family_type);
+        CSocket(socket_t existing_fd);
         virtual ~CSocket();
         
         bool Close();
@@ -195,13 +199,17 @@ namespace net {
      * CServerSocket is a multipurpose TCP socket class designed to handle
      * server connection handling.
      */
+    class CEventSocket;  // Forward declaration - defined below
+    
     class CServerSocket : public CSocket {
     public:
         CServerSocket();
         ~CServerSocket();
         bool Listen();
         bool Listen(int port);
-        CSocket* Accept();
+        CEventSocket* Accept();
+        CEventSocket* Accept(bool blocking);
+        CEventSocket* Accept(CEventSocket* client_socket, bool blocking = false);
         void SetAcceptTimeout(int timeout_ms);
         int accept_timeout_ms;
     protected:
@@ -222,8 +230,10 @@ namespace net {
       */
     class CEventSocket : public CSocket {
     public:
-        bool OnRead(const char* buffer, int size);
-        void OnWrite(const char* buffer, int size, int sentsize);
+        CEventSocket() {}
+        explicit CEventSocket(socket_t existing_fd) : CSocket(existing_fd) {}
+        virtual bool OnRead(const char* buffer, int size);
+        virtual void OnWrite(const char* buffer, int size, int sentsize);
         int Write(char* data);
         int Write(const char* data);
         int Write(std::string data);
