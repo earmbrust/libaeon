@@ -80,6 +80,68 @@ static inline void SafeClearBuffer(char* buffer, std::size_t size) {
     }
 }
 
+// Helper: Wait for socket to be readable with timeout
+static int WaitForReadable(socket_t sockfd, int timeout_ms) {
+    if (timeout_ms <= 0) {
+        return 1;  // No timeout, proceed immediately
+    }
+
+#ifdef PLATFORM_WINDOWS
+    fd_set readset;
+    FD_ZERO(&readset);
+    FD_SET(sockfd, &readset);
+    
+    timeval tv;
+    tv.tv_sec = timeout_ms / 1000;
+    tv.tv_usec = (timeout_ms % 1000) * 1000;
+    
+    int select_result = select(0, &readset, nullptr, nullptr, &tv);
+#else
+    fd_set readset;
+    FD_ZERO(&readset);
+    FD_SET(sockfd, &readset);
+    
+    timeval tv;
+    tv.tv_sec = timeout_ms / 1000;
+    tv.tv_usec = (timeout_ms % 1000) * 1000;
+    
+    int select_result = select(sockfd + 1, &readset, nullptr, nullptr, &tv);
+#endif
+    
+    return select_result;
+}
+
+// Helper: Wait for socket to be writable with timeout
+static int WaitForWritable(socket_t sockfd, int timeout_ms) {
+    if (timeout_ms <= 0) {
+        return 1;  // No timeout, proceed immediately
+    }
+
+#ifdef PLATFORM_WINDOWS
+    fd_set writeset;
+    FD_ZERO(&writeset);
+    FD_SET(sockfd, &writeset);
+    
+    timeval tv;
+    tv.tv_sec = timeout_ms / 1000;
+    tv.tv_usec = (timeout_ms % 1000) * 1000;
+    
+    int select_result = select(0, nullptr, &writeset, nullptr, &tv);
+#else
+    fd_set writeset;
+    FD_ZERO(&writeset);
+    FD_SET(sockfd, &writeset);
+    
+    timeval tv;
+    tv.tv_sec = timeout_ms / 1000;
+    tv.tv_usec = (timeout_ms % 1000) * 1000;
+    
+    int select_result = select(sockfd + 1, nullptr, &writeset, nullptr, &tv);
+#endif
+    
+    return select_result;
+}
+
 /**
  * CSocket operator<< for char* data
  * \param data Pointer to null-terminated string
@@ -150,6 +212,9 @@ CSocket::CSocket() {
     this->error_code = ERR_NONE;
     this->error_state = 0;
     this->token_size = 0;
+    this->read_timeout_ms = 0;  // No timeout by default
+    this->write_timeout_ms = 0;  // No timeout by default
+    this->connect_timeout_ms = 0;  // No timeout by default
 
     // Create socket
     this->sockfd = socket(CSocket::DefaultFamilyType, 
@@ -191,6 +256,9 @@ CSocket::CSocket(int family_type) {
     this->error_code = ERR_NONE;
     this->error_state = 0;
     this->token_size = 0;
+    this->read_timeout_ms = 0;  // No timeout by default
+    this->write_timeout_ms = 0;  // No timeout by default
+    this->connect_timeout_ms = 0;  // No timeout by default
 
     this->sockfd = socket(family_type, 
                          CSocket::DefaultSocketType, 0);
@@ -298,6 +366,19 @@ int CSocket::Write(char* data, int size) {
         return SOCKET_ERROR;
     }
     
+    // If write timeout is set, wait with timeout
+    if (this->write_timeout_ms > 0) {
+        int wait_result = WaitForWritable(this->sockfd, this->write_timeout_ms);
+        if (wait_result == 0) {
+            // Timeout - socket not ready to write
+            return 0;
+        } else if (wait_result < 0) {
+            // Error
+            this->error_code = GET_SOCKET_ERROR();
+            return SOCKET_ERROR;
+        }
+    }
+    
     int bytesSent = send(this->sockfd, data, size, CSocket::NULLFlag);
     return bytesSent;
 }
@@ -338,6 +419,19 @@ int CSocket::Write(std::string data) {
 int CSocket::Read(char* buffer, int size) {
     if (!buffer || !IsValidSocket(this->sockfd) || size <= 0) {
         return SOCKET_ERROR;
+    }
+
+    // If read timeout is set, wait with timeout
+    if (this->read_timeout_ms > 0) {
+        int wait_result = WaitForReadable(this->sockfd, this->read_timeout_ms);
+        if (wait_result == 0) {
+            // Timeout - return 0 indicating no data available
+            return 0;
+        } else if (wait_result < 0) {
+            // Error
+            this->error_code = GET_SOCKET_ERROR();
+            return SOCKET_ERROR;
+        }
     }
 
     SafeClearBuffer(buffer, size);
@@ -538,6 +632,57 @@ int CSocket::SetBlocking(bool flag) {
     return this->blocking ? 1 : 0;
 }
 
+
+/**
+ * Set read timeout
+ * \param timeout_ms Timeout in milliseconds (0 = no timeout)
+ * \return 0 on success, -1 on error
+ */
+int CSocket::SetReadTimeout(int timeout_ms) {
+    this->read_timeout_ms = timeout_ms;
+    return 0;
+}
+
+/**
+ * Set write timeout
+ * \param timeout_ms Timeout in milliseconds (0 = no timeout)
+ * \return 0 on success, -1 on error
+ */
+int CSocket::SetWriteTimeout(int timeout_ms) {
+    this->write_timeout_ms = timeout_ms;
+    return 0;
+}
+
+/**
+ * Set connect timeout
+ * \param timeout_ms Timeout in milliseconds (0 = no timeout)
+ * \return 0 on success, -1 on error
+ */
+int CSocket::SetConnectTimeout(int timeout_ms) {
+    this->connect_timeout_ms = timeout_ms;
+    return 0;
+}
+
+/**
+ * Set TCP_NODELAY (disable Nagle's algorithm)
+ * \param enabled true to enable TCP_NODELAY, false to disable
+ * \return 0 on success, -1 on error
+ */
+int CSocket::SetTCPNodelay(bool enabled) {
+    if (!IsValidSocket(this->sockfd)) {
+        this->error_code = ERR_NOSOCKET;
+        return -1;
+    }
+
+    int flag = enabled ? 1 : 0;
+    if (setsockopt(this->sockfd, IPPROTO_TCP, TCP_NODELAY, 
+                   (const char*)&flag, sizeof(flag)) < 0) {
+        this->error_code = GET_SOCKET_ERROR();
+        return -1;
+    }
+    
+    return 0;
+}
 } // namespace net
 
 #endif // _CSOCKET_CPP
