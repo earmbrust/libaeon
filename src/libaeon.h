@@ -108,6 +108,10 @@ namespace net {
 
         // Public interface - maintained for API compatibility
         int SetBlocking(bool flag);
+        int SetReadTimeout(int timeout_ms);
+        int SetWriteTimeout(int timeout_ms);
+        int SetConnectTimeout(int timeout_ms);
+        int SetTCPNodelay(bool enabled);
         int Write(char* data, int size);
         int Write(const char* data, int size);
         int Write(char* data);
@@ -148,6 +152,9 @@ namespace net {
         int error_code;
         int error_state;
         int port;
+        int read_timeout_ms;
+        int write_timeout_ms;
+        int connect_timeout_ms;
 
         int GetState();
         int GetError();
