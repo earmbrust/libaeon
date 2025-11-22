@@ -1,6 +1,6 @@
 /*********************************************************************
  * libaeon - A simple, lightweight, cross platform networking library
- * Copyright 2006-2018 (c) Elden Armbrust
+ * Copyright 2006-2025 (c) Elden Armbrust
  * This software is licensed under the BSD software license.
  *********************************************************************/
 
@@ -15,63 +15,78 @@
  \verbinclude documentation.h
  */
 
-
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#define _CRT_SECURE_NO_DEPRECATE 1
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#include <io.h>
-typedef int socklen_t;
+// Platform detection - unified approach
+#if defined(_WIN32) || defined(_WIN64)
+    #define NOMINMAX
+    #define PLATFORM_WINDOWS
+    #define WIN32_LEAN_AND_MEAN
+    #define _CRT_SECURE_NO_DEPRECATE 1
+    #include <winsock2.h>
+    #include <ws2tcpip.h>
+    #include <io.h>
+    typedef int socklen_t;
+#elif defined(__APPLE__)
+    #define PLATFORM_MACOS
+    #include <sys/socket.h>
+    #include <netdb.h>
+    #include <arpa/inet.h>
+    #include <netinet/in.h>
+    #include <sys/types.h>
+    #include <unistd.h>
+#elif defined(__linux__)
+    #define PLATFORM_LINUX
+    #include <sys/socket.h>
+    #include <netdb.h>
+    #include <arpa/inet.h>
+    #include <netinet/in.h>
+    #include <sys/types.h>
+    #include <unistd.h>
+#else
+    // Generic POSIX fallback
+    #include <sys/socket.h>
+    #include <netdb.h>
+    #include <arpa/inet.h>
+    #include <netinet/in.h>
+    #include <sys/types.h>
+    #include <unistd.h>
 #endif
-#ifdef __linux__
-#include <sys/socket.h>
-#include <netdb.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/types.h>
-#include <sys/io.h>
-#include <unistd.h>
-#define _close close
-#endif
 
-//multi-platform includes
-
+// Multi-platform includes
 #include <fcntl.h>
 #include <string>
 #include <vector>
-#include <string.h>
-#include <stdlib.h>
+#include <cstring>
+#include <cstdlib>
 
-//generic error, state, and name defines.  *deprecating*
-//define states
+// Platform-native socket type
+#ifdef PLATFORM_WINDOWS
+    typedef SOCKET socket_t;
+    #define INVALID_SOCKET_T ((socket_t)(INVALID_SOCKET))
+#else
+    typedef int socket_t;
+    #define INVALID_SOCKET_T (-1)
+#endif
+
+// Error and state definitions
 #define SOCK_RESOLVE 1
 #define SOCK_ACCEPT 3
 #define SOCK_CONNECT 4
 #define SOCK_CREATE 2
-//define codes
 #define ERR_NONE 0
 #define ERR_NOHOST 1
 #define ERR_NOSOCKET 2
-//various defines
-//#define BUF_SIZE 256
 #define AEON 1
-
-//#define DEFAULT_NET AF_INET
 
 /**
  * \namespace net
  * \author Elden Armbrust
- * \brief The container namepsace for all libaeon related classes and methods
+ * \brief The container namespace for all libaeon related classes and methods
  *
- * The net namespace is designed to encapsulate all of the network communications of
- * libaeon to prevent name collision with any other similar implementations, methods, or functions.
- * libaeon incorporates a unique namespace (to the STL) to prevent name collisions among
- * its classes and methods. This is done to create a more familiar feel for developers
- * utilizing libaeon.
+ * The net namespace encapsulates all network communications of libaeon
+ * to prevent name collision with other implementations.
  */
-namespace net
-{
+namespace net {
+
     const char* GetLibraryVersion();
 
     /**
@@ -79,39 +94,47 @@ namespace net
     * \brief A generic socket class
     * \author Elden Armbrust
     *
-    * The CSocket class is a generic socket implementation and is not designed to be used directly,
-    * however, it may be inherited by a custom class to extend it's abilities.
+    * The CSocket class is a generic socket implementation and may be inherited
+    * by custom classes to extend its abilities.
     */
-    class CSocket
-    {
+    class CSocket {
     public:
         static const int MaxBufferSize = 256;
         static const int StreamSocketType = SOCK_STREAM;
-        static const int DatagramSocketType = SOCK_STREAM;
+        static const int DatagramSocketType = SOCK_DGRAM;
         static const int DefaultSocketType = CSocket::StreamSocketType;
-
-
         static const int DefaultFamilyType = AF_INET;
-        int SetBlocking(bool flag);
         static const int NULLFlag = 0;
+
+        // Public interface - maintained for API compatibility
+        int SetBlocking(bool flag);
         int Write(char* data, int size);
+        int Write(const char* data, int size);
         int Write(char* data);
+        int Write(const char* data);
         int Write(std::string data);
         int Read();
         int Read(char* buffer, int size);
         int ReadLine(char* buffer, int size);
         int ReadUntil(char* buffer, int size);
         std::string Read(int size);
+        
         CSocket();
         CSocket(int family_type);
-        ~CSocket();
+        virtual ~CSocket();
+        
         bool Close();
+        
         int operator<<(char* data);
         int operator<<(std::string data);
         std::string operator>>(std::string);
-        int sockfd, n;
+
+        // Public members for API compatibility
+        socket_t sockfd;
+        int n;
         struct sockaddr_in remote_addr;
         bool connected;
+
     protected:
         int flags;
         int net_family;
@@ -124,31 +147,28 @@ namespace net
         int connect_code;
         int error_code;
         int error_state;
+        int port;
+
         int GetState();
         int GetError();
         void SetError(int error);
-
-        int port;
-
         void ClearBuffers();
         void ClearBuffer(char* buffer, int size);
-#ifdef WIN32
+
+#ifdef PLATFORM_WINDOWS
         int wsaret;
         WSADATA wsadata;
 #endif
     };
 
-
     /**
-     * \brief A socket class to handle client based communications.
+     * \brief A socket class to handle client-based communications.
      * \author Elden Armbrust
      *
-     * CClientSocket is a multipurpose TCP socket class designed to handle most, if not all, unencrypted
-     * client communications over a connection.  It inherits from the CSocket class, while extending
-     * its functionality to handle client system communications.
+     * CClientSocket is a multipurpose TCP socket class designed to handle
+     * client system communications. It inherits from CSocket.
      */
-    class CClientSocket : public CSocket
-    {
+    class CClientSocket : public CSocket {
     public:
         bool Connect();
         bool Connect(const char* remote, int port);
@@ -162,14 +182,13 @@ namespace net
     };
 
     /**
-     * \brief A socket class to handle server based communications.
+     * \brief A socket class to handle server-based communications.
      * \author Elden Armbrust
      *
-     * CServerSocket is a multipurpose TCP socket class designed to handle most, if not all, unencrypted
-     * server connection handling over a connection.
+     * CServerSocket is a multipurpose TCP socket class designed to handle
+     * server connection handling.
      */
-    class CServerSocket : public CSocket
-    {
+    class CServerSocket : public CSocket {
     public:
         CServerSocket();
         ~CServerSocket();
@@ -179,77 +198,55 @@ namespace net
     protected:
         struct sockaddr_in serv_addr;
         struct hostent *server;
-        int server_socket;
+        socket_t server_socket;
     };
-
-
 
     /**
       * \brief Inherited class allowing for polled updates.
       * \author Elden Armbrust
       *
-      * CEventSocket is the base class for the CEvent* socket classes.
+      * CEventSocket is the base class for event-driven socket classes.
       * CEventSocket can be used to poll for data on the connection,
       * and when data arrives will call the OnRead() member function.
-      * \note
-      * CEventSocket and it's inherited classes should never be used directly.
-      * They should be inherited and the OnRead() and/or OnWrite() member
-      * functions overridden.
+      * \note CEventSocket should be inherited and OnRead()/OnWrite()
+      * member functions should be overridden.
       */
-    class CEventSocket: public CSocket
-    {
+    class CEventSocket : public CSocket {
     public:
         bool OnRead(const char* buffer, int size);
         void OnWrite(const char* buffer, int size, int sentsize);
         int Write(char* data);
+        int Write(const char* data);
         int Write(std::string data);
         bool Poll();
-
     };
 
     /**
       * \brief Inherited client class allowing for polled updates.
       * \author Elden Armbrust
       *
-      * CEventClientSocket is the class equivalent to CClientSocket which
-      * can be used to poll for data on the connection.
-      * When data is polled, the OnRead() member function will be called.
-      * When data is written the OnWrite member function will be called.
-      * \note
-      * CEventClientSocket should never be used directly.
-      * CEventClientSocket should be inherited and the OnRead() and/or
-      * OnWrite() member functions overridden.
+      * CEventClientSocket is the event-driven equivalent to CClientSocket.
       */
-    class CEventClientSocket: public CClientSocket
-    {};
-
+    class CEventClientSocket : public CClientSocket {
+    };
 
     /**
       * \brief Inherited server class allowing for polled updates.
       * \author Elden Armbrust
       *
-      * CEventServerSocket is the class equivalent to CServerSocket which
-      * can be used to poll for data on the connection.
-      * When data is polled, the OnRead() member function will be called.
-      * When data is written the OnWrite member function will be called.
-      * \note
-      * CEventServerSocket should never be used directly.
-      * CEventServerSocket should be inherited and the OnRead() and/or
-      * OnWrite() member functions overridden.
+      * CEventServerSocket is the event-driven equivalent to CServerSocket.
       */
-    class CEventServerSocket: public CServerSocket, public CEventSocket
-    {};
-
+    class CEventServerSocket : public CServerSocket, public CEventSocket {
+    };
 
     /**
       * \brief A class to encapsulate multiple CSocket objects
       * \author Elden Armbrust
       *
-      * CSocketSet is a CSocket container class for handling sockets in an ordered
-      * fashion.
+      * CSocketSet is a CSocket container class for handling sockets
+      * in an ordered fashion.
       */
-    class CSocketSet
-    {
+    class CSocketSet {
     public:
         std::vector<CSocket*> Sockets;
         bool Add(CSocket* socket_ref);
@@ -263,11 +260,10 @@ namespace net
       * \brief A class to encapsulate multiple CEventSocket objects
       * \author Elden Armbrust
       *
-      * CEventSocketSet is a CEventSocket container class for handling sockets in an ordered
-      * fashion.
+      * CEventSocketSet is a CEventSocket container class for handling
+      * sockets in an ordered fashion.
       */
-    class CEventSocketSet
-    {
+    class CEventSocketSet {
     public:
         std::vector<CEventSocket*> Sockets;
         bool Add(CEventSocket* socket_ref);
@@ -277,15 +273,21 @@ namespace net
         int Size();
         void Poll();
         void Cleanup();
-
     };
 
-    class CSocketUDP : public CSocket
-    {
+    /**
+     * \brief UDP socket class
+     * \author Elden Armbrust
+     *
+     * CSocketUDP is a UDP datagram socket implementation.
+     */
+    class CSocketUDP : public CSocket {
     public:
         CSocketUDP();
         int Write(char* data, int size);
+        int Write(const char* data, int size);
         int Write(char* data);
+        int Write(const char* data);
         int Write(std::string data);
         int Read();
         int Read(char* buffer, int size);
@@ -294,6 +296,43 @@ namespace net
         static const int DefaultSocketType = SOCK_DGRAM;
     };
 
+    /**
+     * \brief A UDP socket class to handle server-based communications.
+     * \author Elden Armbrust
+     *
+     * CServerSocketUDP is a UDP socket class designed to handle
+     * server datagram reception.
+     */
+    class CServerSocketUDP : public CSocketUDP {
+    public:
+        CServerSocketUDP();
+        ~CServerSocketUDP();
+        bool Listen();
+        bool Listen(int port);
+    protected:
+        struct sockaddr_in serv_addr;
+    };
 
-}
-#endif
+    /**
+     * \brief A UDP socket class to handle client-based communications.
+     * \author Elden Armbrust
+     *
+     * CClientSocketUDP is a UDP socket class designed to handle
+     * client datagram transmission.
+     */
+    class CClientSocketUDP : public CSocketUDP {
+    public:
+        CClientSocketUDP();
+        CClientSocketUDP(const char* hostname, int port);
+        CClientSocketUDP(std::string* hostname, int port);
+        ~CClientSocketUDP();
+        bool Connect();
+        bool Connect(const char* hostname, int port);
+    protected:
+        struct sockaddr_in serv_addr;
+        struct addrinfo* server;
+    };
+
+}  // namespace net
+
+#endif // _LIBAEON_H

@@ -1,0 +1,125 @@
+name: Build libaeon
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        cc: [gcc, clang]
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cc == 'gcc' && 'g++' || 'clang++' }}
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential
+      
+      - name: Create build directory
+        run: mkdir -p build
+      
+      - name: Configure CMake
+        run: cd build && cmake .. -DCMAKE_BUILD_TYPE=Release
+      
+      - name: Build
+        run: cd build && cmake --build . --config Release
+      
+      - name: List artifacts
+        run: ls -la build/Release/ 2>/dev/null || ls -la build/
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Create build directory
+        run: mkdir -p build
+      
+      - name: Configure CMake (MSVC)
+        run: cd build && cmake .. -G "Visual Studio 17 2022" -DCMAKE_BUILD_TYPE=Release
+      
+      - name: Build
+        run: cd build && cmake --build . --config Release
+      
+      - name: List artifacts
+        run: dir build\Release\
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install dependencies
+        run: brew install cmake
+      
+      - name: Create build directory
+        run: mkdir -p build
+      
+      - name: Configure CMake
+        run: cd build && cmake .. -DCMAKE_BUILD_TYPE=Release
+      
+      - name: Build
+        run: cd build && cmake --build . --config Release
+      
+      - name: List artifacts
+        run: ls -la build/
+
+  build-mingw:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install MinGW
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-make
+      
+      - name: Create build directory
+        shell: msys2 {0}
+        run: mkdir -p build
+      
+      - name: Configure CMake
+        shell: msys2 {0}
+        run: cd build && cmake .. -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
+      
+      - name: Build
+        shell: msys2 {0}
+        run: cd build && cmake --build .
+      
+      - name: List artifacts
+        shell: msys2 {0}
+        run: ls -la build/
+
+  build-arm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install ARM toolchain
+        run: sudo apt-get update && sudo apt-get install -y cmake gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
+      
+      - name: Create build directory
+        run: mkdir -p build
+      
+      - name: Configure CMake (ARM cross-compile)
+        run: |
+          cd build
+          cmake .. \
+            -DCMAKE_SYSTEM_NAME=Linux \
+            -DCMAKE_SYSTEM_PROCESSOR=armv7l \
+            -DCMAKE_CXX_COMPILER=arm-linux-gnueabihf-g++ \
+            -DCMAKE_C_COMPILER=arm-linux-gnueabihf-gcc \
+            -DCMAKE_BUILD_TYPE=Release
+      
+      - name: Build
+        run: cd build && cmake --build .
+      
+      - name: List artifacts
+        run: ls -la build/

@@ -1,94 +1,144 @@
 /*********************************************************************
  * libaeon - A simple, lightweight, cross platform networking library
- * Copyright 2006-2018 (c) Elden Armbrust
+ * Copyright 2006-2025 (c) Elden Armbrust
  * This software is licensed under the BSD software license.
  *********************************************************************/
+
 #ifndef _CCLIENT_SOCKET_CPP
 #define _CCLIENT_SOCKET_CPP
+
 #include "libaeon.h"
+#include <cstdio>
+#include <cstdlib>
 
 #ifdef HAVE_CONFIG_H
 #include "../config.h"
 #endif
-namespace net
-{
-    bool CClientSocket::Connect(const char* remote_addr, int remote_port)
-    {
-        this->remote_host = remote_addr;
-        this->port = remote_port;
-        return this->Connect();
+
+namespace net {
+
+// Platform-specific helper macros
+#ifdef PLATFORM_WINDOWS
+    #define CLOSE_SOCKET(s) closesocket(s)
+#else
+    #define CLOSE_SOCKET(s) close(s)
+#endif
+
+// Helper: Convert addrinfo.ai_addrlen (size_t on Windows, socklen_t on POSIX) to socklen_t
+// On Windows, ai_addrlen is size_t; on POSIX it's socklen_t. This handles both.
+static inline socklen_t GetAddrLen(size_t len) {
+    // Safe: address lengths for IPv4/IPv6 are always < 256 bytes
+    return static_cast<socklen_t>(len);
+}
+
+/**
+ * Connect with hostname and port parameters
+ * \param hostname The remote host to connect to
+ * \param remote_port The remote port to connect to
+ * \return true if connection succeeded, false otherwise
+ */
+bool CClientSocket::Connect(const char* hostname, int remote_port) {
+    this->remote_host = hostname;
+    this->port = remote_port;
+    return this->Connect();
+}
+
+/**
+ * Connect to previously set remote host and port
+ * \return true if connection succeeded, false otherwise
+ */
+bool CClientSocket::Connect() {
+    struct addrinfo hints, *server_info, *connection;
+    std::memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC;      // IPv4 or IPv6
+    hints.ai_socktype = SOCK_STREAM;  // TCP
+    
+    int rv;
+
+    // Validate socket
+    if (!IsValidSocket(this->sockfd)) {
+        this->error_code = ERR_NOSOCKET;
+        this->error_state = SOCK_CREATE;
+        return false;
     }
-    /**
-     * The Connect() method allows for a parameterless call to be made to either re-establish a
-     * connection
-     * or to establish a new connection on an existing, filled CClientSocket object.
-     * \author Elden Armbrust
-     * \return A boolean value which corresponds to whether the connection succeeded (true) or failed
-     * (false).
-     */
-    bool CClientSocket::Connect()
-    {
-        struct addrinfo hints, *connection;
-        memset(&hints, 0, sizeof hints);
-        hints.ai_family = AF_UNSPEC; // use AF_INET6 to force IPv6
-        hints.ai_socktype = SOCK_STREAM;
-        int rv;
 
+    // Get address info for the host
+    std::string port_str = std::to_string(this->port);
+    rv = getaddrinfo(this->remote_host.c_str(), port_str.c_str(), &hints, &server_info);
+    if (rv != 0) {
+        this->error_code = ERR_NOHOST;
+        this->error_state = SOCK_RESOLVE;
+        return false;
+    }
 
-        if (this->sockfd < 0) {
-            error_code = ERR_NOSOCKET;
-            error_state = SOCK_CREATE;
-            return false;
+    // Try each address until we succeed
+    for (connection = server_info; connection != nullptr; connection = connection->ai_next) {
+        // Create socket for this address family
+        socket_t sock = socket(connection->ai_family, connection->ai_socktype,
+                              connection->ai_protocol);
+        
+        if (!IsValidSocket(sock)) {
+            continue;  // Try next address
         }
 
-        if ((rv = getaddrinfo(this->remote_host.c_str(), std::to_string(this->port).c_str(), &hints, &this->server)) != 0) {
-            fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
-            exit(1);
+        this->sockfd = sock;
+
+        // Attempt connection
+        if (connect(this->sockfd, connection->ai_addr, GetAddrLen(connection->ai_addrlen)) == 0) {
+            // Success
+            this->connected = true;
+            this->net_family = connection->ai_family;
+            freeaddrinfo(server_info);
+            this->ClearBuffers();
+            return true;
         }
 
-        for(connection = this->server; connection != NULL; connection = connection->ai_next) {
-            if ((this->sockfd = socket(connection->ai_family, connection->ai_socktype,
-                                       connection->ai_protocol)) == -1) {
-                perror("socket");
-                continue;
-            }
-
-            if (connect(this->sockfd, connection->ai_addr, connection->ai_addrlen) == -1) {
-                perror("connect");
-                _close(this->sockfd);
-                continue;
-            }
-
-            break; // if we get here, we must have connected successfully
-        }
-
-
-        this->connected = true;
-        freeaddrinfo(this->server); // all done with this structure
-        this->ClearBuffers();
-        return this->connected;
+        // Connection failed, close socket and try next
+        CLOSE_SOCKET(this->sockfd);
+        this->sockfd = INVALID_SOCKET_T;
     }
 
-    CClientSocket::CClientSocket()
-    {
-        this->sockfd = socket(CSocket::DefaultFamilyType, CSocket::StreamSocketType, 0);
-    }
+    // Failed to connect with any address
+    freeaddrinfo(server_info);
+    this->connected = false;
+    return false;
+}
 
-    CClientSocket::CClientSocket(const char* remote, int port)
-    {
-        this->sockfd = socket(CSocket::DefaultFamilyType, CSocket::StreamSocketType, 0);
-        this->Connect(remote, port);
-    }
+/**
+ * CClientSocket default constructor
+ */
+CClientSocket::CClientSocket() {
+    this->sockfd = socket(CSocket::DefaultFamilyType, CSocket::StreamSocketType, 0);
+}
 
-    CClientSocket::CClientSocket(std::string* remote, int port)
+/**
+ * CClientSocket constructor with hostname and port
+ * \param hostname Remote hostname to connect to
+ * \param port Remote port to connect to
+ */
+CClientSocket::CClientSocket(const char* hostname, int port) {
+    this->sockfd = socket(CSocket::DefaultFamilyType, CSocket::StreamSocketType, 0);
+    this->Connect(hostname, port);
+}
 
-    {
-        this->sockfd = socket(CSocket::DefaultFamilyType, CSocket::StreamSocketType, 0);
-        this->Connect(remote->c_str(), port);
-    }
-
-    CClientSocket::~CClientSocket()
-    {
+/**
+ * CClientSocket constructor with std::string hostname and port
+ * \param hostname Remote hostname to connect to (as std::string pointer)
+ * \param port Remote port to connect to
+ */
+CClientSocket::CClientSocket(std::string* hostname, int port) {
+    this->sockfd = socket(CSocket::DefaultFamilyType, CSocket::StreamSocketType, 0);
+    if (hostname) {
+        this->Connect(hostname->c_str(), port);
     }
 }
-#endif
+
+/**
+ * CClientSocket destructor
+ */
+CClientSocket::~CClientSocket() {
+}
+
+}  // namespace net
+
+#endif  // _CCLIENT_SOCKET_CPP
