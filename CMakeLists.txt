@@ -72,10 +72,22 @@ else()
     target_compile_options(aeon PRIVATE -Wall -Wextra -Wconversion -Wpedantic)
     target_compile_options(aeon-static PRIVATE -Wall -Wextra -Wconversion -Wpedantic)
     
-    # Optimization flags (tune for target)
-    if(CMAKE_SYSTEM_PROCESSOR MATCHES "ARM|arm|aarch64")
+    # Optimization flags: only use -march=native for native builds
+    # Skip it for cross-compilation (including ARM targets)
+    if(NOT CMAKE_CROSSCOMPILING)
         target_compile_options(aeon PRIVATE -march=native)
         target_compile_options(aeon-static PRIVATE -march=native)
+    elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "ARM|arm|aarch64")
+        # For ARM cross-compilation, users can specify architecture via ARM_ARCH
+        # Example: cmake -DARM_ARCH=armv7-a
+        if(DEFINED ARM_ARCH)
+            message(STATUS "ARM architecture specified: ${ARM_ARCH}")
+            target_compile_options(aeon PRIVATE -march=${ARM_ARCH})
+            target_compile_options(aeon-static PRIVATE -march=${ARM_ARCH})
+        else()
+            message(STATUS "ARM cross-compilation detected. No -march flag applied.")
+            message(STATUS "To specify ARM architecture, use: cmake -DARM_ARCH=armv7-a (or armv8-a, etc.)")
+        endif()
     endif()
 endif()
 
