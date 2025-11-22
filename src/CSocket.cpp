@@ -227,7 +227,7 @@ CSocket::~CSocket() {
     if (this->sockfd != INVALID_SOCKET) {
         closesocket(this->sockfd);
     }
-    WSACleanup();
+    // WSACleanup() removed - global resource, not per-socket
 #endif
 
     this->sockfd = INVALID_SOCKET_T;
@@ -247,7 +247,7 @@ bool CSocket::Close() {
         closesocket(this->sockfd);
         this->sockfd = INVALID_SOCKET;
     }
-    WSACleanup();
+    // WSACleanup() removed - global resource, not per-socket
 #else
     if (this->connected) {
         close(this->sockfd);

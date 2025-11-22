@@ -1,10 +1,12 @@
 cmake_minimum_required(VERSION 3.15)
-project(libaeon VERSION 1.0.0 LANGUAGES CXX)
+project(libaeon VERSION 0.18.3 LANGUAGES CXX)
 
 # C++17 standard required
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+add_definitions(-DVERSION=${PROJECT_VERSION})
 
 # Platform detection
 if(WIN32)
@@ -34,11 +36,6 @@ CHECK_INCLUDE_FILES(stdint.h HAVE_STDINT_H)
 CHECK_INCLUDE_FILES(stdlib.h HAVE_STDLIB_H)
 CHECK_INCLUDE_FILES(strings.h HAVE_STRINGS_H)
 CHECK_INCLUDE_FILES(string.h HAVE_STRING_H)
-
-CONFIGURE_FILE(
-    ${CMAKE_CURRENT_SOURCE_DIR}/config.h.in 
-    ${CMAKE_CURRENT_SOURCE_DIR}/config.h
-)
 
 # Include directories
 include_directories(src)

@@ -1,8 +1,9 @@
 /*********************************************************************
  * libaeon - A simple, lightweight, cross platform networking library
- * Copyright 2006-2025 (c) Elden Armbrust
+ * Copyright 2006-2018 (c) Elden Armbrust
  * This software is licensed under the BSD software license.
  *********************************************************************/
+
 #include "libaeon.h"
 
 #include "CSocket.cpp"
@@ -16,8 +17,12 @@
 #include "CSocketSet.cpp"
 #include "CEventSocketSet.cpp"
 
+// Stringification macros to convert version numbers to string
+#define STR_(x) #x
+#define STR(x) STR_(x)
+
 namespace net {
     const char* GetLibraryVersion() {
-        return VERSION;
+        return STR(VERSION);
     };
 }
