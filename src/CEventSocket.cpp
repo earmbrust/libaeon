@@ -12,14 +12,8 @@
 
 namespace net {
 
-// Platform-specific helper macros
-#ifdef PLATFORM_WINDOWS
-    #define CLOSE_SOCKET(s) closesocket(s)
-    #define GET_SOCKET_ERROR() WSAGetLastError()
-#else
-    #define CLOSE_SOCKET(s) close(s)
-    #define GET_SOCKET_ERROR() errno
-#endif
+// Platform-specific helper macros are defined in CSocket.cpp
+// Use GET_NET_SOCKET_ERROR() for cross-platform error handling
 
 /**
  * Poll for incoming data on the socket
@@ -41,7 +35,7 @@ bool CEventSocket::Poll() {
     if (bytesRead == 0) {
         this->connected = false;
     } else if (bytesRead < 0) {
-        this->error_code = GET_SOCKET_ERROR();
+        this->error_code = GET_NET_SOCKET_ERROR();
     }
 
     // Call the OnRead callback
@@ -57,7 +51,7 @@ bool CEventSocket::Poll() {
  */
 int CEventSocket::Write(char* data) {
     if (!data || !IsValidSocket(this->sockfd)) {
-        return SOCKET_ERROR;
+        return NET_SOCKET_ERROR;
     }
 
     std::size_t len = std::strlen(data);
@@ -68,7 +62,7 @@ int CEventSocket::Write(char* data) {
     int bytesSent = send(this->sockfd, data, static_cast<int>(len), 0);
     
     if (bytesSent < 0) {
-        this->error_code = GET_SOCKET_ERROR();
+        this->error_code = GET_NET_SOCKET_ERROR();
     }
 
     // Call the OnWrite callback
@@ -94,13 +88,13 @@ int CEventSocket::Write(const char* data) {
  */
 int CEventSocket::Write(std::string data) {
     if (!IsValidSocket(this->sockfd) || data.empty()) {
-        return SOCKET_ERROR;
+        return NET_SOCKET_ERROR;
     }
 
     int bytesSent = send(this->sockfd, data.c_str(), static_cast<int>(data.size()), 0);
     
     if (bytesSent < 0) {
-        this->error_code = GET_SOCKET_ERROR();
+        this->error_code = GET_NET_SOCKET_ERROR();
     }
 
     // Call the OnWrite callback

@@ -22,10 +22,10 @@ namespace net {
 // Platform-specific helper macros
 #ifdef PLATFORM_WINDOWS
     #define CLOSE_SOCKET(s) closesocket(s)
-    #define GET_SOCKET_ERROR() WSAGetLastError()
+    #define GET_NET_SOCKET_ERROR() WSAGetLastError()
 #else
     #define CLOSE_SOCKET(s) close(s)
-    #define GET_SOCKET_ERROR() errno
+    #define GET_NET_SOCKET_ERROR() errno
 #endif
 
 /**
@@ -82,7 +82,7 @@ bool CServerSocket::Listen(int port) {
     int reuse = 1;
     if (setsockopt(this->server_socket, SOL_SOCKET, SO_REUSEADDR, 
                    (const char*)&reuse, sizeof(reuse)) < 0) {
-        this->error_code = GET_SOCKET_ERROR();
+        this->error_code = GET_NET_SOCKET_ERROR();
         this->error_state = SOCK_ACCEPT;
         CLOSE_SOCKET(this->server_socket);
         return false;
@@ -100,7 +100,7 @@ bool CServerSocket::Listen(int port) {
                           sizeof(this->serv_addr));
     
     if (bind_result < 0) {
-        this->error_code = GET_SOCKET_ERROR();
+        this->error_code = GET_NET_SOCKET_ERROR();
         this->error_state = SOCK_ACCEPT;
         CLOSE_SOCKET(this->server_socket);
         return false;
@@ -110,7 +110,7 @@ bool CServerSocket::Listen(int port) {
     int listen_result = listen(this->server_socket, 5);
     
     if (listen_result < 0) {
-        this->error_code = GET_SOCKET_ERROR();
+        this->error_code = GET_NET_SOCKET_ERROR();
         this->error_state = SOCK_ACCEPT;
         CLOSE_SOCKET(this->server_socket);
         return false;
@@ -122,10 +122,36 @@ bool CServerSocket::Listen(int port) {
 
 /**
  * Accept an incoming client connection
- * \return Pointer to new CSocket with client connection, nullptr if no connection available (non-blocking), or error socket
- * \note Caller is responsible for deleting the returned CSocket
+ * \return Pointer to new CEventSocket with client connection, non-blocking by default
+ * \note Caller is responsible for deleting the returned CEventSocket
  */
-CSocket* CServerSocket::Accept() {
+CEventSocket* CServerSocket::Accept() {
+    return this->Accept(false);  // Non-blocking by default for event-based
+}
+
+/**
+ * Accept an incoming client connection with specified blocking mode
+ * \param blocking true for blocking, false for non-blocking
+ * \return Pointer to new CEventSocket with client connection, nullptr if no connection available (non-blocking), or error socket
+ * \note Caller is responsible for deleting the returned CEventSocket
+ */
+CEventSocket* CServerSocket::Accept(bool blocking) {
+    CEventSocket* client_socket = new CEventSocket();
+    return this->Accept(client_socket, blocking);
+}
+
+/**
+ * Accept an incoming client connection into provided socket
+ * \param client_socket Existing CEventSocket to populate with connection
+ * \param blocking true for blocking, false for non-blocking
+ * \return Pointer to populated CEventSocket, nullptr on timeout/no pending, or error socket
+ * \note Caller retains responsibility for deleting client_socket
+ */
+CEventSocket* CServerSocket::Accept(CEventSocket* client_socket, bool blocking) {
+    if (!client_socket) {
+        return nullptr;
+    }
+    
     if (!IsValidSocket(this->server_socket)) {
         return nullptr;
     }
@@ -143,14 +169,13 @@ CSocket* CServerSocket::Accept() {
         
         int select_result = select(0, &readset, nullptr, nullptr, &tv);
         
-        if (select_result == SOCKET_ERROR) {
-            this->error_code = GET_SOCKET_ERROR();
+        if (select_result == NET_SOCKET_ERROR) {
+            this->error_code = GET_NET_SOCKET_ERROR();
             this->error_state = SOCK_ACCEPT;
             return nullptr;
         }
         
         if (select_result == 0) {
-            // Timeout occurred
             return nullptr;
         }
 #else
@@ -165,57 +190,53 @@ CSocket* CServerSocket::Accept() {
         int select_result = select(this->server_socket + 1, &readset, nullptr, nullptr, &tv);
         
         if (select_result < 0) {
-            this->error_code = GET_SOCKET_ERROR();
+            this->error_code = GET_NET_SOCKET_ERROR();
             this->error_state = SOCK_ACCEPT;
             return nullptr;
         }
         
         if (select_result == 0) {
-            // Timeout occurred
             return nullptr;
         }
 #endif
     }
 
-    CSocket* client_socket = new CSocket();
-    if (!client_socket) {
-        return nullptr;
-    }
-
-    // Accept connection from client
-    socklen_t addr_len = sizeof(client_socket->remote_addr);
+    // Declare address on stack
+    struct sockaddr_in client_addr;
+    socklen_t addr_len = sizeof(client_addr);
+    
+    // Accept connection
     socket_t client_fd = accept(this->server_socket, 
-                               (struct sockaddr*)&client_socket->remote_addr, 
+                               (struct sockaddr*)&client_addr, 
                                &addr_len);
 
     if (!IsValidSocket(client_fd)) {
-        int err = GET_SOCKET_ERROR();
+        int err = GET_NET_SOCKET_ERROR();
         
-        // Check if this is a non-blocking socket with no pending connections
 #ifdef PLATFORM_WINDOWS
         if (err == WSAEWOULDBLOCK || err == WSAECONNRESET) {
-            // Non-blocking and no connection available - not an error
-            delete client_socket;
             return nullptr;
         }
 #else
         if (err == EAGAIN || err == EWOULDBLOCK || err == ECONNRESET) {
-            // Non-blocking and no connection available - not an error
-            delete client_socket;
             return nullptr;
         }
 #endif
         
         // Actual error
+        client_socket->connected = false;
         this->error_code = err;
         this->error_state = SOCK_ACCEPT;
-        client_socket->connected = false;
         return client_socket;
     }
 
-    // Set up the client socket
+    // Populate the provided socket with the accepted connection
     client_socket->sockfd = client_fd;
+    client_socket->remote_addr = client_addr;
     client_socket->connected = true;
+    
+    // Set blocking mode
+    client_socket->SetBlocking(blocking);
 
     return client_socket;
 }

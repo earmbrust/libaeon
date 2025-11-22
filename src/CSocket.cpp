@@ -16,10 +16,10 @@ namespace net {
 // Platform-specific helper macros
 #ifdef PLATFORM_WINDOWS
     #define CLOSE_SOCKET(s) closesocket(s)
-    #define GET_SOCKET_ERROR() WSAGetLastError()
+    #define GET_NET_SOCKET_ERROR() WSAGetLastError()
 #else
     #define CLOSE_SOCKET(s) close(s)
-    #define GET_SOCKET_ERROR() errno
+    #define GET_NET_SOCKET_ERROR() errno
 #endif
 
 // Static WSAStartup initializer for Windows
@@ -35,19 +35,11 @@ static WindowsSocketInit g_wsa_init;
 #endif
 
 // Helper: Convert mode parameter for ioctlsocket (handles MinGW/MSVC type differences)
-// MSVC: u_long is 32-bit, ioctlsocket expects u_long*
-// MinGW x64: u_long is 64-bit, but ioctlsocket's w32api expects 32-bit
+// Both MSVC and MinGW expect u_long* for the third parameter
 static inline int SetSocketNonblocking(socket_t sockfd, bool nonblocking) {
 #ifdef PLATFORM_WINDOWS
-    #ifdef _MSC_VER
-        // MSVC: use u_long as declared in the function signature
-        u_long mode = nonblocking ? 1 : 0;
-        return ioctlsocket(sockfd, FIONBIO, &mode);
-    #else
-        // MinGW: u_long is 64-bit, but function expects 32-bit
-        unsigned int mode = nonblocking ? 1 : 0;
-        return ioctlsocket(sockfd, FIONBIO, (unsigned int*)&mode);
-    #endif
+    u_long mode = nonblocking ? 1 : 0;
+    return ioctlsocket(sockfd, FIONBIO, &mode);
 #else
     int flags = fcntl(sockfd, F_GETFL, 0);
     if (flags < 0) return -1;
@@ -161,7 +153,7 @@ static int WaitForWritable(socket_t sockfd, int timeout_ms) {
  */
 int CSocket::operator<<(char* data) {
     if (!data) {
-        return SOCKET_ERROR;
+        return NET_SOCKET_ERROR;
     }
     return this->Write(data);
 }
@@ -286,6 +278,41 @@ CSocket::CSocket(int family_type) {
 }
 
 /**
+ * CSocket constructor with existing socket descriptor
+ * \param existing_fd Existing socket descriptor (e.g., from Accept())
+ * 
+ * Used for initializing CSocket-derived classes with accepted connections.
+ * Does not create a new socket - uses the provided descriptor.
+ */
+CSocket::CSocket(socket_t existing_fd) {
+    this->net_family = CSocket::DefaultFamilyType;
+    this->connected = true;  // Assumed valid since it came from Accept()
+    this->blocking = true;
+    this->n = 0;
+    this->port = 0;
+    this->error_code = ERR_NONE;
+    this->error_state = 0;
+    this->token_size = 0;
+    this->read_timeout_ms = 0;  // No timeout by default
+    this->write_timeout_ms = 0;  // No timeout by default
+    this->connect_timeout_ms = 0;  // No timeout by default
+    
+    // Use the existing socket descriptor
+    this->sockfd = existing_fd;
+    
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_MACOS)
+    this->flags = fcntl(this->sockfd, F_GETFL, 0);
+    if (this->flags < 0) {
+        this->error_code = ERR_NOSOCKET;
+        this->error_state = SOCK_CREATE;
+    }
+#endif
+
+    SafeClearBuffer(this->inbuffer, CSocket::MaxBufferSize);
+    SafeClearBuffer(this->outbuffer, CSocket::MaxBufferSize);
+}
+
+/**
  * CSocket destructor - cleans up socket resources
  */
 CSocket::~CSocket() {
@@ -338,7 +365,7 @@ bool CSocket::Close() {
  */
 int CSocket::Write(char* data) {
     if (!data || !IsValidSocket(this->sockfd)) {
-        return SOCKET_ERROR;
+        return NET_SOCKET_ERROR;
     }
     
     std::size_t len = std::strlen(data);
@@ -367,7 +394,7 @@ int CSocket::Write(const char* data) {
  */
 int CSocket::Write(char* data, int size) {
     if (!data || !IsValidSocket(this->sockfd) || size <= 0) {
-        return SOCKET_ERROR;
+        return NET_SOCKET_ERROR;
     }
     
     // If write timeout is set, wait with timeout
@@ -378,8 +405,8 @@ int CSocket::Write(char* data, int size) {
             return 0;
         } else if (wait_result < 0) {
             // Error
-            this->error_code = GET_SOCKET_ERROR();
-            return SOCKET_ERROR;
+            this->error_code = GET_NET_SOCKET_ERROR();
+            return NET_SOCKET_ERROR;
         }
     }
     
@@ -404,7 +431,7 @@ int CSocket::Write(const char* data, int size) {
  */
 int CSocket::Write(std::string data) {
     if (!IsValidSocket(this->sockfd) || data.empty()) {
-        return SOCKET_ERROR;
+        return NET_SOCKET_ERROR;
     }
     
     int bytesSent = send(this->sockfd, 
@@ -422,7 +449,7 @@ int CSocket::Write(std::string data) {
  */
 int CSocket::Read(char* buffer, int size) {
     if (!buffer || !IsValidSocket(this->sockfd) || size <= 0) {
-        return SOCKET_ERROR;
+        return NET_SOCKET_ERROR;
     }
 
     // If read timeout is set, wait with timeout
@@ -434,9 +461,9 @@ int CSocket::Read(char* buffer, int size) {
             return 0;
         } else if (wait_result < 0) {
             // Error in select()
-            this->error_code = GET_SOCKET_ERROR();
-            this->n = SOCKET_ERROR;
-            return SOCKET_ERROR;
+            this->error_code = GET_NET_SOCKET_ERROR();
+            this->n = NET_SOCKET_ERROR;
+            return NET_SOCKET_ERROR;
         }
     }
 
@@ -447,7 +474,7 @@ int CSocket::Read(char* buffer, int size) {
     if (bytesRead == 0) {
         this->connected = false;
     } else if (bytesRead < 0) {
-        this->error_code = GET_SOCKET_ERROR();
+        this->error_code = GET_NET_SOCKET_ERROR();
     }
     
     return bytesRead;
@@ -461,7 +488,7 @@ int CSocket::Read(char* buffer, int size) {
  */
 int CSocket::ReadUntil(char* buffer, int size) {
     if (!buffer || !IsValidSocket(this->sockfd) || size <= 0) {
-        return SOCKET_ERROR;
+        return NET_SOCKET_ERROR;
     }
 
     SafeClearBuffer(buffer, size);
@@ -488,7 +515,7 @@ int CSocket::ReadUntil(char* buffer, int size) {
         }
         
         if (bytesRead < 0) {
-            this->error_code = GET_SOCKET_ERROR();
+            this->error_code = GET_NET_SOCKET_ERROR();
             break;
         }
         
@@ -540,7 +567,7 @@ std::string CSocket::Read(int size) {
     } else if (bytesRead == 0) {
         this->connected = false;
     } else {
-        this->error_code = GET_SOCKET_ERROR();
+        this->error_code = GET_NET_SOCKET_ERROR();
     }
     
     return retVal;
@@ -573,7 +600,7 @@ void CSocket::ClearBuffer(char* buffer, int size) {
  */
 int CSocket::ReadLine(char* buffer, int size) {
     if (!buffer || !IsValidSocket(this->sockfd) || size <= 0) {
-        return SOCKET_ERROR;
+        return NET_SOCKET_ERROR;
     }
 
     SafeClearBuffer(buffer, size);
@@ -593,7 +620,7 @@ int CSocket::ReadLine(char* buffer, int size) {
         }
         
         if (bytesRead < 0) {
-            this->error_code = GET_SOCKET_ERROR();
+            this->error_code = GET_NET_SOCKET_ERROR();
             break;
         }
         
@@ -630,7 +657,7 @@ int CSocket::SetBlocking(bool flag) {
 
     int result = SetSocketNonblocking(this->sockfd, !flag);
     if (result != 0) {
-        this->error_code = GET_SOCKET_ERROR();
+        this->error_code = GET_NET_SOCKET_ERROR();
         return -1;
     }
     
@@ -683,7 +710,7 @@ int CSocket::SetTCPNodelay(bool enabled) {
     int flag = enabled ? 1 : 0;
     if (setsockopt(this->sockfd, IPPROTO_TCP, TCP_NODELAY, 
                    (const char*)&flag, sizeof(flag)) < 0) {
-        this->error_code = GET_SOCKET_ERROR();
+        this->error_code = GET_NET_SOCKET_ERROR();
         return -1;
     }
     
