@@ -14,7 +14,7 @@ on:
     types: [closed]
     branches: 
       - master
-      - develop
+      - development
 
 env:
   PROJECT_NAME: libaeon
