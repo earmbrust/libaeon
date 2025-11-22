@@ -22,6 +22,18 @@ namespace net {
     #define GET_SOCKET_ERROR() errno
 #endif
 
+// Static WSAStartup initializer for Windows
+#ifdef PLATFORM_WINDOWS
+class WindowsSocketInit {
+public:
+    WindowsSocketInit() {
+        WSADATA wsadata;
+        WSAStartup(MAKEWORD(2, 2), &wsadata);
+    }
+};
+static WindowsSocketInit g_wsa_init;
+#endif
+
 // Helper: Convert mode parameter for ioctlsocket (handles MinGW/MSVC type differences)
 // MSVC: u_long is 32-bit, ioctlsocket expects u_long*
 // MinGW x64: u_long is 64-bit, but ioctlsocket's w32api expects 32-bit
@@ -200,10 +212,6 @@ void CSocket::SetError(int error) {
  * CSocket constructor - initializes socket with default settings
  */
 CSocket::CSocket() {
-#ifdef PLATFORM_WINDOWS
-    this->wsaret = WSAStartup(MAKEWORD(2, 2), &wsadata);
-#endif
-
     this->net_family = CSocket::DefaultFamilyType;
     this->connected = false;
     this->blocking = true;
@@ -244,10 +252,6 @@ CSocket::CSocket() {
  * \param family_type The address family type (AF_INET, AF_INET6, etc.)
  */
 CSocket::CSocket(int family_type) {
-#ifdef PLATFORM_WINDOWS
-    this->wsaret = WSAStartup(MAKEWORD(2, 2), &wsadata);
-#endif
-
     this->net_family = family_type;
     this->connected = false;
     this->blocking = true;
@@ -414,7 +418,7 @@ int CSocket::Write(std::string data) {
  * Read data from socket into buffer
  * \param buffer Character array to receive data
  * \param size Maximum number of bytes to read
- * \return Number of bytes read
+ * \return Number of bytes read (0 on timeout)
  */
 int CSocket::Read(char* buffer, int size) {
     if (!buffer || !IsValidSocket(this->sockfd) || size <= 0) {
@@ -425,11 +429,13 @@ int CSocket::Read(char* buffer, int size) {
     if (this->read_timeout_ms > 0) {
         int wait_result = WaitForReadable(this->sockfd, this->read_timeout_ms);
         if (wait_result == 0) {
-            // Timeout - return 0 indicating no data available
+            // Timeout - no data available
+            this->n = 0;
             return 0;
         } else if (wait_result < 0) {
-            // Error
+            // Error in select()
             this->error_code = GET_SOCKET_ERROR();
+            this->n = SOCKET_ERROR;
             return SOCKET_ERROR;
         }
     }
