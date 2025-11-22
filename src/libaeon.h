@@ -128,7 +128,7 @@ namespace net {
         
         CSocket();
         CSocket(int family_type);
-        CSocket(socket_t existing_fd);
+        CSocket(socket_t existing_fd, bool is_existing_socket);
         virtual ~CSocket();
         
         bool Close();
@@ -231,7 +231,7 @@ namespace net {
     class CEventSocket : public CSocket {
     public:
         CEventSocket() {}
-        explicit CEventSocket(socket_t existing_fd) : CSocket(existing_fd) {}
+        explicit CEventSocket(socket_t existing_fd) : CSocket(existing_fd, true) {}
         virtual bool OnRead(const char* buffer, int size);
         virtual void OnWrite(const char* buffer, int size, int sentsize);
         int Write(char* data);
