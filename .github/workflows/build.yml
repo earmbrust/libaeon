@@ -1,8 +1,7 @@
 name: Build libaeon
 
 on:
-  push:
-    branches: [ main, develop ]
+  push:  # runs on all branches
   pull_request:
     branches: [ main, develop ]
 
