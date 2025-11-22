@@ -376,7 +376,7 @@ int CSocket::Write(char* data) {
         return 0;
     }
     
-    int bytesSent = send(this->sockfd, data, static_cast<int>(len), 0);
+    int bytesSent = static_cast<int>(send(this->sockfd, data, static_cast<int>(len), 0));
     return bytesSent;
 }
 
@@ -413,7 +413,7 @@ int CSocket::Write(char* data, int size) {
         }
     }
     
-    int bytesSent = send(this->sockfd, data, size, CSocket::NULLFlag);
+    int bytesSent = static_cast<int>(send(this->sockfd, data, size, CSocket::NULLFlag));
     return bytesSent;
 }
 
@@ -437,10 +437,10 @@ int CSocket::Write(std::string data) {
         return NET_SOCKET_ERROR;
     }
     
-    int bytesSent = send(this->sockfd, 
+    int bytesSent = static_cast<int>(send(this->sockfd, 
                         data.c_str(), 
                         static_cast<int>(data.size()), 
-                        0);
+                        0));
     return bytesSent;
 }
 
@@ -471,7 +471,7 @@ int CSocket::Read(char* buffer, int size) {
     }
 
     SafeClearBuffer(buffer, size);
-    int bytesRead = recv(this->sockfd, buffer, size, 0);
+    int bytesRead = static_cast<int>(recv(this->sockfd, buffer, size, 0));
     this->n = bytesRead;
     
     if (bytesRead == 0) {
@@ -509,7 +509,7 @@ int CSocket::ReadUntil(char* buffer, int size) {
                     ? remaining 
                     : static_cast<int>(sizeof(tempBuffer));
         
-        int bytesRead = recv(this->sockfd, tempBuffer, toRead, 0);
+        int bytesRead = static_cast<int>(recv(this->sockfd, tempBuffer, toRead, 0));
         this->n = bytesRead;
         
         if (bytesRead == 0) {
@@ -559,8 +559,8 @@ std::string CSocket::Read(int size) {
     }
 
     SafeClearBuffer(this->inbuffer, CSocket::MaxBufferSize);
-    int bytesRead = recv(this->sockfd, this->inbuffer, 
-                        CSocket::MaxBufferSize - 1, 0);
+    int bytesRead = static_cast<int>(recv(this->sockfd, this->inbuffer, 
+                        CSocket::MaxBufferSize - 1, 0));
     
     this->n = bytesRead;
     
@@ -615,7 +615,7 @@ int CSocket::ReadLine(char* buffer, int size) {
 
     for (int i = 0; i < size - 1; ++i) {
         SafeClearBuffer(tempBuff, sizeof(tempBuff));
-        int bytesRead = recv(this->sockfd, tempBuff, 1, 0);
+        int bytesRead = static_cast<int>(recv(this->sockfd, tempBuff, 1, 0));
         
         if (bytesRead == 0) {
             this->connected = false;
