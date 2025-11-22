@@ -1,7 +1,9 @@
 /*********************************************************************
  * libaeon - A simple, lightweight, cross platform networking library
- * Copyright 2006-2025 (c) Elden Armbrust
+ * Copyright 2006-2018 (c) Elden Armbrust
  * This software is licensed under the BSD software license.
+ * 
+ * Modernized for cross-platform socket_t handling
  *********************************************************************/
 
 #ifndef _CSERVER_SOCKET_CPP
@@ -9,6 +11,11 @@
 
 #include "libaeon.h"
 #include <cstring>
+#include <cerrno>
+
+#ifdef HAVE_CONFIG_H
+#include "../config.h"
+#endif
 
 namespace net {
 
@@ -25,6 +32,7 @@ namespace net {
  * CServerSocket default constructor
  */
 CServerSocket::CServerSocket() {
+    this->accept_timeout_ms = 0;  // No timeout by default
 }
 
 /**
@@ -36,6 +44,14 @@ CServerSocket::~CServerSocket() {
     }
 }
 
+
+/**
+ * Set the timeout for Accept() calls
+ * \param timeout_ms Timeout in milliseconds (0 = no timeout, blocking mode)
+ */
+void CServerSocket::SetAcceptTimeout(int timeout_ms) {
+    this->accept_timeout_ms = timeout_ms;
+}
 /**
  * Start listening on previously set port
  * \return true if successful, false otherwise
@@ -59,6 +75,16 @@ bool CServerSocket::Listen(int port) {
     if (!IsValidSocket(this->server_socket)) {
         this->error_code = ERR_NOSOCKET;
         this->error_state = SOCK_CREATE;
+        return false;
+    }
+
+    // Set SO_REUSEADDR to allow reusing the socket quickly
+    int reuse = 1;
+    if (setsockopt(this->server_socket, SOL_SOCKET, SO_REUSEADDR, 
+                   (const char*)&reuse, sizeof(reuse)) < 0) {
+        this->error_code = GET_SOCKET_ERROR();
+        this->error_state = SOCK_ACCEPT;
+        CLOSE_SOCKET(this->server_socket);
         return false;
     }
 
@@ -93,14 +119,191 @@ bool CServerSocket::Listen(int port) {
     return true;
 }
 
+
+/**
+ * Accept an incoming client connection with timeout
+ * \param timeout_ms Timeout in milliseconds (0 = non-blocking, -1 = blocking)
+ * \return Pointer to new CSocket with client connection, nullptr on timeout, or error socket
+ * \note Caller is responsible for deleting the returned CSocket
+ */
+CSocket* CServerSocket::AcceptWithTimeout(int timeout_ms) {
+    if (!IsValidSocket(this->server_socket)) {
+        std::fprintf(stderr, "[AcceptWithTimeout] Server socket is invalid\n");
+        return nullptr;
+    }
+
+#ifdef PLATFORM_WINDOWS
+    // Windows: use select() with timeval
+    fd_set readset;
+    FD_ZERO(&readset);
+    FD_SET(this->server_socket, &readset);
+    
+    timeval tv;
+    if (timeout_ms >= 0) {
+        tv.tv_sec = timeout_ms / 1000;
+        tv.tv_usec = (timeout_ms % 1000) * 1000;
+    } else {
+        // Blocking mode with very large timeout
+        tv.tv_sec = 24 * 60 * 60;  // 1 day
+        tv.tv_usec = 0;
+    }
+    
+    int select_result = select(0, &readset, nullptr, nullptr, &tv);
+    
+    if (select_result == SOCKET_ERROR) {
+        this->error_code = GET_SOCKET_ERROR();
+        this->error_state = SOCK_ACCEPT;
+        std::fprintf(stderr, "[AcceptWithTimeout] select() failed with error %d\n", this->error_code);
+        return nullptr;
+    }
+    
+    if (select_result == 0) {
+        // Timeout occurred
+        return nullptr;
+    }
+    
+    if (!FD_ISSET(this->server_socket, &readset)) {
+        // Socket not readable (shouldn't happen)
+        std::fprintf(stderr, "[AcceptWithTimeout] select() returned but socket not in readset\n");
+        return nullptr;
+    }
+#else
+    // POSIX: use select() with timeval
+    fd_set readset;
+    FD_ZERO(&readset);
+    FD_SET(this->server_socket, &readset);
+    
+    timeval tv;
+    if (timeout_ms >= 0) {
+        tv.tv_sec = timeout_ms / 1000;
+        tv.tv_usec = (timeout_ms % 1000) * 1000;
+    } else {
+        // Blocking mode with very large timeout
+        tv.tv_sec = 24 * 60 * 60;  // 1 day
+        tv.tv_usec = 0;
+    }
+    
+    int select_result = select(this->server_socket + 1, &readset, nullptr, nullptr, &tv);
+    
+    if (select_result < 0) {
+        this->error_code = GET_SOCKET_ERROR();
+        this->error_state = SOCK_ACCEPT;
+        std::fprintf(stderr, "[AcceptWithTimeout] select() failed with error %d\n", this->error_code);
+        return nullptr;
+    }
+    
+    if (select_result == 0) {
+        // Timeout occurred
+        return nullptr;
+    }
+    
+    if (!FD_ISSET(this->server_socket, &readset)) {
+        // Socket not readable (shouldn't happen)
+        std::fprintf(stderr, "[AcceptWithTimeout] select() returned but socket not in readset\n");
+        return nullptr;
+    }
+#endif
+    
+    std::fprintf(stderr, "[AcceptWithTimeout] Socket readable, calling accept()...\n");
+    
+    // Socket is readable - accept the connection
+    CSocket* client_socket = new CSocket();
+    if (!client_socket) {
+        return nullptr;
+    }
+
+    socklen_t addr_len = sizeof(client_socket->remote_addr);
+    socket_t client_fd = accept(this->server_socket, 
+                               (struct sockaddr*)&client_socket->remote_addr, 
+                               &addr_len);
+
+    if (!IsValidSocket(client_fd)) {
+        int err = GET_SOCKET_ERROR();
+        std::fprintf(stderr, "[AcceptWithTimeout] accept() failed with error %d\n", err);
+        
+        // Check if this is a non-blocking socket with no pending connections
+#ifdef PLATFORM_WINDOWS
+        if (err == WSAEWOULDBLOCK || err == WSAECONNRESET) {
+            delete client_socket;
+            return nullptr;
+        }
+#else
+        if (err == EAGAIN || err == EWOULDBLOCK || err == ECONNRESET) {
+            delete client_socket;
+            return nullptr;
+        }
+#endif
+        
+        // Actual error
+        this->error_code = err;
+        this->error_state = SOCK_ACCEPT;
+        client_socket->connected = false;
+        return client_socket;
+    }
+
+    std::fprintf(stderr, "[AcceptWithTimeout] Successfully accepted client connection\n");
+    
+    // Set up the client socket
+    client_socket->sockfd = client_fd;
+    client_socket->connected = true;
+
+    return client_socket;
+}
 /**
  * Accept an incoming client connection
- * \return Pointer to new CSocket with client connection, or nullptr on error
+ * \return Pointer to new CSocket with client connection, nullptr if no connection available (non-blocking), or error socket
  * \note Caller is responsible for deleting the returned CSocket
  */
 CSocket* CServerSocket::Accept() {
     if (!IsValidSocket(this->server_socket)) {
         return nullptr;
+    }
+
+    // If a timeout is set, use select() to wait with timeout
+    if (this->accept_timeout_ms > 0) {
+#ifdef PLATFORM_WINDOWS
+        fd_set readset;
+        FD_ZERO(&readset);
+        FD_SET(this->server_socket, &readset);
+        
+        timeval tv;
+        tv.tv_sec = this->accept_timeout_ms / 1000;
+        tv.tv_usec = (this->accept_timeout_ms % 1000) * 1000;
+        
+        int select_result = select(0, &readset, nullptr, nullptr, &tv);
+        
+        if (select_result == SOCKET_ERROR) {
+            this->error_code = GET_SOCKET_ERROR();
+            this->error_state = SOCK_ACCEPT;
+            return nullptr;
+        }
+        
+        if (select_result == 0) {
+            // Timeout occurred
+            return nullptr;
+        }
+#else
+        fd_set readset;
+        FD_ZERO(&readset);
+        FD_SET(this->server_socket, &readset);
+        
+        timeval tv;
+        tv.tv_sec = this->accept_timeout_ms / 1000;
+        tv.tv_usec = (this->accept_timeout_ms % 1000) * 1000;
+        
+        int select_result = select(this->server_socket + 1, &readset, nullptr, nullptr, &tv);
+        
+        if (select_result < 0) {
+            this->error_code = GET_SOCKET_ERROR();
+            this->error_state = SOCK_ACCEPT;
+            return nullptr;
+        }
+        
+        if (select_result == 0) {
+            // Timeout occurred
+            return nullptr;
+        }
+#endif
     }
 
     CSocket* client_socket = new CSocket();
@@ -115,7 +318,25 @@ CSocket* CServerSocket::Accept() {
                                &addr_len);
 
     if (!IsValidSocket(client_fd)) {
-        this->error_code = GET_SOCKET_ERROR();
+        int err = GET_SOCKET_ERROR();
+        
+        // Check if this is a non-blocking socket with no pending connections
+#ifdef PLATFORM_WINDOWS
+        if (err == WSAEWOULDBLOCK || err == WSAECONNRESET) {
+            // Non-blocking and no connection available - not an error
+            delete client_socket;
+            return nullptr;
+        }
+#else
+        if (err == EAGAIN || err == EWOULDBLOCK || err == ECONNRESET) {
+            // Non-blocking and no connection available - not an error
+            delete client_socket;
+            return nullptr;
+        }
+#endif
+        
+        // Actual error
+        this->error_code = err;
         this->error_state = SOCK_ACCEPT;
         client_socket->connected = false;
         return client_socket;

@@ -195,6 +195,9 @@ namespace net {
         bool Listen();
         bool Listen(int port);
         CSocket* Accept();
+        CSocket* AcceptWithTimeout(int timeout_ms);
+        void SetAcceptTimeout(int timeout_ms);
+        int accept_timeout_ms;
     protected:
         struct sockaddr_in serv_addr;
         struct hostent *server;
