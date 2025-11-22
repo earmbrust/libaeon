@@ -40,8 +40,6 @@ CONFIGURE_FILE(
     ${CMAKE_CURRENT_SOURCE_DIR}/config.h
 )
 
-ADD_DEFINITIONS(-DHAVE_CONFIG_H)
-
 # Include directories
 include_directories(src)
 
