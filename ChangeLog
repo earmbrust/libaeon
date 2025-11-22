@@ -1,3 +1,20 @@
+v1.18.0
+=======
+-added comprehensive Sphinx + Doxygen + Breathe documentation system with GitHub Pages deployment
+-added automatic API reference generation from C++ code comments via Doxygen
+-added GitHub Actions workflow for automatic documentation building and deployment to GitHub Pages
+-added ARM cross-compilation support with optional -DARM_ARCH parameter (armv7-a, armv8-a, etc.)
+-improved CMakeLists.txt platform and architecture detection logic
+-implemented semantic versioning workflow with intelligent branch/tag detection
+-all compiler warnings eliminated across all supported platforms (Linux GCC/Clang, Windows MSVC/MinGW, macOS, ARM)
+-validated builds on 6 platform/compiler combinations without warnings or errors
+-modernized code across all classes and platforms, updated c++ standard
+-finalized move to github for all future releases
+
+v0.17.0
+=======
+-previous work, unreleased
+
 v0.16.21
 ========
 -changed ChangeLog version recording to indicate date of changes
