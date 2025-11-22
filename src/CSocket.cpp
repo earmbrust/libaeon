@@ -280,11 +280,14 @@ CSocket::CSocket(int family_type) {
 /**
  * CSocket constructor with existing socket descriptor
  * \param existing_fd Existing socket descriptor (e.g., from Accept())
+ * \param is_existing_socket Must be true to indicate this is an existing fd, not a family_type
  * 
  * Used for initializing CSocket-derived classes with accepted connections.
  * Does not create a new socket - uses the provided descriptor.
  */
-CSocket::CSocket(socket_t existing_fd) {
+CSocket::CSocket(socket_t existing_fd, bool is_existing_socket) {
+    (void)is_existing_socket;  // Parameter just disambiguates from CSocket(int family_type)
+    
     this->net_family = CSocket::DefaultFamilyType;
     this->connected = true;  // Assumed valid since it came from Accept()
     this->blocking = true;
