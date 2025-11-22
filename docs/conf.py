@@ -9,8 +9,8 @@ import os
 project = 'libaeon'
 copyright = '2006-2025, Elden Armbrust'
 author = 'Elden Armbrust'
-release = '0.18.3'
-version = '0.18'
+release = '1.18.0'
+version = '1.18'
 
 # General configuration
 extensions = [
@@ -47,7 +47,7 @@ html_title = 'libaeon - Networking Library'
 
 # Breathe configuration
 breathe_projects = {
-    'libaeon': './_build/doxygen/xml'
+    'libaeon': os.path.join(os.path.dirname(__file__), '_build', 'doxygen', 'xml')
 }
 breathe_default_project = 'libaeon'
 
@@ -55,11 +55,22 @@ breathe_default_project = 'libaeon'
 def run_doxygen(app, config):
     """Run Doxygen before building Sphinx documentation"""
     print("Running Doxygen...")
-    doxygen_dir = os.path.dirname(__file__)
-    doxyfile = os.path.join(os.path.dirname(doxygen_dir), 'Doxyfile')
+    docs_dir = os.path.dirname(__file__)
+    root_dir = os.path.dirname(docs_dir)
+    doxyfile = os.path.join(root_dir, 'Doxyfile')
     
     if os.path.exists(doxyfile):
-        subprocess.call(['doxygen', doxyfile], cwd=os.path.dirname(doxygen_dir))
+        print(f"Found Doxyfile at: {doxyfile}")
+        print(f"Running from: {root_dir}")
+        result = subprocess.call(['doxygen', doxyfile], cwd=root_dir)
+        if result != 0:
+            print(f"Warning: Doxygen exited with code {result}")
+        # Verify XML was generated
+        xml_dir = os.path.join(docs_dir, '_build', 'doxygen', 'xml')
+        if os.path.exists(xml_dir):
+            print(f"✓ Doxygen XML generated at: {xml_dir}")
+        else:
+            print(f"✗ Warning: Doxygen XML not found at: {xml_dir}")
     else:
         print(f"Warning: Doxyfile not found at {doxyfile}")
 

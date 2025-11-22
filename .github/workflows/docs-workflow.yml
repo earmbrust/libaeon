@@ -48,22 +48,39 @@ jobs:
       - name: Create docs directory structure
         run: |
           mkdir -p docs/_build
+          mkdir -p docs/_static
+          mkdir -p docs/_templates
           mkdir -p docs/api
 
       - name: Copy documentation files
         run: |
-          # These will be in your repo, but we're creating a layout
-          # Assuming conf.py is at docs/conf.py
-          ls -la docs/ || echo "docs dir not found"
-
+          # Verify docs structure
+          ls -la docs/ || echo "docs dir structure"
+          
       - name: Build Doxygen XML
         run: |
+          echo "Running Doxygen from root directory..."
           doxygen Doxyfile
+          echo "Checking for generated XML..."
+          if [ -d docs/_build/doxygen/xml ]; then
+            echo "✓ Doxygen XML generated successfully"
+            ls -la docs/_build/doxygen/xml/ | head -20
+          else
+            echo "✗ Doxygen XML directory not found!"
+            ls -la docs/_build/doxygen/ || echo "No doxygen build dir"
+            exit 1
+          fi
 
       - name: Build Sphinx HTML
         run: |
           cd docs
-          sphinx-build -b html . _build/html
+          echo "Building Sphinx from docs directory..."
+          sphinx-build -b html -W . _build/html 2>&1 | tee build.log
+          if grep -i "error\|failed" build.log; then
+            echo "Build completed with errors"
+            exit 1
+          fi
+          echo "✓ Sphinx HTML build successful"
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

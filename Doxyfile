@@ -1,6 +1,6 @@
 # Doxygen configuration for libaeon
 PROJECT_NAME           = "libaeon"
-PROJECT_NUMBER         = 0.18.3
+PROJECT_NUMBER           = 1.18.0
 PROJECT_BRIEF          = "A simple, lightweight, cross platform networking library"
 PROJECT_LOGO           = 
 
