@@ -61,7 +61,7 @@ bool CServerSocketUDP::Listen(int port) {
     
     if (bind_result < 0) {
         this->error_code = GET_NET_SOCKET_ERROR();
-        this->error_state = SOCK_ACCEPT;
+        this->error_state = SOCK_BIND;
         return false;
     }
 

@@ -85,7 +85,7 @@ static inline void SafeClearBuffer(char* buffer, std::size_t size) {
 }
 
 // Helper: Wait for socket to be readable with timeout
-static int WaitForReadable(socket_t sockfd, int timeout_ms) {
+int CSocket::WaitForReadable(socket_t sockfd, int timeout_ms) {
     if (timeout_ms <= 0) {
         return 1;  // No timeout, proceed immediately
     }
@@ -116,7 +116,7 @@ static int WaitForReadable(socket_t sockfd, int timeout_ms) {
 }
 
 // Helper: Wait for socket to be writable with timeout
-static int WaitForWritable(socket_t sockfd, int timeout_ms) {
+int CSocket::WaitForWritable(socket_t sockfd, int timeout_ms) {
     if (timeout_ms <= 0) {
         return 1;  // No timeout, proceed immediately
     }
@@ -402,7 +402,7 @@ int CSocket::Write(char* data, int size) {
     
     // If write timeout is set, wait with timeout
     if (this->write_timeout_ms > 0) {
-        int wait_result = WaitForWritable(this->sockfd, this->write_timeout_ms);
+        int wait_result = CSocket::WaitForWritable(this->sockfd, this->write_timeout_ms);
         if (wait_result == 0) {
             // Timeout - socket not ready to write
             return 0;
@@ -457,7 +457,7 @@ int CSocket::Read(char* buffer, int size) {
 
     // If read timeout is set, wait with timeout
     if (this->read_timeout_ms > 0) {
-        int wait_result = WaitForReadable(this->sockfd, this->read_timeout_ms);
+        int wait_result = CSocket::WaitForReadable(this->sockfd, this->read_timeout_ms);
         if (wait_result == 0) {
             // Timeout - no data available
             this->n = 0;

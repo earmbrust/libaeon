@@ -54,8 +54,8 @@ int main(void) {
 
     // Main server loop - event-driven
     while (!shutdown_requested) {
-        // Accept new connections - returns CEventSocket* directly
-        net::CEventSocket* client = server.Accept();
+        // Accept new connections - returns unique_ptr, transfer ownership to set
+        auto client = server.Accept();
         
         if (client && client->connected) {
             ++connection_count;
@@ -73,11 +73,10 @@ int main(void) {
                            connection_count, bytes_sent);
             }
             
-            // Add to managed set
-            client_sockets.Add(client);
+            // Transfer ownership to managed set via release()
+            // The set will clean up the pointer in Cleanup()
+            client_sockets.Add(client.release());
             
-        } else if (client) {
-            delete client;
         }
         
         // Poll all connected clients

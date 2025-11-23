@@ -42,8 +42,8 @@ int main(void) {
 
     // Main server loop
     while (!shutdown_requested) {
-        // Accept incoming connection
-        net::CSocket* client = server.Accept();
+        // Accept incoming connection - returns unique_ptr for automatic cleanup
+        auto client = server.Accept();
 
         if (client && client->connected) {
             std::cout << "Client accepted.\n";
@@ -58,11 +58,10 @@ int main(void) {
             
             // Close the connection
             client->Close();
-            delete client;
+            // No delete needed - unique_ptr handles cleanup automatically
             std::cout << "Client connection closed.\n";
-        } else if (client) {
-            delete client;
         }
+        // If client is nullptr or not connected, unique_ptr auto-deletes on scope exit
     }
 
     std::cout << "Shutdown complete.\n";

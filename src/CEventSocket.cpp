@@ -12,8 +12,14 @@
 
 namespace net {
 
-// Platform-specific helper macros are defined in CSocket.cpp
-// Use GET_NET_SOCKET_ERROR() for cross-platform error handling
+// Platform-specific helper macros
+#ifdef PLATFORM_WINDOWS
+    #define CLOSE_SOCKET(s) closesocket(s)
+    #define GET_NET_SOCKET_ERROR() WSAGetLastError()
+#else
+    #define CLOSE_SOCKET(s) close(s)
+    #define GET_NET_SOCKET_ERROR() errno
+#endif
 
 /**
  * Poll for incoming data on the socket
