@@ -92,7 +92,7 @@ int CEventSocket::Write(const char* data) {
  * 
  * Sends string data to the socket and calls the OnWrite() callback
  */
-int CEventSocket::Write(std::string data) {
+int CEventSocket::Write(const std::string& data) {
     if (!IsValidSocket(this->sockfd) || data.empty()) {
         return NET_SOCKET_ERROR;
     }

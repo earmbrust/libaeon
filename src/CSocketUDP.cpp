@@ -109,7 +109,7 @@ int CSocketUDP::Write(const char* data) {
  * \param data std::string to write
  * \return Number of bytes sent
  */
-int CSocketUDP::Write(std::string data) {
+int CSocketUDP::Write(const std::string& data) {
     if (!IsValidSocket(this->sockfd) || data.empty()) {
         return NET_SOCKET_ERROR;
     }
