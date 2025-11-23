@@ -1,43 +1,90 @@
-# Quick API Reference: I/O Timeouts and TCP_NODELAY
+# Quick API Reference: Socket Configuration
 
 ## Setting Timeouts
 
-### On Any Socket (CSocket, CClientSocket, CServerSocket)
-
+### Read Timeout
 ```cpp
-socket.SetReadTimeout(5000);      // 5 second read timeout
-socket.SetWriteTimeout(5000);     // 5 second write timeout
-socket.SetTCPNodelay(true);       // Disable Nagle's algorithm
+socket.SetReadTimeout(5000);  // 5 second timeout for Read() calls
 ```
+- Stores the timeout value used by Read() operations
+- Uses select() internally to wait before recv()
+- Returns 0 on success, -1 on error
+- Default: 0 (no timeout, blocking mode)
 
-### On Server Socket
-
+### Write Timeout
 ```cpp
-server.SetAcceptTimeout(100);     // 100ms accept timeout
+socket.SetWriteTimeout(5000);  // Currently stored but not actively used in Write()
 ```
+- **Note**: This value is stored but not currently applied during Write() operations
+- Intended for future use
+- Returns 0 on success, -1 on error
+- Default: 0
 
-### On Client Socket
+### Connect Timeout (TCP Client Only)
+```cpp
+client.SetConnectTimeout(10000);  // Currently stored but not actively used in Connect()
+```
+- **Note**: This value is stored but not currently applied during Connect() operations
+- Intended for future use
+- Returns 0 on success, -1 on error
+- Default: 0
+
+## Setting Socket Modes
+
+### Blocking Mode
+```cpp
+socket.SetBlocking(true);   // Blocking mode (default)
+socket.SetBlocking(false);  // Non-blocking mode
+```
+- Actually applies the mode immediately to the socket
+- Returns: 1 if blocking, 0 if non-blocking, -1 on error
+- On Windows: Uses ioctlsocket(FIONBIO)
+- On Linux/macOS: Uses fcntl(F_SETFL)
+
+### TCP_NODELAY (Disable Nagle's Algorithm)
+```cpp
+socket.SetTCPNodelay(true);   // Disable Nagle (low-latency mode)
+socket.SetTCPNodelay(false);  // Enable Nagle (default, buffering enabled)
+```
+- Actually applies immediately via setsockopt(TCP_NODELAY)
+- Returns 0 on success, -1 on error
+- Only applies to TCP sockets (CSocket, CClientSocket, CServerSocket, CEventSocket)
+- UDP sockets don't use this
+
+## Reading with Timeout
 
 ```cpp
-client.SetConnectTimeout(10000);  // 10 second connect timeout (future)
+socket.SetReadTimeout(5000);  // 5 second timeout
+int bytes = socket.Read(buffer, sizeof(buffer));
+
+if (bytes > 0) {
+    // Data received successfully
+} else if (bytes == 0) {
+    // Timeout occurred - no data available
+} else {
+    // Error occurred (bytes == -1)
+    // Check socket.GetError() for error code
+}
 ```
 
 ## Typical Server Configuration
 
 ```cpp
 net::CServerSocket server;
-server.Listen(2300);
-server.SetAcceptTimeout(100);     // Wake up every 100ms for shutdown check
+server.Listen(8080);
 
 while (!shutdown) {
-    net::CSocket* client = server.Accept();
+    net::CEventSocket* client = server.Accept();
     if (client && client->connected) {
-        // Low-latency configuration
+        // Apply low-latency settings
         client->SetTCPNodelay(true);
-        client->SetReadTimeout(30000);   // 30 sec idle timeout
-        client->SetWriteTimeout(5000);   // 5 sec send timeout
+        client->SetReadTimeout(30000);   // 30 sec read timeout
         
-        // Your client handling code...
+        // Non-blocking mode for event-driven handling
+        client->SetBlocking(false);
+        
+        // Your client handling...
+        delete client;
     }
 }
 ```
@@ -45,146 +92,142 @@ while (!shutdown) {
 ## Typical Client Configuration
 
 ```cpp
-net::CClientSocket client;
-client.SetConnectTimeout(10000);  // 10 second connect timeout
-client.SetReadTimeout(5000);      // 5 second read timeout
-client.SetWriteTimeout(5000);     // 5 second write timeout
-client.SetTCPNodelay(true);       // Low latency
+net::CClientSocket client("example.com", 80);
 
-if (client.Connect("example.com", 80)) {
-    // Connected successfully
-}
-```
-
-## Reading with Timeout
-
-```cpp
-int bytes = socket.Read(buffer, sizeof(buffer));
-
-if (bytes > 0) {
-    // Data received successfully
-} else if (bytes == 0) {
-    // Timeout occurred (not ready yet)
-} else {
-    // Error occurred
-}
-```
-
-## Writing with Timeout
-
-```cpp
-int bytes = socket.Write(message, strlen(message));
-
-if (bytes > 0) {
-    // Data sent successfully
-} else if (bytes == 0) {
-    // Timeout occurred (socket not ready)
-} else {
-    // Error occurred
-}
-```
-
-## Polling Loop Example
-
-```cpp
-socket.SetBlocking(false);
-socket.SetReadTimeout(100);  // 100ms timeout per read
-
-while (connected) {
-    int bytes = socket.Read(buffer, sizeof(buffer));
+if (client.connected) {
+    client.SetTCPNodelay(true);        // Low-latency mode
+    client.SetReadTimeout(5000);       // 5 second read timeout
+    client.SetBlocking(true);          // Blocking for simple request/response
     
-    if (bytes > 0) {
-        ProcessData(buffer, bytes);
-    } else if (bytes == 0) {
-        // Timeout or no data (with non-blocking)
-        // This is normal, just continue
-        continue;
-    } else {
-        // Error occurred
-        connected = false;
+    client.Write("GET / HTTP/1.1\r\n");
+    std::string response = client.Read(1024);
+}
+```
+
+## Return Values
+
+**Timeout Setters** (SetReadTimeout, SetWriteTimeout, SetConnectTimeout):
+- Returns: **0** (always succeeds, just stores the value)
+- Error: Not checked - just stores the value
+
+**SetBlocking:**
+- Returns: **1** if blocking mode is now active
+- Returns: **0** if non-blocking mode is now active  
+- Returns: **-1** on error (check GetError())
+
+**SetTCPNodelay:**
+- Returns: **0** on success
+- Returns: **-1** on error (check GetError())
+
+**Read/Write with timeouts:**
+- Returns: **> 0** = bytes read/sent successfully
+- Returns: **0** = timeout occurred (no data available)
+- Returns: **-1** = error occurred (check GetError())
+
+## How Timeouts Work
+
+### Read Timeout Implementation
+```cpp
+// In CSocket::Read():
+if (this->read_timeout_ms > 0) {
+    int wait_result = WaitForReadable(sockfd, read_timeout_ms);
+    if (wait_result == 0) {
+        return 0;  // Timeout
+    } else if (wait_result < 0) {
+        return -1; // Error
     }
 }
+// Then recv() is called
 ```
 
-## TCP_NODELAY Explanation
+Uses select() to wait for the socket to be readable with the specified timeout.
 
-**Disabled (default):**
-```cpp
-socket.SetTCPNodelay(false);  // Or just use default
-// TCP may buffer small packets waiting for more data
-// Lower bandwidth usage, higher latency (~40ms+)
-// Good for: FTP, HTTP, file transfers
-```
+### Write Timeout
+Currently stored but **not applied** during Write() operations. Future implementation.
 
-**Enabled:**
-```cpp
-socket.SetTCPNodelay(true);
-// Each send() becomes its own packet
-// Lower latency (~1-5ms), higher bandwidth usage
-// Good for: Games, chat, real-time applications
-```
+### Connect Timeout
+Currently stored but **not applied** during Connect() operations. Future implementation.
 
-## Timeout Values (in milliseconds)
+## Platform Support
 
-- **0** = No timeout (blocking mode) - default
-- **1-10** = Very responsive, high CPU usage
-- **50-100** = Good for game servers
-- **500-1000** = Good for general networking
-- **5000+** = Good for idle detection
+All socket configuration methods work on:
+- Windows (MSVC, MinGW)
+- Linux (GCC, Clang)
+- macOS (Clang)
 
-## Platform Notes
+Platform-specific implementation details are abstracted away.
 
-Both Windows and Linux/macOS use the same API:
-- All methods return 0 on success
-- All timeouts are in milliseconds
-- All methods are non-blocking when setting values
-
-## Error Handling
+## Non-Blocking Socket Example
 
 ```cpp
-// Generic pattern
-int result = socket.SetReadTimeout(5000);
-if (result != 0) {
-    printf("Error: %d\n", socket.GetError());
-}
+net::CEventSocket* socket = new net::CEventSocket();
+socket->SetBlocking(false);
+socket->SetReadTimeout(100);  // Quick check, don't wait long
 
-// Actually, timeout setters just store the value
-// Errors only occur during actual read/write
-int bytes = socket.Read(buffer, sizeof(buffer));
-if (bytes < 0) {
-    printf("Read error: %d\n", socket.GetError());
+while (socket->connected) {
+    int bytes = socket->Read(buffer, sizeof(buffer));
+    
+    if (bytes > 0) {
+        // Process received data
+        ProcessData(buffer, bytes);
+    } else if (bytes == 0) {
+        // Timeout - no data this iteration, continue
+        continue;
+    } else {
+        // Error
+        socket->connected = false;
+    }
 }
 ```
 
 ## Common Patterns
 
-### High-Performance Game Server
+### Simple Blocking Client
 ```cpp
-client->SetTCPNodelay(true);
-client->SetReadTimeout(16);     // ~60 FPS
-client->SetWriteTimeout(16);
-client->SetBlocking(false);
+client.SetBlocking(true);          // Default
+client.SetReadTimeout(5000);       // 5 sec per read
+client.SetTCPNodelay(false);       // Default, allow buffering
 ```
 
-### Responsive Chat Application
+### Low-Latency Server (Game-like)
 ```cpp
-client->SetTCPNodelay(true);
+client->SetBlocking(false);
+client->SetReadTimeout(16);        // ~60 FPS tick rate
+client->SetTCPNodelay(true);       // Immediate sends
+```
+
+### Responsive Interactive Session
+```cpp
+client->SetBlocking(false);
 client->SetReadTimeout(50);
-client->SetWriteTimeout(100);
-client->SetBlocking(false);
+client->SetTCPNodelay(true);
 ```
 
-### Robust HTTP Server
+### Bulk Data Transfer
 ```cpp
-client->SetReadTimeout(30000);  // 30 sec for headers
-client->SetWriteTimeout(10000); // 10 sec for response
-client->SetTCPNodelay(false);   // Allow Nagle's buffering
+socket.SetBlocking(true);
+socket.SetReadTimeout(30000);      // Long timeout for slow transfers
+socket.SetTCPNodelay(false);       // Allow Nagle's buffering
 ```
 
-### Reliable Data Transfer
+## Error Checking
+
 ```cpp
-client->SetReadTimeout(5000);
-client->SetWriteTimeout(5000);
-client->SetTCPNodelay(false);   // Better for bulk data
-client->SetBlocking(true);
+int result = socket.SetBlocking(false);
+if (result == -1) {
+    printf("Error: %d\n", socket.GetError());
+}
+
+// For timeouts, check return value from Read/Write
+int bytes = socket.Read(buffer, 256);
+if (bytes == -1) {
+    printf("Read error: %d\n", socket.GetError());
+}
 ```
+
+## Known Limitations
+
+- **SetWriteTimeout**: Stored but not currently used during Write()
+- **SetConnectTimeout**: Stored but not currently used during Connect()
+- **Read timeout only**: Write operations do not currently respect write_timeout_ms
+- **Select-based**: Timeout implementation uses select(), which has platform-specific fd_set limits on Windows
