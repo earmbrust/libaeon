@@ -73,8 +73,9 @@ def run_doxygen_if_needed():
 run_doxygen_if_needed()
 
 # Breathe configuration - maps project name to XML directory
+# Use os.fspath() to satisfy Sphinx 8 requirements
 breathe_projects = {
-    'libaeon': xml_dir
+    'libaeon': os.fspath(xml_dir)
 }
 
 breathe_default_project = 'libaeon'
