@@ -47,19 +47,21 @@ jobs:
 
       - name: Create docs directory structure
         run: |
-          mkdir -p docs/_build
+          mkdir -p docs/_build/doxygen
           mkdir -p docs/_static
           mkdir -p docs/_templates
           mkdir -p docs/api
+          echo "✓ Created all required directories"
+          ls -la docs/
 
-      - name: Copy documentation files
-        run: |
-          # Verify docs structure
-          ls -la docs/ || echo "docs dir structure"
-          
       - name: Build Doxygen XML
         run: |
           echo "Running Doxygen from root directory..."
+          echo "Doxygen version:"
+          doxygen --version
+          echo ""
+          echo "Output directory will be: ./docs/_build/doxygen"
+          ls -la docs/_build/
           doxygen Doxyfile
           echo "Checking for generated XML..."
           if [ -d docs/_build/doxygen/xml ]; then
