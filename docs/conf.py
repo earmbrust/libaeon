@@ -72,21 +72,15 @@ def run_doxygen_if_needed():
 # Run Doxygen before Breathe configuration
 run_doxygen_if_needed()
 
-# Breathe configuration - BOTH breathe_projects and breathe_projects_source are REQUIRED
-# breathe_projects: maps project name to XML directory
+# Breathe configuration - maps project name to XML directory
 breathe_projects = {
     'libaeon': xml_dir
 }
 
-# breathe_projects_source: CRITICAL for Breathe to initialize project info
-# Without this, the project never gets stored and you get KeyError later
-breathe_projects_source = {
-    'libaeon': {
-        'directory': xml_dir
-    }
-}
-
 breathe_default_project = 'libaeon'
+
+# Optional: if using auto directives, enable member and undocumented members
+breathe_show_define_initializer = True
 
 print(f"\nBreathе configuration:")
 print(f"  Project: 'libaeon'")
