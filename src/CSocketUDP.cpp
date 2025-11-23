@@ -25,15 +25,16 @@ namespace net {
  * CSocketUDP default constructor - creates UDP socket
  */
 CSocketUDP::CSocketUDP() {
-    this->net_family = CSocket::DefaultFamilyType;
-    this->connected = false;
-    this->blocking = true;
-    this->n = 0;
-    this->port = 0;
-    this->error_code = ERR_NONE;
-    this->error_state = 0;
-    this->token_size = 0;
+    // Parent CSocket constructor already initialized:
+    // net_family, connected, blocking, n, port, error_code, error_state, token_size
+    
+    // Close the TCP socket created by parent constructor
+    // CSocketUDP needs a UDP (datagram) socket instead
+    if (IsValidSocket(this->sockfd)) {
+        CLOSE_SOCKET(this->sockfd);
+    }
 
+    // Create UDP (datagram) socket
     this->sockfd = socket(CSocket::DefaultFamilyType, CSocket::DatagramSocketType, 0);
     
     if (!IsValidSocket(this->sockfd)) {
@@ -132,10 +133,16 @@ int CSocketUDP::Read(char* buffer, int size) {
         return NET_SOCKET_ERROR;
     }
 
-    SafeClearBuffer(buffer, size);
+    // Validate and clamp size to prevent buffer overflow
+    // Protect against INT_MAX and unreasonably large read sizes
+    int safe_size = (size > CSocket::MaxBufferSize) 
+                  ? CSocket::MaxBufferSize 
+                  : size;
+
+    SafeClearBuffer(buffer, safe_size);
     socklen_t sockaddr_size = sizeof(struct sockaddr_in);
     
-    int bytesRead = static_cast<int>(recvfrom(this->sockfd, buffer, size, CSocket::NULLFlag, 
+    int bytesRead = static_cast<int>(recvfrom(this->sockfd, buffer, safe_size, CSocket::NULLFlag, 
                             (struct sockaddr*)&this->remote_addr, &sockaddr_size));
     
     this->n = bytesRead;
@@ -144,6 +151,7 @@ int CSocketUDP::Read(char* buffer, int size) {
         this->connected = false;
     } else if (bytesRead < 0) {
         this->error_code = GET_NET_SOCKET_ERROR();
+        this->error_state = SOCK_ACCEPT;
     }
     
     return bytesRead;
@@ -161,10 +169,16 @@ std::string CSocketUDP::Read(int size) {
         return retVal;
     }
 
+    // Validate and clamp size to prevent buffer overflow
+    // Protect against INT_MAX and values exceeding MaxBufferSize
+    int safe_size = (size > CSocket::MaxBufferSize - 1) 
+                  ? CSocket::MaxBufferSize - 1 
+                  : size;
+
     SafeClearBuffer(this->inbuffer, CSocket::MaxBufferSize);
     socklen_t sockaddr_size = sizeof(struct sockaddr_in);
     
-    int bytesRead = static_cast<int>(recvfrom(this->sockfd, this->inbuffer, size, CSocket::NULLFlag, 
+    int bytesRead = static_cast<int>(recvfrom(this->sockfd, this->inbuffer, safe_size, CSocket::NULLFlag, 
                             (struct sockaddr*)&this->remote_addr, &sockaddr_size));
     
     this->n = bytesRead;
@@ -176,6 +190,7 @@ std::string CSocketUDP::Read(int size) {
         this->connected = false;
     } else {
         this->error_code = GET_NET_SOCKET_ERROR();
+        this->error_state = SOCK_ACCEPT;
     }
     
     return retVal;

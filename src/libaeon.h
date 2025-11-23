@@ -97,6 +97,76 @@ namespace net {
 
     const char* GetLibraryVersion();
 
+    // Forward declaration
+    class CSocket;
+
+    /**
+     * \brief RAII guard to temporarily set socket to non-blocking mode
+     * \author Elden Armbrust
+     *
+     * BlockingModeGuard automatically restores the original blocking mode
+     * when the guard goes out of scope, even if an error occurs. This ensures
+     * exception-safe socket mode management.
+     *
+     * Usage:
+     * \code
+     * {
+     *     BlockingModeGuard guard(socket);
+     *     if (!guard.IsValid()) {
+     *         // SetBlocking(false) failed, socket still in original state
+     *         return;
+     *     }
+     *     // socket is now non-blocking
+     *     // ... perform non-blocking operations ...
+     * }  // Guard destructor automatically restores original blocking mode
+     * \endcode
+     *
+     * If SetBlocking(false) fails on construction, the guard is invalidated
+     * and will not attempt restoration.
+     */
+    class BlockingModeGuard {
+    private:
+        CSocket* socket_;
+        bool original_blocking_;
+        bool valid_;
+
+    public:
+        /**
+         * Construct guard and set socket to non-blocking mode
+         * \param socket Pointer to CSocket to manage
+         * 
+         * If SetBlocking(false) fails, the guard is marked invalid
+         * and will not restore on destruction.
+         */
+        explicit BlockingModeGuard(CSocket* socket);
+
+        /**
+         * Destructor - restores original blocking mode if guard is valid
+         */
+        ~BlockingModeGuard();
+
+        /**
+         * Check if guard successfully entered non-blocking mode
+         * \return true if socket is non-blocking and will be restored
+         */
+        bool IsValid() const { return valid_; }
+
+        // Prevent copying and moving
+        BlockingModeGuard(const BlockingModeGuard&) = delete;
+        BlockingModeGuard(BlockingModeGuard&&) = delete;
+        BlockingModeGuard& operator=(const BlockingModeGuard&) = delete;
+        BlockingModeGuard& operator=(BlockingModeGuard&&) = delete;
+    };
+
+    /**
+     * \brief Validate if a port number is in valid range
+     * \param port Port number to validate
+     * \return true if port is in valid range (0-65535), false otherwise
+     */
+    inline bool IsValidPort(int port) {
+        return port >= 0 && port <= 65535;
+    }
+
     /**
     * \class CSocket
     * \brief A generic socket class
@@ -107,6 +177,7 @@ namespace net {
     */
     class CSocket {
     public:
+        friend class BlockingModeGuard;  // Allow BlockingModeGuard to access protected members
         static const int MaxBufferSize = 256;
         static const int StreamSocketType = SOCK_STREAM;
         static const int DatagramSocketType = SOCK_DGRAM;
@@ -278,11 +349,15 @@ namespace net {
     class CSocketSet {
     public:
         std::vector<CSocket*> Sockets;
+        int error_code;
+        int error_state;
+        
         bool Add(CSocket* socket_ref);
+        [[deprecated("Use Add(CSocket*) instead")]]
         bool Add();
         bool Remove(unsigned int index);
         bool Remove(unsigned int index, unsigned int count);
-        int Size();
+        int Size() const;
     };
 
     /**
@@ -294,12 +369,19 @@ namespace net {
       */
     class CEventSocketSet {
     public:
+        CEventSocketSet() {}
+        ~CEventSocketSet() { this->Cleanup(); }
+        
         std::vector<CEventSocket*> Sockets;
+        int error_code;
+        int error_state;
+        
         bool Add(CEventSocket* socket_ref);
+        [[deprecated("Use Add(CEventSocket*) instead")]]
         bool Add();
         bool Remove(unsigned int index);
         bool Remove(unsigned int index, unsigned int count);
-        int Size();
+        int Size() const;
         void Poll();
         void Cleanup();
     };

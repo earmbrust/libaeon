@@ -38,13 +38,19 @@ bool CEventSocket::Poll() {
     int bytesRead = recv(this->sockfd, this->inbuffer, CSocket::MaxBufferSize, 0);
     this->n = bytesRead;
 
-    if (bytesRead == 0) {
-        this->connected = false;
-    } else if (bytesRead < 0) {
-        this->error_code = GET_NET_SOCKET_ERROR();
+    // Handle error and disconnect cases - don't pass negative values to callback
+    if (bytesRead <= 0) {
+        if (bytesRead < 0) {
+            this->error_code = GET_NET_SOCKET_ERROR();
+            this->error_state = SOCK_ACCEPT;
+        } else {
+            this->connected = false;
+        }
+        // Don't process on error or disconnect
+        return this->OnRead(nullptr, 0);
     }
 
-    // Call the OnRead callback
+    // Call the OnRead callback with valid data
     return this->OnRead(this->inbuffer, bytesRead);
 }
 
@@ -69,9 +75,13 @@ int CEventSocket::Write(char* data) {
     
     if (bytesSent < 0) {
         this->error_code = GET_NET_SOCKET_ERROR();
+        this->error_state = SOCK_CONNECT;
+        // Call callback with 0 bytes sent on error, not -1
+        this->OnWrite(data, static_cast<int>(len), 0);
+        return bytesSent;
     }
 
-    // Call the OnWrite callback
+    // Call the OnWrite callback with actual bytes sent
     this->OnWrite(data, static_cast<int>(len), bytesSent);
     return bytesSent;
 }
@@ -101,9 +111,13 @@ int CEventSocket::Write(const std::string& data) {
     
     if (bytesSent < 0) {
         this->error_code = GET_NET_SOCKET_ERROR();
+        this->error_state = SOCK_CONNECT;
+        // Call callback with 0 bytes sent on error, not -1
+        this->OnWrite(data.c_str(), static_cast<int>(data.size()), 0);
+        return bytesSent;
     }
 
-    // Call the OnWrite callback
+    // Call the OnWrite callback with actual bytes sent
     this->OnWrite(data.c_str(), static_cast<int>(data.size()), bytesSent);
     return bytesSent;
 }

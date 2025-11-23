@@ -37,6 +37,13 @@ static inline socklen_t GetAddrLen(size_t len) {
  * \return true if connection succeeded, false otherwise
  */
 bool CClientSocket::Connect(const char* hostname, int remote_port) {
+    // Validate port range
+    if (!IsValidPort(remote_port)) {
+        this->error_code = ERR_NOSOCKET;
+        this->error_state = SOCK_CONNECT;
+        return false;
+    }
+
     this->remote_host = hostname;
     this->port = remote_port;
     return this->Connect();
@@ -80,21 +87,29 @@ bool CClientSocket::Connect() {
             continue;  // Try next address
         }
 
-        // Close any previously held socket before assigning new one
-        // This prevents leaking the socket from the constructor or previous retry attempts
-        if (IsValidSocket(this->sockfd)) {
-            CLOSE_SOCKET(this->sockfd);
-        }
-
+        // Safe socket reassignment: keep reference to old socket, assign new one, then close old
+        // This prevents losing the old socket reference if something goes wrong
+        socket_t old_sock = this->sockfd;
         this->sockfd = sock;
+        if (IsValidSocket(old_sock)) {
+            CLOSE_SOCKET(old_sock);
+        }
 
         // Handle connection with optional timeout
         bool connect_succeeded = false;
         
         if (this->connect_timeout_ms > 0) {
-            // Non-blocking connect with timeout
-            int original_blocking = this->blocking;
-            this->SetBlocking(false);
+            // Use RAII guard to manage blocking mode - automatically restores on exit
+            BlockingModeGuard blocking_guard(this);
+            
+            if (!blocking_guard.IsValid()) {
+                // Failed to set non-blocking mode
+                this->error_code = GET_NET_SOCKET_ERROR();
+                this->error_state = SOCK_CONNECT;
+                CLOSE_SOCKET(this->sockfd);
+                this->sockfd = INVALID_SOCKET_T;
+                continue;  // Try next address
+            }
             
             int connect_result = connect(this->sockfd, connection->ai_addr, 
                                         GetAddrLen(connection->ai_addrlen));
@@ -121,15 +136,20 @@ bool CClientSocket::Connect() {
                         // Socket is writable - check if connection succeeded
                         int so_error = 0;
                         socklen_t len = sizeof(so_error);
-                        if (getsockopt(this->sockfd, SOL_SOCKET, SO_ERROR, 
-                                      (char*)&so_error, &len) == 0) {
-                            if (so_error == 0) {
-                                connect_succeeded = true;
-                            } else {
-                                // Connection failed with specific error
-                                this->error_code = so_error;
-                                this->error_state = SOCK_CONNECT;
-                            }
+                        int opt_result = getsockopt(this->sockfd, SOL_SOCKET, SO_ERROR, 
+                                                    (char*)&so_error, &len);
+                        
+                        if (opt_result != 0) {
+                            // getsockopt() failed
+                            this->error_code = GET_NET_SOCKET_ERROR();
+                            this->error_state = SOCK_CONNECT;
+                        } else if (so_error == 0) {
+                            // Connection succeeded
+                            connect_succeeded = true;
+                        } else {
+                            // Connection failed with specific error
+                            this->error_code = so_error;
+                            this->error_state = SOCK_CONNECT;
                         }
                     } else if (wait_result == 0) {
                         // Timeout
@@ -150,9 +170,7 @@ bool CClientSocket::Connect() {
                     this->error_state = SOCK_CONNECT;
                 }
             }
-            
-            // Restore original blocking mode
-            this->SetBlocking(original_blocking);
+            // Guard destructor automatically restores blocking mode here
         } else {
             // Standard blocking connect (no timeout)
             if (connect(this->sockfd, connection->ai_addr, GetAddrLen(connection->ai_addrlen)) == 0) {

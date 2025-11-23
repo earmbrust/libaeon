@@ -49,7 +49,7 @@ bool CServerSocketUDP::Listen(int port) {
     }
 
     // Validate port range
-    if (port < 0 || port > 65535) {
+    if (!IsValidPort(port)) {
         this->error_code = ERR_NOSOCKET;
         this->error_state = SOCK_BIND;
         return false;

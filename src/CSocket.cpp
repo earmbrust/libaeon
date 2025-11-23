@@ -84,6 +84,35 @@ static inline void SafeClearBuffer(char* buffer, std::size_t size) {
     }
 }
 
+/**
+ * BlockingModeGuard implementation
+ * Manages socket blocking mode with RAII semantics
+ */
+BlockingModeGuard::BlockingModeGuard(CSocket* socket) 
+    : socket_(socket), original_blocking_(false), valid_(false) {
+    
+    if (!socket_) {
+        return;
+    }
+    
+    original_blocking_ = socket_->blocking;
+    
+    // Attempt to set non-blocking mode
+    if (socket_->SetBlocking(false) == 0) {
+        // Success - mark guard as valid so destructor will restore
+        valid_ = true;
+    }
+    // If SetBlocking failed, valid_ remains false and destructor won't restore
+}
+
+BlockingModeGuard::~BlockingModeGuard() {
+    // Only restore if we successfully entered non-blocking mode
+    if (valid_ && socket_) {
+        // Ignore restoration errors - we tried our best
+        socket_->SetBlocking(original_blocking_);
+    }
+}
+
 // Helper: Wait for socket to be readable with timeout
 int CSocket::WaitForReadable(socket_t sockfd, int timeout_ms) {
     if (timeout_ms <= 0) {
@@ -455,6 +484,12 @@ int CSocket::Read(char* buffer, int size) {
         return NET_SOCKET_ERROR;
     }
 
+    // Validate and clamp size to prevent buffer overflow
+    // Protect against INT_MAX and unreasonably large read sizes
+    int safe_size = (size > CSocket::MaxBufferSize) 
+                  ? CSocket::MaxBufferSize 
+                  : size;
+
     // If read timeout is set, wait with timeout
     if (this->read_timeout_ms > 0) {
         int wait_result = CSocket::WaitForReadable(this->sockfd, this->read_timeout_ms);
@@ -470,8 +505,8 @@ int CSocket::Read(char* buffer, int size) {
         }
     }
 
-    SafeClearBuffer(buffer, size);
-    int bytesRead = static_cast<int>(recv(this->sockfd, buffer, size, 0));
+    SafeClearBuffer(buffer, safe_size);
+    int bytesRead = static_cast<int>(recv(this->sockfd, buffer, safe_size, 0));
     this->n = bytesRead;
     
     if (bytesRead == 0) {
@@ -494,17 +529,23 @@ int CSocket::ReadUntil(char* buffer, int size) {
         return NET_SOCKET_ERROR;
     }
 
-    SafeClearBuffer(buffer, size);
+    // Validate and clamp size to prevent buffer overflow
+    // Protect against INT_MAX and unreasonably large read sizes
+    int safe_size = (size > CSocket::MaxBufferSize) 
+                  ? CSocket::MaxBufferSize 
+                  : size;
+
+    SafeClearBuffer(buffer, safe_size);
     
     std::string accumulated;
-    accumulated.reserve(size);
+    accumulated.reserve(safe_size);
     
     int totalBytes = 0;
     char tempBuffer[256];
     
-    while (totalBytes < size) {
+    while (totalBytes < safe_size) {
         SafeClearBuffer(tempBuffer, sizeof(tempBuffer));
-        int remaining = size - totalBytes;
+        int remaining = safe_size - totalBytes;
         int toRead = (remaining < static_cast<int>(sizeof(tempBuffer))) 
                     ? remaining 
                     : static_cast<int>(sizeof(tempBuffer));
@@ -528,9 +569,9 @@ int CSocket::ReadUntil(char* buffer, int size) {
     
     // Safe copy to output buffer
     if (!accumulated.empty()) {
-        std::size_t copySize = (accumulated.size() < static_cast<std::size_t>(size - 1))
+        std::size_t copySize = (accumulated.size() < static_cast<std::size_t>(safe_size - 1))
                               ? accumulated.size()
-                              : static_cast<std::size_t>(size - 1);
+                              : static_cast<std::size_t>(safe_size - 1);
         std::memcpy(buffer, accumulated.data(), copySize);
         buffer[copySize] = '\0';
     }
@@ -558,9 +599,14 @@ std::string CSocket::Read(int size) {
         return retVal;
     }
 
+    // Validate and clamp size to prevent buffer overflow
+    // Protect against INT_MAX and values exceeding MaxBufferSize
+    int safe_size = (size > CSocket::MaxBufferSize - 1) 
+                  ? CSocket::MaxBufferSize - 1 
+                  : size;
+
     SafeClearBuffer(this->inbuffer, CSocket::MaxBufferSize);
-    int bytesRead = static_cast<int>(recv(this->sockfd, this->inbuffer, 
-                        CSocket::MaxBufferSize - 1, 0));
+    int bytesRead = static_cast<int>(recv(this->sockfd, this->inbuffer, safe_size, 0));
     
     this->n = bytesRead;
     
@@ -606,15 +652,20 @@ int CSocket::ReadLine(char* buffer, int size) {
         return NET_SOCKET_ERROR;
     }
 
-    SafeClearBuffer(buffer, size);
+    // Validate and clamp size to prevent buffer overflow
+    // Protect against INT_MAX and unreasonably large read sizes
+    int safe_size = (size > CSocket::MaxBufferSize) 
+                  ? CSocket::MaxBufferSize 
+                  : size;
+
+    SafeClearBuffer(buffer, safe_size);
     
     this->n = 0;
     bool bCarriage = false;
     bool bLinefeed = false;
     char tempBuff[1];
 
-    for (int i = 0; i < size - 1; ++i) {
-        SafeClearBuffer(tempBuff, sizeof(tempBuff));
+    for (int i = 0; i < safe_size - 1; ++i) {
         int bytesRead = static_cast<int>(recv(this->sockfd, tempBuff, 1, 0));
         
         if (bytesRead == 0) {
@@ -638,13 +689,13 @@ int CSocket::ReadLine(char* buffer, int size) {
 
         // Line terminator found (CRLF)
         if (bCarriage && bLinefeed) {
-            buffer[i + 1] = '\0';
+            buffer[std::min(i + 1, safe_size - 1)] = '\0';
             return this->n;
         }
     }
     
     // Ensure null termination
-    buffer[size - 1] = '\0';
+    buffer[safe_size - 1] = '\0';
     return this->n;
 }
 
