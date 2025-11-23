@@ -651,62 +651,119 @@ int CSocket::ReadLine(char* buffer, int size) {
 /**
  * Set socket blocking/non-blocking mode
  * \param flag true for blocking, false for non-blocking
- * \return 1 if blocking, 0 if non-blocking
+ * \return 0 on success, -1 on error (check GetError() for details)
+ * 
+ * Changes the socket between blocking and non-blocking mode.
+ * In blocking mode, operations wait until complete.
+ * In non-blocking mode, operations return immediately if not ready.
+ * 
+ * Error code set on failure:
+ * - ERR_NOSOCKET: Socket is invalid
+ * - Platform errno/WSAError: System call failed
  */
 int CSocket::SetBlocking(bool flag) {
     if (!IsValidSocket(this->sockfd)) {
+        this->error_code = ERR_NOSOCKET;
+        this->error_state = SOCK_CREATE;
         return -1;
     }
 
     int result = SetSocketNonblocking(this->sockfd, !flag);
     if (result != 0) {
         this->error_code = GET_NET_SOCKET_ERROR();
+        this->error_state = SOCK_CREATE;
         return -1;
     }
     
     this->blocking = flag;
-    return this->blocking ? 1 : 0;
+    this->error_code = ERR_NONE;  // Clear previous errors on success
+    return 0;  // Success
 }
 
 
 /**
  * Set read timeout
- * \param timeout_ms Timeout in milliseconds (0 = no timeout)
+ * \param timeout_ms Timeout in milliseconds (0 = no timeout, blocking behavior)
  * \return 0 on success, -1 on error
+ * 
+ * When a read timeout is set, Read() operations will wait for the specified time
+ * before returning 0 if no data is available. This allows for non-blocking reads
+ * with timeout semantics in blocking sockets.
+ * 
+ * Error code set on failure:
+ * - ERR_NOSOCKET: Socket is invalid
  */
 int CSocket::SetReadTimeout(int timeout_ms) {
+    if (timeout_ms < 0) {
+        this->error_code = ERR_NOSOCKET;  // Invalid parameter
+        return -1;
+    }
     this->read_timeout_ms = timeout_ms;
+    this->error_code = ERR_NONE;  // Clear previous errors on success
     return 0;
 }
 
 /**
  * Set write timeout
- * \param timeout_ms Timeout in milliseconds (0 = no timeout)
+ * \param timeout_ms Timeout in milliseconds (0 = no timeout, blocking behavior)
  * \return 0 on success, -1 on error
+ * 
+ * When a write timeout is set, Write() operations will apply timeout semantics
+ * if supported by the platform. Currently, this is primarily used for tracking
+ * intent and may be used for future async write operations.
+ * 
+ * Error code set on failure:
+ * - ERR_NOSOCKET: Socket is invalid
  */
 int CSocket::SetWriteTimeout(int timeout_ms) {
+    if (timeout_ms < 0) {
+        this->error_code = ERR_NOSOCKET;  // Invalid parameter
+        return -1;
+    }
     this->write_timeout_ms = timeout_ms;
+    this->error_code = ERR_NONE;  // Clear previous errors on success
     return 0;
 }
 
 /**
  * Set connect timeout
- * \param timeout_ms Timeout in milliseconds (0 = no timeout)
+ * \param timeout_ms Timeout in milliseconds (0 = blocking, wait indefinitely)
  * \return 0 on success, -1 on error
+ * 
+ * When a connect timeout is set, Connect() operations will fail if they cannot
+ * complete within the specified time. This is useful for network operations where
+ * the server may be slow or unreachable.
+ * 
+ * Error code set on failure:
+ * - ERR_NOSOCKET: Socket is invalid
  */
 int CSocket::SetConnectTimeout(int timeout_ms) {
+    if (timeout_ms < 0) {
+        this->error_code = ERR_NOSOCKET;  // Invalid parameter
+        return -1;
+    }
     this->connect_timeout_ms = timeout_ms;
+    this->error_code = ERR_NONE;  // Clear previous errors on success
     return 0;
 }
 
 /**
  * Set TCP_NODELAY (disable Nagle's algorithm)
- * \param enabled true to enable TCP_NODELAY, false to disable
- * \return 0 on success, -1 on error
+ * \param enabled true to enable TCP_NODELAY (disable Nagle), false to disable (enable Nagle)
+ * \return 0 on success, -1 on error (check GetError() for details)
+ * 
+ * TCP_NODELAY disables Nagle's algorithm, causing TCP to send packets immediately
+ * without waiting to combine small packets. This reduces latency but may increase
+ * bandwidth usage. Useful for interactive protocols like telnet, SSH, and games.
+ * 
+ * Error code set on failure:
+ * - ERR_NOSOCKET: Socket is invalid
+ * - Platform errno/WSAError: setsockopt() failed
  */
 int CSocket::SetTCPNodelay(bool enabled) {
     if (!IsValidSocket(this->sockfd)) {
         this->error_code = ERR_NOSOCKET;
+        this->error_state = SOCK_CREATE;
         return -1;
     }
 
@@ -714,9 +771,11 @@ int CSocket::SetTCPNodelay(bool enabled) {
     if (setsockopt(this->sockfd, IPPROTO_TCP, TCP_NODELAY, 
                    (const char*)&flag, sizeof(flag)) < 0) {
         this->error_code = GET_NET_SOCKET_ERROR();
+        this->error_state = SOCK_CREATE;
         return -1;
     }
     
+    this->error_code = ERR_NONE;  // Clear previous errors on success
     return 0;
 }
 } // namespace net

@@ -46,9 +46,23 @@ CServerSocket::~CServerSocket() {
 /**
  * Set the timeout for Accept() calls
  * \param timeout_ms Timeout in milliseconds (0 = no timeout, blocking mode)
+ * \return 0 on success, -1 on error (check GetError() for details)
+ * 
+ * When a timeout is set, Accept() will return immediately if no pending
+ * connections are available, after waiting the specified time.
+ * Use 0 for no timeout (blocking mode, wait indefinitely).
+ * 
+ * Error code set on failure:
+ * - ERR_NOSOCKET: Invalid timeout value (negative)
  */
-void CServerSocket::SetAcceptTimeout(int timeout_ms) {
+int CServerSocket::SetAcceptTimeout(int timeout_ms) {
+    if (timeout_ms < 0) {
+        this->error_code = ERR_NOSOCKET;
+        return -1;
+    }
     this->accept_timeout_ms = timeout_ms;
+    this->error_code = ERR_NONE;  // Clear previous errors on success
+    return 0;
 }
 /**
  * Start listening on previously set port
