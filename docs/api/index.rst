@@ -97,9 +97,3 @@ Library Functions
 ~~~~~~~~~~~~~~~~~
 
 .. doxygenfunction:: net::GetLibraryVersion
-
-Enumerations and Constants
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. doxygenindex::
-   :project: libaeon
