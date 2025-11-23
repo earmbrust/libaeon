@@ -3,6 +3,7 @@
         "xstring": "cpp",
         "csignal": "cpp",
         "string": "cpp",
-        "cstring": "cpp"
+        "cstring": "cpp",
+        "iostream": "cpp"
     }
 }

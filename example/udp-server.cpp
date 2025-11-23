@@ -1,7 +1,8 @@
 /******************************************************************
  * udp-server.cpp - A simple UDP echo server using libaeon
- * Copyright (c) 2006-2025 Elden Armbrust
- ******************************************************************/
+ * Copyright 2006-2025 (c) Elden Armbrust
+ * This software is licensed under the BSD software license.
+ *********************************************************************/
 
 #include <libaeon.h>
 #include <iostream>
