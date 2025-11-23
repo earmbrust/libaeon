@@ -43,47 +43,50 @@ html_theme_options = {
 html_title = 'libaeon - Networking Library'
 
 # Breathe configuration
-# The Doxyfile specifies OUTPUT_DIRECTORY = ./docs/_build/doxygen
-# and XML_OUTPUT = xml
-# So the XML will be at ./docs/_build/doxygen/xml
 breathe_projects = {
     'libaeon': os.path.join(os.path.dirname(__file__), '_build', 'doxygen', 'xml')
 }
 breathe_default_project = 'libaeon'
 
-# Run Doxygen before building Sphinx
+# Run Doxygen before building Sphinx if XML doesn't exist
+# This is necessary for Read the Docs (GitHub Actions runs it separately via workflow)
 def run_doxygen(app, config):
-    """Run Doxygen before building Sphinx documentation"""
+    """Run Doxygen before building Sphinx documentation if XML doesn't exist"""
+    docs_dir = os.path.dirname(__file__)
+    root_dir = os.path.dirname(docs_dir)
+    xml_dir = os.path.join(docs_dir, '_build', 'doxygen', 'xml')
+    doxyfile = os.path.join(root_dir, 'Doxyfile')
+    
+    # Only run if XML doesn't exist (GitHub Actions already generates it)
+    if os.path.exists(xml_dir) and os.path.exists(os.path.join(xml_dir, 'index.xml')):
+        print("✓ Doxygen XML already exists, skipping Doxygen build")
+        return
+    
+    if not os.path.exists(doxyfile):
+        raise FileNotFoundError(f"Doxyfile not found at {doxyfile}")
+    
     print("=" * 60)
     print("Running Doxygen...")
     print("=" * 60)
-    docs_dir = os.path.dirname(__file__)
-    root_dir = os.path.dirname(docs_dir)
-    doxyfile = os.path.join(root_dir, 'Doxyfile')
+    print(f"Found Doxyfile at: {doxyfile}")
+    print(f"Running from directory: {root_dir}")
     
-    if os.path.exists(doxyfile):
-        print(f"Found Doxyfile at: {doxyfile}")
-        print(f"Running from directory: {root_dir}")
-        result = subprocess.call(['doxygen', doxyfile], cwd=root_dir)
-        
-        if result == 0:
-            print("✓ Doxygen completed successfully")
-        else:
-            print(f"✗ Warning: Doxygen exited with code {result}")
-        
-        # Verify XML was generated
-        xml_dir = os.path.join(docs_dir, '_build', 'doxygen', 'xml')
-        if os.path.exists(xml_dir):
-            print(f"✓ Doxygen XML generated at: {xml_dir}")
-            # Count generated files
-            xml_files = [f for f in os.listdir(xml_dir) if f.endswith('.xml')]
-            print(f"  Generated {len(xml_files)} XML files")
-        else:
-            print(f"✗ ERROR: Doxygen XML not found at: {xml_dir}")
-            print(f"  Checked: {xml_dir}")
-            raise FileNotFoundError(f"Doxygen XML output not found at {xml_dir}")
+    result = subprocess.call(['doxygen', doxyfile], cwd=root_dir)
+    
+    if result == 0:
+        print("✓ Doxygen completed successfully")
     else:
-        raise FileNotFoundError(f"Doxyfile not found at {doxyfile}")
+        print(f"✗ Warning: Doxygen exited with code {result}")
+    
+    # Verify XML was generated
+    if os.path.exists(xml_dir):
+        xml_files = [f for f in os.listdir(xml_dir) if f.endswith('.xml')]
+        print(f"✓ Doxygen XML generated: {len(xml_files)} XML files")
+        
+        if not os.path.exists(os.path.join(xml_dir, 'index.xml')):
+            raise FileNotFoundError(f"Critical: index.xml not found at {xml_dir}")
+    else:
+        raise FileNotFoundError(f"Doxygen XML output not found at {xml_dir}")
     
     print("=" * 60)
     print()

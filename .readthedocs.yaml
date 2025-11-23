@@ -9,6 +9,10 @@ build:
   os: ubuntu-24.04
   tools:
     python: "3.13"
+  # Install system dependencies for Doxygen
+  apt_packages:
+    - doxygen
+    - graphviz
 
 # Build documentation in the "docs/" directory with Sphinx
 sphinx:
