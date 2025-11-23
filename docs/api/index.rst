@@ -4,7 +4,7 @@ API Reference
 Core Classes
 ------------
 
-.. autodoxygenfile:: libaeon.h
+.. doxygenfile:: libaeon.h
    :project: libaeon
 
 Socket Classes
@@ -107,5 +107,5 @@ Library Functions
 Enumerations and Constants
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. doxygenenum:: 
+.. doxygenindex::
    :project: libaeon
