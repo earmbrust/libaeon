@@ -236,7 +236,7 @@ jobs:
       matrix:
         include:
           - arch: intel
-            runner: macos-latest-large
+            runner: macos-14
           - arch: apple-silicon
             runner: macos-latest
     runs-on: ${{ matrix.runner }}
