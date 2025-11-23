@@ -118,6 +118,8 @@ jobs:
       CXX: ${{ matrix.cc == 'gcc' && 'g++' || 'clang++' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref }}
       
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential
@@ -152,6 +154,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref }}
       
       - name: Create build directory
         run: mkdir -p build
@@ -189,6 +193,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref }}
       
       - name: Install dependencies
         run: brew install cmake
@@ -223,6 +229,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref }}
       
       - name: Install MinGW
         uses: msys2/setup-msys2@v2
@@ -264,6 +272,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref }}
       
       - name: Install ARM toolchain
         run: sudo apt-get update && sudo apt-get install -y cmake gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
@@ -306,6 +316,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref }}
       
       - name: Download all artifacts
         uses: actions/download-artifact@v4
