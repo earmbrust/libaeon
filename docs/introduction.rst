@@ -64,7 +64,7 @@ libaeon is open source and welcomes contributions. If you find a bug, have a fea
 Getting Help
 ------------
 
-- Check the :doc:`Getting Started <getting-started>` guide
+- Check the :doc:`Getting Started <getting-started.rst>` guide
 - Review the :doc:`API Reference <api/index>`
 - Look at the `example programs <https://github.com/earmrust/libaeon/tree/master/example>`_
 - Open an issue on GitHub for bugs or feature requests
