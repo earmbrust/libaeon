@@ -63,21 +63,29 @@ jobs:
           echo "Output directory will be: ./docs/_build/doxygen"
           ls -la docs/_build/
           doxygen Doxyfile
-          echo "Checking for generated XML..."
-          if [ -d docs/_build/doxygen/xml ]; then
-            echo "✓ Doxygen XML generated successfully"
-            ls -la docs/_build/doxygen/xml/ | head -20
-          else
-            echo "✗ Doxygen XML directory not found!"
-            ls -la docs/_build/doxygen/ || echo "No doxygen build dir"
+          
+          # Critical check for index.xml
+          if [ ! -f docs/_build/doxygen/xml/index.xml ]; then
+            echo "✗ ERROR: index.xml not found!"
+            echo "Contents of xml directory:"
+            ls -la docs/_build/doxygen/xml/ || echo "No xml directory"
             exit 1
           fi
+          
+          echo "✓ Doxygen XML generated successfully"
+          ls -la docs/_build/doxygen/xml/ | head -20
 
       - name: Build Sphinx HTML
         run: |
           cd docs
+          
+          # Clear Breathe and Sphinx caches to prevent stale data
+          rm -rf .doctrees 2>/dev/null || true
+          rm -rf _build/.doctrees 2>/dev/null || true
+          
           echo "Building Sphinx from docs directory..."
           sphinx-build -b html -W . _build/html 2>&1 | tee build.log
+          
           if grep -i "error\|failed" build.log; then
             echo "Build completed with errors"
             exit 1
