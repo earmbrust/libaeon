@@ -8,7 +8,7 @@ Welcome to the libaeon documentation. libaeon is a simple, lightweight, cross-pl
    :caption: Contents:
 
    introduction
-   getting-started
+   getting_started
    api/index
 
 Introduction
