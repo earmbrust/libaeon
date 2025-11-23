@@ -1,9 +1,7 @@
 /*********************************************************************
  * libaeon - A simple, lightweight, cross platform networking library
- * Copyright 2006-2018 (c) Elden Armbrust
+ * Copyright 2006-2025 (c) Elden Armbrust
  * This software is licensed under the BSD software license.
- * 
- * Modernized for cross-platform socket_t handling
  *********************************************************************/
 
 #ifndef _CSERVER_SOCKET_CPP
