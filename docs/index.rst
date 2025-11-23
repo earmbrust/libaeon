@@ -1,5 +1,5 @@
 libaeon Documentation
-====================
+=====================
 
 Welcome to the libaeon documentation. libaeon is a simple, lightweight, cross-platform networking library for C++.
 
@@ -8,7 +8,7 @@ Welcome to the libaeon documentation. libaeon is a simple, lightweight, cross-pl
    :caption: Contents:
 
    introduction
-   getting-started
+   getting_started
    api/index
 
 Introduction
@@ -40,5 +40,5 @@ Quick Links
 -----------
 
 - `GitHub Repository <https://github.com/earmrust/libaeon>`_
-- `API Reference <api/index>`
+- `API Reference <api/index>`_
 - `Examples <https://github.com/earmrust/libaeon/tree/master/example>`_

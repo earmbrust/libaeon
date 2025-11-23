@@ -1,12 +1,6 @@
 API Reference
 =============
 
-Core Classes
-------------
-
-.. autodoxygenfile:: libaeon.h
-   :project: libaeon
-
 Socket Classes
 ~~~~~~~~~~~~~~
 
@@ -103,9 +97,3 @@ Library Functions
 ~~~~~~~~~~~~~~~~~
 
 .. doxygenfunction:: net::GetLibraryVersion
-
-Enumerations and Constants
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. doxygenenum:: 
-   :project: libaeon

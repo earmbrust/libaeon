@@ -42,54 +42,51 @@ html_theme_options = {
 
 html_title = 'libaeon - Networking Library'
 
-# Breathe configuration
-breathe_projects = {
-    'libaeon': os.path.join(os.path.dirname(__file__), '_build', 'doxygen', 'xml')
-}
-breathe_default_project = 'libaeon'
+# Setup paths
+docs_dir = os.path.dirname(os.path.abspath(__file__))
+root_dir = os.path.dirname(docs_dir)
+xml_dir = os.path.join(docs_dir, '_build', 'doxygen', 'xml')
+doxyfile_path = os.path.join(root_dir, 'Doxyfile')
 
-# Run Doxygen before building Sphinx if XML doesn't exist
-# This is necessary for Read the Docs (GitHub Actions runs it separately via workflow)
-def run_doxygen(app, config):
-    """Run Doxygen before building Sphinx documentation if XML doesn't exist"""
-    docs_dir = os.path.dirname(__file__)
-    root_dir = os.path.dirname(docs_dir)
-    xml_dir = os.path.join(docs_dir, '_build', 'doxygen', 'xml')
-    doxyfile = os.path.join(root_dir, 'Doxyfile')
+def run_doxygen_if_needed():
+    """Run Doxygen if XML output doesn't exist"""
+    index_xml = os.path.join(xml_dir, 'index.xml')
     
-    # Only run if XML doesn't exist (GitHub Actions already generates it)
-    if os.path.exists(xml_dir) and os.path.exists(os.path.join(xml_dir, 'index.xml')):
-        print("✓ Doxygen XML already exists, skipping Doxygen build")
+    if os.path.exists(index_xml):
+        print(f"✓ Doxygen XML already exists at {xml_dir}")
         return
     
-    if not os.path.exists(doxyfile):
-        raise FileNotFoundError(f"Doxyfile not found at {doxyfile}")
+    print(f"Running Doxygen to generate XML...")
+    if not os.path.exists(doxyfile_path):
+        raise FileNotFoundError(f"Doxyfile not found: {doxyfile_path}")
     
-    print("=" * 60)
-    print("Running Doxygen...")
-    print("=" * 60)
-    print(f"Found Doxyfile at: {doxyfile}")
-    print(f"Running from directory: {root_dir}")
+    result = subprocess.call(['doxygen', doxyfile_path], cwd=root_dir)
+    if result != 0:
+        raise RuntimeError(f"Doxygen failed with exit code {result}")
     
-    result = subprocess.call(['doxygen', doxyfile], cwd=root_dir)
+    if not os.path.exists(index_xml):
+        raise FileNotFoundError(f"Doxygen XML not generated at {xml_dir}")
     
-    if result == 0:
-        print("✓ Doxygen completed successfully")
-    else:
-        print(f"✗ Warning: Doxygen exited with code {result}")
-    
-    # Verify XML was generated
-    if os.path.exists(xml_dir):
-        xml_files = [f for f in os.listdir(xml_dir) if f.endswith('.xml')]
-        print(f"✓ Doxygen XML generated: {len(xml_files)} XML files")
-        
-        if not os.path.exists(os.path.join(xml_dir, 'index.xml')):
-            raise FileNotFoundError(f"Critical: index.xml not found at {xml_dir}")
-    else:
-        raise FileNotFoundError(f"Doxygen XML output not found at {xml_dir}")
-    
-    print("=" * 60)
-    print()
+    print(f"✓ Doxygen XML generated successfully")
 
-def setup(app):
-    app.connect('config-inited', run_doxygen)
+# Run Doxygen before Breathe configuration
+run_doxygen_if_needed()
+
+# Breathe configuration - maps project name to XML directory
+# Use os.fspath() to satisfy Sphinx 8 requirements
+breathe_projects = {
+    'libaeon': os.fspath(xml_dir)
+}
+
+breathe_default_project = 'libaeon'
+
+# Optional: if using auto directives, enable member and undocumented members
+breathe_show_define_initializer = True
+
+print(f"\nBreathе configuration:")
+print(f"  Project: 'libaeon'")
+print(f"  XML directory: {xml_dir}")
+print(f"  Path exists: {os.path.exists(xml_dir)}")
+if os.path.exists(xml_dir):
+    xml_files = [f for f in os.listdir(xml_dir) if f.endswith('.xml')]
+    print(f"  XML files found: {len(xml_files)}")
