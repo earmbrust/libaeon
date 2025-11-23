@@ -1,5 +1,46 @@
 cmake_minimum_required(VERSION 3.15)
-project(libaeon VERSION 0.18.3 LANGUAGES CXX)
+
+# Get version from git tags, fall back to branch name
+execute_process(
+    COMMAND git describe --tags --always
+    OUTPUT_VARIABLE GIT_DESCRIBE
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+)
+
+# Parse the git describe output to get clean version
+# Format can be: 0.16.22-79-g184ecca or v1.18.0 or just commit hash
+if(GIT_DESCRIBE MATCHES "^(v)?([0-9]+\\.[0-9]+\\.[0-9]+)")
+    # Extract the version part (before any -commits-ghash)
+    string(REGEX MATCH "^(v)?([0-9]+\\.[0-9]+\\.[0-9]+)" VERSION_MATCH "${GIT_DESCRIBE}")
+    string(REGEX REPLACE "^v" "" PROJECT_VERSION "${VERSION_MATCH}")
+    message(STATUS "Version from git tag: ${PROJECT_VERSION}")
+else()
+    # Not a version tag, try to get branch name
+    execute_process(
+        COMMAND git rev-parse --abbrev-ref HEAD
+        OUTPUT_VARIABLE GIT_BRANCH
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    
+    if(GIT_BRANCH AND NOT GIT_BRANCH STREQUAL "HEAD")
+        set(PROJECT_VERSION "${GIT_BRANCH}")
+        message(STATUS "Version from git branch: ${PROJECT_VERSION}")
+    else()
+        set(PROJECT_VERSION "0.0.0")
+        message(STATUS "Version set to default: ${PROJECT_VERSION}")
+    endif()
+endif()
+
+# Store full git describe for display/info purposes
+set(GIT_VERSION_STRING "${GIT_DESCRIBE}")
+message(STATUS "Git version string: ${GIT_VERSION_STRING}")
+
+# Now create project with version from git
+project(libaeon VERSION ${PROJECT_VERSION} LANGUAGES CXX)
 
 # C++17 standard required
 set(CMAKE_CXX_STANDARD 17)
@@ -114,6 +155,7 @@ target_link_libraries(udp-client aeon)
 message(STATUS "")
 message(STATUS "libaeon Build Configuration")
 message(STATUS "===========================")
+message(STATUS "Version: ${PROJECT_VERSION}")
 message(STATUS "C++ Standard: ${CMAKE_CXX_STANDARD}")
 message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "Platform: ${CMAKE_SYSTEM_NAME}")
