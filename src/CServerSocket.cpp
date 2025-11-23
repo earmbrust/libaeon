@@ -56,7 +56,7 @@ CServerSocket::~CServerSocket() {
  * - ERR_NOSOCKET: Invalid timeout value (negative)
  */
 int CServerSocket::SetAcceptTimeout(int timeout_ms) {
-    if (timeout_ms < 0) {
+    if (timeout_ms < 0 || timeout_ms > 600000) {  // Cap at 600 seconds (10 minutes)
         this->error_code = ERR_NOSOCKET;
         return -1;
     }
@@ -78,6 +78,13 @@ bool CServerSocket::Listen() {
  * \return true if successful, false otherwise
  */
 bool CServerSocket::Listen(int port) {
+    // Validate port range
+    if (!IsValidPort(port)) {
+        this->error_code = ERR_NOSOCKET;
+        this->error_state = SOCK_BIND;
+        return false;
+    }
+
     this->port = port;
 
     // Create server socket
@@ -174,47 +181,35 @@ CEventSocket* CServerSocket::Accept(CEventSocket* client_socket, bool blocking) 
 
     // If a timeout is set, use select() to wait with timeout
     if (this->accept_timeout_ms > 0) {
+        fd_set readset;
+        FD_ZERO(&readset);
+        FD_SET(this->server_socket, &readset);
+        
+        timeval tv;
+        tv.tv_sec = this->accept_timeout_ms / 1000;
+        tv.tv_usec = (this->accept_timeout_ms % 1000) * 1000;
+        
+        // Platform-specific select() call
+        // Windows: first param (nfds) is ignored, use 0
+        // POSIX: first param must be max fd + 1
+        int select_result;
 #ifdef PLATFORM_WINDOWS
-        fd_set readset;
-        FD_ZERO(&readset);
-        FD_SET(this->server_socket, &readset);
-        
-        timeval tv;
-        tv.tv_sec = this->accept_timeout_ms / 1000;
-        tv.tv_usec = (this->accept_timeout_ms % 1000) * 1000;
-        
-        int select_result = select(0, &readset, nullptr, nullptr, &tv);
-        
-        if (select_result == NET_SOCKET_ERROR) {
-            this->error_code = GET_NET_SOCKET_ERROR();
-            this->error_state = SOCK_ACCEPT;
-            return nullptr;
-        }
-        
-        if (select_result == 0) {
-            return nullptr;
-        }
+        select_result = select(0, &readset, nullptr, nullptr, &tv);
 #else
-        fd_set readset;
-        FD_ZERO(&readset);
-        FD_SET(this->server_socket, &readset);
+        select_result = select(this->server_socket + 1, &readset, nullptr, nullptr, &tv);
+#endif
         
-        timeval tv;
-        tv.tv_sec = this->accept_timeout_ms / 1000;
-        tv.tv_usec = (this->accept_timeout_ms % 1000) * 1000;
-        
-        int select_result = select(this->server_socket + 1, &readset, nullptr, nullptr, &tv);
-        
+        // Unified error checking: select_result < 0 means error on all platforms
         if (select_result < 0) {
             this->error_code = GET_NET_SOCKET_ERROR();
             this->error_state = SOCK_ACCEPT;
             return nullptr;
         }
         
+        // select_result == 0 means timeout
         if (select_result == 0) {
             return nullptr;
         }
-#endif
     }
 
     // Declare address on stack
@@ -247,6 +242,11 @@ CEventSocket* CServerSocket::Accept(CEventSocket* client_socket, bool blocking) 
     }
 
     // Populate the provided socket with the accepted connection
+    // First, close any existing socket to prevent leaks
+    if (IsValidSocket(client_socket->sockfd)) {
+        CLOSE_SOCKET(client_socket->sockfd);
+    }
+    
     client_socket->sockfd = client_fd;
     client_socket->remote_addr = client_addr;
     client_socket->connected = true;

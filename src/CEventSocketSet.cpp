@@ -21,9 +21,13 @@ namespace net {
  */
 bool CEventSocketSet::Add(CEventSocket* socket_ref) {
     if (!socket_ref) {
+        this->error_code = ERR_NOSOCKET;
+        this->error_state = SOCK_CREATE;
         return false;
     }
     this->Sockets.push_back(socket_ref);
+    this->error_code = ERR_NONE;
+    this->error_state = 0;
     return true;
 }
 
@@ -34,12 +38,22 @@ bool CEventSocketSet::Add(CEventSocket* socket_ref) {
  * Deprecated: Creating sockets without parameters is not recommended.
  * Use Add(CEventSocket* socket_ref) instead.
  */
+[[deprecated("Use Add(CEventSocket*) instead")]]
 bool CEventSocketSet::Add() {
     try {
-        auto socket_ref = std::make_unique<CEventSocket>();
-        this->Sockets.push_back(socket_ref.release());
+        CEventSocket* socket_ref = new CEventSocket();
+        if (!socket_ref) {
+            this->error_code = ERR_NOSOCKET;
+            this->error_state = SOCK_CREATE;
+            return false;
+        }
+        this->Sockets.push_back(socket_ref);
+        this->error_code = ERR_NONE;
+        this->error_state = 0;
         return true;
     } catch (...) {
+        this->error_code = ERR_NOSOCKET;
+        this->error_state = SOCK_CREATE;
         return false;
     }
 }
@@ -56,10 +70,14 @@ bool CEventSocketSet::Add() {
 bool CEventSocketSet::Remove(unsigned int index) {
     // Safe bounds checking
     if (index >= static_cast<unsigned int>(this->Sockets.size())) {
+        this->error_code = ERR_NOSOCKET;
+        this->error_state = SOCK_ACCEPT;
         return false;
     }
 
     this->Sockets.erase(this->Sockets.begin() + index);
+    this->error_code = ERR_NONE;
+    this->error_state = 0;
     return true;
 }
 
@@ -76,6 +94,8 @@ bool CEventSocketSet::Remove(unsigned int index) {
 bool CEventSocketSet::Remove(unsigned int index, unsigned int count) {
     // Safe bounds checking
     if (count == 0 || index >= static_cast<unsigned int>(this->Sockets.size())) {
+        this->error_code = ERR_NOSOCKET;
+        this->error_state = SOCK_ACCEPT;
         return false;
     }
 
@@ -88,6 +108,8 @@ bool CEventSocketSet::Remove(unsigned int index, unsigned int count) {
 
     this->Sockets.erase(this->Sockets.begin() + index, 
                        this->Sockets.begin() + index + safe_count);
+    this->error_code = ERR_NONE;
+    this->error_state = 0;
     return true;
 }
 
@@ -95,7 +117,7 @@ bool CEventSocketSet::Remove(unsigned int index, unsigned int count) {
  * Get the number of sockets in the set
  * \return Number of sockets currently in the set
  */
-int CEventSocketSet::Size() {
+int CEventSocketSet::Size() const {
     return static_cast<int>(this->Sockets.size());
 }
 

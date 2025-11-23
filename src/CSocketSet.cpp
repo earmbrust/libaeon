@@ -21,9 +21,13 @@ namespace net {
  */
 bool CSocketSet::Add(CSocket* socket_ref) {
     if (!socket_ref) {
+        this->error_code = ERR_NOSOCKET;
+        this->error_state = SOCK_CREATE;
         return false;
     }
     this->Sockets.push_back(socket_ref);
+    this->error_code = ERR_NONE;
+    this->error_state = 0;
     return true;
 }
 
@@ -34,12 +38,17 @@ bool CSocketSet::Add(CSocket* socket_ref) {
  * Deprecated: Creating sockets without parameters is not recommended.
  * Use Add(CSocket* socket_ref) instead.
  */
+[[deprecated("Use Add(CSocket*) instead")]]
 bool CSocketSet::Add() {
     CSocket* socket_ref = new CSocket();
     if (!socket_ref) {
+        this->error_code = ERR_NOSOCKET;
+        this->error_state = SOCK_CREATE;
         return false;
     }
     this->Sockets.push_back(socket_ref);
+    this->error_code = ERR_NONE;
+    this->error_state = 0;
     return true;
 }
 
@@ -55,10 +64,14 @@ bool CSocketSet::Add() {
 bool CSocketSet::Remove(unsigned int index) {
     // Safe bounds checking
     if (index >= static_cast<unsigned int>(this->Sockets.size())) {
+        this->error_code = ERR_NOSOCKET;
+        this->error_state = SOCK_ACCEPT;
         return false;
     }
     
     this->Sockets.erase(this->Sockets.begin() + index);
+    this->error_code = ERR_NONE;
+    this->error_state = 0;
     return true;
 }
 
@@ -75,6 +88,8 @@ bool CSocketSet::Remove(unsigned int index) {
 bool CSocketSet::Remove(unsigned int index, unsigned int count) {
     // Safe bounds checking
     if (count == 0 || index >= static_cast<unsigned int>(this->Sockets.size())) {
+        this->error_code = ERR_NOSOCKET;
+        this->error_state = SOCK_ACCEPT;
         return false;
     }
     
@@ -87,6 +102,8 @@ bool CSocketSet::Remove(unsigned int index, unsigned int count) {
     
     this->Sockets.erase(this->Sockets.begin() + index, 
                        this->Sockets.begin() + index + safe_count);
+    this->error_code = ERR_NONE;
+    this->error_state = 0;
     return true;
 }
 
@@ -94,7 +111,7 @@ bool CSocketSet::Remove(unsigned int index, unsigned int count) {
  * Get the number of sockets in the set
  * \return Number of sockets currently in the set
  */
-int CSocketSet::Size() {
+int CSocketSet::Size() const {
     return static_cast<int>(this->Sockets.size());
 }
 
