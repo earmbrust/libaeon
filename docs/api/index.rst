@@ -1,12 +1,6 @@
 API Reference
 =============
 
-Core Classes
-------------
-
-.. doxygenfile:: libaeon.h
-   :project: libaeon
-
 Socket Classes
 ~~~~~~~~~~~~~~
 
