@@ -1,16 +1,65 @@
 # Configuration file for the Sphinx documentation builder.
-# For the full list of built-in configuration values, see the documentation:
-# https://www.sphinx-doc.org/en/master/usage/configuration.html
 
 import subprocess
 import os
+import re
 
 # Project information
 project = 'libaeon'
 copyright = '2006-2025, Elden Armbrust'
 author = 'Elden Armbrust'
-release = '1.18.0'
-version = '1.18'
+
+# Get version from git tags, fall back to branch name
+def get_version():
+    """Get version from git tags, fallback to branch name"""
+    try:
+        # Get git describe output
+        git_describe = subprocess.check_output(
+            ['git', 'describe', '--tags', '--always'],
+            cwd=os.path.dirname(__file__),
+            stderr=subprocess.DEVNULL,
+            text=True
+        ).strip()
+        
+        # Parse version from git describe output
+        # Format can be: 0.16.22-79-g184ecca or v1.18.0 or commit hash
+        match = re.match(r'^(v)?(\d+\.\d+\.\d+)', git_describe)
+        if match:
+            # Extract clean version number
+            version = match.group(2)
+            print(f"Version from git describe: {git_describe}")
+            print(f"Parsed version: {version}")
+            return version
+        else:
+            # Not a version tag, fall through to branch name
+            raise ValueError("Not a version tag format")
+    except (subprocess.CalledProcessError, ValueError):
+        try:
+            # Fall back to branch name
+            branch = subprocess.check_output(
+                ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
+                cwd=os.path.dirname(__file__),
+                stderr=subprocess.DEVNULL,
+                text=True
+            ).strip()
+            if branch and branch != 'HEAD':
+                print(f"Version from git branch: {branch}")
+                return branch
+            else:
+                raise ValueError("No branch name")
+        except (subprocess.CalledProcessError, ValueError):
+            # Not in a git repo or git not available
+            print("Not in git repo, using default version")
+            return 'dev'
+
+# Get release version
+release = get_version()
+# Extract major.minor for version
+version_parts = release.split('.')
+version = '.'.join(version_parts[:2]) if len(version_parts) >= 2 else release
+
+print(f"Documentation version: {version}")
+print(f"Release: {release}")
 
 # General configuration
 extensions = [
@@ -79,9 +128,6 @@ breathe_projects = {
 }
 
 breathe_default_project = 'libaeon'
-
-# Optional: if using auto directives, enable member and undocumented members
-breathe_show_define_initializer = True
 
 print(f"\nBreathе configuration:")
 print(f"  Project: 'libaeon'")

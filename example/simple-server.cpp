@@ -2,7 +2,9 @@
  * simple-server.cpp - Event-driven server using CEventSocket
  * Demonstrates the proper way to use libaeon for medical-grade resilience
  * No timeouts, no polling loops, just event-driven I/O with callbacks
- ******************************************************************/
+ * Copyright 2006-2025 (c) Elden Armbrust
+ * This software is licensed under the BSD software license.
+ *********************************************************************/
 
 #include <libaeon.h>
 #include <iostream>
