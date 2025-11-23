@@ -35,12 +35,13 @@ bool CEventSocketSet::Add(CEventSocket* socket_ref) {
  * Use Add(CEventSocket* socket_ref) instead.
  */
 bool CEventSocketSet::Add() {
-    CEventSocket* socket_ref = new CEventSocket();
-    if (!socket_ref) {
+    try {
+        auto socket_ref = std::make_unique<CEventSocket>();
+        this->Sockets.push_back(socket_ref.release());
+        return true;
+    } catch (...) {
         return false;
     }
-    this->Sockets.push_back(socket_ref);
-    return true;
 }
 
 /**

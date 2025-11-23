@@ -124,7 +124,7 @@ namespace net {
         int Write(const char* data, int size);
         int Write(char* data);
         int Write(const char* data);
-        int Write(std::string data);
+        int Write(const std::string& data);
         int Read();
         int Read(char* buffer, int size);
         int ReadLine(char* buffer, int size);
@@ -139,7 +139,7 @@ namespace net {
         bool Close();
         
         int operator<<(char* data);
-        int operator<<(std::string data);
+        int operator<<(const std::string& data);
         std::string operator>>(std::string);
 
         // Public members for API compatibility
@@ -246,7 +246,7 @@ namespace net {
         virtual void OnWrite(const char* buffer, int size, int sentsize);
         int Write(char* data);
         int Write(const char* data);
-        int Write(std::string data);
+        int Write(const std::string& data);
         bool Poll();
     };
 
@@ -317,7 +317,7 @@ namespace net {
         int Write(const char* data, int size);
         int Write(char* data);
         int Write(const char* data);
-        int Write(std::string data);
+        int Write(const std::string& data);
         int Read();
         int Read(char* buffer, int size);
         int ReadUntil(char* buffer, int size);

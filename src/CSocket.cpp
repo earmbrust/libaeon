@@ -163,7 +163,7 @@ int CSocket::operator<<(char* data) {
  * \param data std::string object to write
  * \return Number of bytes written to socket
  */
-int CSocket::operator<<(std::string data) {
+int CSocket::operator<<(const std::string& data) {
     return this->Write(data);
 }
 
@@ -432,7 +432,7 @@ int CSocket::Write(const char* data, int size) {
  * \param data std::string to write
  * \return Number of bytes written
  */
-int CSocket::Write(std::string data) {
+int CSocket::Write(const std::string& data) {
     if (!IsValidSocket(this->sockfd) || data.empty()) {
         return NET_SOCKET_ERROR;
     }
