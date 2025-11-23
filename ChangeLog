@@ -1,3 +1,26 @@
+v1.19.0
+=======
+-fixed critical socket leak in CClientSocket::Connect() retry loop when trying multiple addresses
+-fixed CSocket::Read(int size) ignoring size parameter, always reading MaxBufferSize-1 bytes
+-added missing GET_NET_SOCKET_ERROR() macro definitions to CSocketUDP.cpp and CEventSocket.cpp for proper error handling
+-removed redundant per-instance WSAStartup() call in CSocketUDP constructor (already handled globally)
+-refactored CServerSocket::Accept() to return std::unique_ptr<CEventSocket> instead of raw pointers, eliminating memory leak risk
+-added new SOCK_BIND error state constant for accurate error diagnostics when port binding fails
+-implemented functional connect timeout support in CClientSocket::Connect() using non-blocking connect and select()
+-refactored timeout helper functions WaitForReadable() and WaitForWritable() from file-scoped statics to CSocket protected static methods
+-updated example code (hello-world.cpp, simple-server.cpp) to demonstrate modern C++11 memory management patterns
+-added comprehensive documentation for Accept() API changes and connect timeout implementation
+
+v1.18.2
+=======
+-fixed documentation
+-removed outdated doxygen files
+-fix builds to use target branch on merge
+
+v1.18.1
+=======
+-fixed branch name extraction for build 
+
 v1.18.0
 =======
 -added comprehensive Sphinx + Doxygen + Breathe documentation system with GitHub Pages deployment

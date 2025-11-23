@@ -15,18 +15,16 @@ namespace net {
 // Platform-specific helper macros
 #ifdef PLATFORM_WINDOWS
     #define CLOSE_SOCKET(s) closesocket(s)
+    #define GET_NET_SOCKET_ERROR() WSAGetLastError()
 #else
     #define CLOSE_SOCKET(s) close(s)
+    #define GET_NET_SOCKET_ERROR() errno
 #endif
 
 /**
  * CSocketUDP default constructor - creates UDP socket
  */
 CSocketUDP::CSocketUDP() {
-#ifdef PLATFORM_WINDOWS
-    this->wsaret = WSAStartup(MAKEWORD(2, 2), &wsadata);
-#endif
-
     this->net_family = CSocket::DefaultFamilyType;
     this->connected = false;
     this->blocking = true;

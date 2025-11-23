@@ -99,7 +99,7 @@ bool CServerSocket::Listen(int port) {
     
     if (bind_result < 0) {
         this->error_code = GET_NET_SOCKET_ERROR();
-        this->error_state = SOCK_ACCEPT;
+        this->error_state = SOCK_BIND;
         CLOSE_SOCKET(this->server_socket);
         return false;
     }
@@ -120,22 +120,26 @@ bool CServerSocket::Listen(int port) {
 
 /**
  * Accept an incoming client connection
- * \return Pointer to new CEventSocket with client connection, non-blocking by default
- * \note Caller is responsible for deleting the returned CEventSocket
+ * \return unique_ptr to new CEventSocket with client connection, non-blocking by default
  */
-CEventSocket* CServerSocket::Accept() {
+std::unique_ptr<CEventSocket> CServerSocket::Accept() {
     return this->Accept(false);  // Non-blocking by default for event-based
 }
 
 /**
  * Accept an incoming client connection with specified blocking mode
  * \param blocking true for blocking, false for non-blocking
- * \return Pointer to new CEventSocket with client connection, nullptr if no connection available (non-blocking), or error socket
- * \note Caller is responsible for deleting the returned CEventSocket
+ * \return unique_ptr to new CEventSocket with client connection, nullptr if no connection available (non-blocking), or error socket
  */
-CEventSocket* CServerSocket::Accept(bool blocking) {
-    CEventSocket* client_socket = new CEventSocket();
-    return this->Accept(client_socket, blocking);
+std::unique_ptr<CEventSocket> CServerSocket::Accept(bool blocking) {
+    auto client_socket = std::make_unique<CEventSocket>();
+    CEventSocket* result = this->Accept(client_socket.get(), blocking);
+    if (result) {
+        // Transfer ownership: we allocated it, now return it via unique_ptr
+        client_socket.release();
+        return std::unique_ptr<CEventSocket>(result);
+    }
+    return nullptr;  // client_socket auto-deletes on scope exit
 }
 
 /**

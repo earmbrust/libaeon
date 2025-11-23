@@ -56,6 +56,7 @@
 
 // Multi-platform includes
 #include <fcntl.h>
+#include <memory>
 #include <string>
 #include <vector>
 #include <cstring>
@@ -63,9 +64,10 @@
 
 // Error and state definitions
 #define SOCK_RESOLVE 1
+#define SOCK_CREATE 2
 #define SOCK_ACCEPT 3
 #define SOCK_CONNECT 4
-#define SOCK_CREATE 2
+#define SOCK_BIND 5
 #define ERR_NONE 0
 #define ERR_NOHOST 1
 #define ERR_NOSOCKET 2
@@ -168,6 +170,11 @@ namespace net {
         void SetError(int error);
         void ClearBuffers();
         void ClearBuffer(char* buffer, int size);
+        
+        // Internal helpers: Wait for socket I/O with timeout
+        // Returns: > 0 if ready, 0 if timeout, < 0 if error
+        static int WaitForReadable(socket_t sockfd, int timeout_ms);
+        static int WaitForWritable(socket_t sockfd, int timeout_ms);
 
 #ifdef PLATFORM_WINDOWS
         int wsaret;
@@ -210,8 +217,8 @@ namespace net {
         ~CServerSocket();
         bool Listen();
         bool Listen(int port);
-        CEventSocket* Accept();
-        CEventSocket* Accept(bool blocking);
+        std::unique_ptr<CEventSocket> Accept();
+        std::unique_ptr<CEventSocket> Accept(bool blocking);
         CEventSocket* Accept(CEventSocket* client_socket, bool blocking = false);
         void SetAcceptTimeout(int timeout_ms);
         int accept_timeout_ms;
