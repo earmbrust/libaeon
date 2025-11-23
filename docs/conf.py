@@ -1,8 +1,9 @@
 # Configuration file for the Sphinx documentation builder.
+# For the full list of built-in configuration values, see the documentation:
+# https://www.sphinx-doc.org/en/master/usage/configuration.html
 
 import subprocess
 import os
-import sys
 
 # Project information
 project = 'libaeon'
@@ -71,16 +72,26 @@ def run_doxygen_if_needed():
 # Run Doxygen before Breathe configuration
 run_doxygen_if_needed()
 
-# Breathe configuration - set AFTER Doxygen runs
+# Breathe configuration - BOTH breathe_projects and breathe_projects_source are REQUIRED
+# breathe_projects: maps project name to XML directory
 breathe_projects = {
     'libaeon': xml_dir
 }
+
+# breathe_projects_source: CRITICAL for Breathe to initialize project info
+# Without this, the project never gets stored and you get KeyError later
+breathe_projects_source = {
+    'libaeon': {
+        'directory': xml_dir
+    }
+}
+
 breathe_default_project = 'libaeon'
 
-print(f"Breathe configuration:")
+print(f"\nBreathе configuration:")
 print(f"  Project: 'libaeon'")
-print(f"  XML path: {xml_dir}")
+print(f"  XML directory: {xml_dir}")
 print(f"  Path exists: {os.path.exists(xml_dir)}")
 if os.path.exists(xml_dir):
     xml_files = [f for f in os.listdir(xml_dir) if f.endswith('.xml')]
-    print(f"  XML files: {len(xml_files)}")
+    print(f"  XML files found: {len(xml_files)}")
