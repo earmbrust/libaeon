@@ -27,8 +27,31 @@ else()
     )
     
     if(GIT_BRANCH AND NOT GIT_BRANCH STREQUAL "HEAD")
-        set(PROJECT_VERSION "${GIT_BRANCH}")
-        message(STATUS "Version from git branch: ${PROJECT_VERSION}")
+        # Extract numeric version from branch name (e.g., "1.18-devel" -> "1.18.0")
+        string(REGEX MATCH "^[0-9]+(\\.[0-9]+)*" VERSION_PART "${GIT_BRANCH}")
+        
+        if(VERSION_PART)
+            # Count dots to pad to X.Y.Z format
+            string(REGEX MATCHALL "\\." DOT_COUNT "${VERSION_PART}")
+            list(LENGTH DOT_COUNT NUM_DOTS)
+            
+            if(NUM_DOTS EQUAL 1)
+                # X.Y format, add .0
+                set(PROJECT_VERSION "${VERSION_PART}.0")
+            elseif(NUM_DOTS EQUAL 2)
+                # Already X.Y.Z format
+                set(PROJECT_VERSION "${VERSION_PART}")
+            else()
+                # X format or other, add .0.0
+                set(PROJECT_VERSION "${VERSION_PART}.0.0")
+            endif()
+            
+            set(GIT_VERSION_STRING "${GIT_BRANCH}")
+            message(STATUS "Version from git branch: ${PROJECT_VERSION} (branch: ${GIT_BRANCH})")
+        else()
+            set(PROJECT_VERSION "0.0.0")
+            message(STATUS "Could not extract numeric version from branch: ${GIT_BRANCH}")
+        endif()
     else()
         set(PROJECT_VERSION "0.0.0")
         message(STATUS "Version set to default: ${PROJECT_VERSION}")
