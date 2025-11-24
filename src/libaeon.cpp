@@ -6,17 +6,6 @@
 
 #include "libaeon.h"
 
-#include "CSocket.cpp"
-#include "CClientSocket.cpp"
-#include "CServerSocket.cpp"
-
-#include "CSocketUDP.cpp"
-#include "CServerSocketUDP.cpp"
-#include "CClientSocketUDP.cpp"
-#include "CEventSocket.cpp"
-#include "CSocketSet.cpp"
-#include "CEventSocketSet.cpp"
-
 // Stringification macros to convert version numbers to string
 #define STR_(x) #x
 #define STR(x) STR_(x)

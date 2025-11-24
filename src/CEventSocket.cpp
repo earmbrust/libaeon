@@ -12,14 +12,6 @@
 
 namespace net {
 
-// Platform-specific helper macros
-#ifdef PLATFORM_WINDOWS
-    #define CLOSE_SOCKET(s) closesocket(s)
-    #define GET_NET_SOCKET_ERROR() WSAGetLastError()
-#else
-    #define CLOSE_SOCKET(s) close(s)
-    #define GET_NET_SOCKET_ERROR() errno
-#endif
 
 /**
  * Poll for incoming data on the socket
@@ -34,7 +26,7 @@ bool CEventSocket::Poll() {
         return false;
     }
 
-    SafeClearBuffer(this->inbuffer, CSocket::MaxBufferSize);
+    this->SafeClearBuffer(this->inbuffer, CSocket::MaxBufferSize);
     int bytesRead = recv(this->sockfd, this->inbuffer, CSocket::MaxBufferSize, 0);
     this->n = bytesRead;
 

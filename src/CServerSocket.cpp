@@ -1,15 +1,10 @@
-/*********************************************************************
- * libaeon - A simple, lightweight, cross platform networking library
- * Copyright 2006-2025 (c) Elden Armbrust
- * This software is licensed under the BSD software license.
- *********************************************************************/
-
 #ifndef _CSERVER_SOCKET_CPP
 #define _CSERVER_SOCKET_CPP
 
 #include "libaeon.h"
 #include <cstring>
 #include <cerrno>
+#include <cstdio>
 
 #ifdef HAVE_CONFIG_H
 #include "../config.h"
@@ -21,7 +16,7 @@ namespace net {
  * CServerSocket default constructor
  */
 CServerSocket::CServerSocket() {
-    this->accept_timeout_ms = 0;  // No timeout by default
+    this->accept_timeout_ms = 0;
 }
 
 /**
@@ -33,43 +28,37 @@ CServerSocket::~CServerSocket() {
     }
 }
 
-
-/**
- * Set the timeout for Accept() calls
- * \param timeout_ms Timeout in milliseconds (0 = no timeout, blocking mode)
- * \return 0 on success, -1 on error (check GetError() for details)
- * 
- * When a timeout is set, Accept() will return immediately if no pending
- * connections are available, after waiting the specified time.
- * Use 0 for no timeout (blocking mode, wait indefinitely).
- * 
- * Error code set on failure:
- * - ERR_NOSOCKET: Invalid timeout value (negative)
- */
 int CServerSocket::SetAcceptTimeout(int timeout_ms) {
-    if (timeout_ms < 0 || timeout_ms > 60000) {  // Cap at 60 seconds as per audit
+    if (timeout_ms < 0 || timeout_ms > 60000) {
         this->error_code = ERR_NOSOCKET;
         return -1;
     }
     this->accept_timeout_ms = timeout_ms;
-    this->error_code = ERR_NONE;  // Clear previous errors on success
+    this->error_code = ERR_NONE;
     return 0;
 }
-/**
- * Start listening on previously set port
- * \return true if successful, false otherwise
- */
+
 bool CServerSocket::Listen() {
     return this->Listen(this->port);
 }
 
+bool CServerSocket::Listen(int port) {
+    return this->Listen("0.0.0.0", port);
+}
+
 /**
- * Start listening on specified port
+ * Listen on a specific address and port
+ * \param address Address to bind to (e.g., "0.0.0.0", "127.0.0.1", "::", "::1")
  * \param port Port number to listen on
  * \return true if successful, false otherwise
  */
-bool CServerSocket::Listen(int port) {
-    // Validate port range
+bool CServerSocket::Listen(const char* address, int port) {
+    if (!address) {
+        this->error_code = ERR_NOSOCKET;
+        this->error_state = SOCK_BIND;
+        return false;
+    }
+
     if (!IsValidPort(port)) {
         this->error_code = ERR_NOSOCKET;
         this->error_state = SOCK_BIND;
@@ -78,89 +67,145 @@ bool CServerSocket::Listen(int port) {
 
     this->port = port;
 
-    // Create server socket
-    this->server_socket = socket(CSocket::DefaultFamilyType, 
-                                CSocket::DefaultSocketType, 0);
-    
-    if (!IsValidSocket(this->server_socket)) {
+    // Determine if this is an IPv6 or IPv4 address
+    bool is_ipv6 = (std::strchr(address, ':') != nullptr);
+
+    if (is_ipv6) {
+        // IPv6 address
+        socket_t ipv6_sock = socket(AF_INET6, CSocket::DefaultSocketType, 0);
+        if (!IsValidSocket(ipv6_sock)) {
+            this->error_code = ERR_NOSOCKET;
+            this->error_state = SOCK_CREATE;
+            return false;
+        }
+
+        // Set IPV6_V6ONLY = 1 for IPv6-only operation on all IPv6 addresses
+#ifdef IPV6_V6ONLY
+        int v6only = 1;
+        setsockopt(ipv6_sock, IPPROTO_IPV6, IPV6_V6ONLY, (const char*)&v6only, sizeof(v6only));
+#endif
+
+        // Set SO_REUSEADDR
+        int reuse = 1;
+        setsockopt(ipv6_sock, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuse, sizeof(reuse));
+
+        // Set up IPv6 address structure
+        std::memset(&this->serv_addr, 0, sizeof(this->serv_addr));
+        struct sockaddr_in6* addr6 = (struct sockaddr_in6*)&this->serv_addr;
+        addr6->sin6_family = AF_INET6;
+        addr6->sin6_port = htons(static_cast<u_short>(port));
+
+        // Parse IPv6 address
+        int inet_pton_result = inet_pton(AF_INET6, address, &addr6->sin6_addr);
+        if (inet_pton_result <= 0) {
+            std::fprintf(stderr, "Invalid IPv6 address: %s\n", address);
+            CLOSE_SOCKET(ipv6_sock);
+            this->error_code = ERR_NOSOCKET;
+            this->error_state = SOCK_BIND;
+            return false;
+        }
+
+        // Try to bind IPv6 socket
+        int bind_result = bind(ipv6_sock, 
+                              (struct sockaddr*)&this->serv_addr, 
+                              sizeof(struct sockaddr_in6));
+        
+        if (bind_result == 0) {
+            // Bind succeeded, try to listen
+            int listen_result = listen(ipv6_sock, SOMAXCONN);
+            if (listen_result == 0) {
+                // IPv6 listen succeeded - use it
+                std::fprintf(stderr, "Server listening on [%s]:%d (IPv6)\n", address, port);
+                this->server_socket = ipv6_sock;
+                return true;
+            } else {
+                std::fprintf(stderr, "IPv6 listen failed: %d\n", GET_NET_SOCKET_ERROR());
+            }
+        } else {
+            std::fprintf(stderr, "IPv6 bind failed: %d\n", GET_NET_SOCKET_ERROR());
+        }
+        
+        CLOSE_SOCKET(ipv6_sock);
         this->error_code = ERR_NOSOCKET;
-        this->error_state = SOCK_CREATE;
-        return false;
-    }
-
-    // Set SO_REUSEADDR to allow reusing the socket quickly
-    int reuse = 1;
-    if (setsockopt(this->server_socket, SOL_SOCKET, SO_REUSEADDR, 
-                   (const char*)&reuse, sizeof(reuse)) < 0) {
-        this->error_code = GET_NET_SOCKET_ERROR();
-        this->error_state = SOCK_ACCEPT;
-        CLOSE_SOCKET(this->server_socket);
-        return false;
-    }
-
-    // Set up server address structure
-    std::memset(&this->serv_addr, 0, sizeof(this->serv_addr));
-    this->serv_addr.sin_family = CSocket::DefaultFamilyType;
-    this->serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);  // Listen on any interface
-    this->serv_addr.sin_port = htons(static_cast<u_short>(port));
-
-    // Bind socket to port
-    int bind_result = bind(this->server_socket, 
-                          (struct sockaddr*)&this->serv_addr, 
-                          sizeof(this->serv_addr));
-    
-    if (bind_result < 0) {
-        this->error_code = GET_NET_SOCKET_ERROR();
         this->error_state = SOCK_BIND;
-        CLOSE_SOCKET(this->server_socket);
         return false;
-    }
+    } else {
+        // IPv4 address
+        this->server_socket = socket(AF_INET, CSocket::DefaultSocketType, 0);
+        
+        if (!IsValidSocket(this->server_socket)) {
+            this->error_code = ERR_NOSOCKET;
+            this->error_state = SOCK_CREATE;
+            return false;
+        }
 
-    // Start listening for connections (backlog of 5)
-    int listen_result = listen(this->server_socket, 5);
-    
-    if (listen_result < 0) {
-        this->error_code = GET_NET_SOCKET_ERROR();
-        this->error_state = SOCK_ACCEPT;
-        CLOSE_SOCKET(this->server_socket);
-        return false;
-    }
+        // Set SO_REUSEADDR
+        int reuse = 1;
+        if (setsockopt(this->server_socket, SOL_SOCKET, SO_REUSEADDR, 
+                       (const char*)&reuse, sizeof(reuse)) < 0) {
+            this->error_code = GET_NET_SOCKET_ERROR();
+            this->error_state = SOCK_ACCEPT;
+            CLOSE_SOCKET(this->server_socket);
+            return false;
+        }
 
-    return true;
+        // Set up IPv4 address structure
+        std::memset(&this->serv_addr, 0, sizeof(this->serv_addr));
+        struct sockaddr_in* addr4 = (struct sockaddr_in*)&this->serv_addr;
+        addr4->sin_family = AF_INET;
+        addr4->sin_port = htons(static_cast<u_short>(port));
+
+        // Parse IPv4 address
+        int inet_pton_result = inet_pton(AF_INET, address, &addr4->sin_addr);
+        if (inet_pton_result <= 0) {
+            std::fprintf(stderr, "Invalid IPv4 address: %s\n", address);
+            CLOSE_SOCKET(this->server_socket);
+            this->error_code = ERR_NOSOCKET;
+            this->error_state = SOCK_BIND;
+            return false;
+        }
+
+        // Bind socket to port
+        int bind_result = bind(this->server_socket, 
+                              (struct sockaddr*)&this->serv_addr, 
+                              sizeof(struct sockaddr_in));
+        
+        if (bind_result < 0) {
+            this->error_code = GET_NET_SOCKET_ERROR();
+            this->error_state = SOCK_BIND;
+            CLOSE_SOCKET(this->server_socket);
+            return false;
+        }
+
+        // Start listening
+        int listen_result = listen(this->server_socket, SOMAXCONN);
+        
+        if (listen_result < 0) {
+            this->error_code = GET_NET_SOCKET_ERROR();
+            this->error_state = SOCK_ACCEPT;
+            CLOSE_SOCKET(this->server_socket);
+            return false;
+        }
+
+        std::fprintf(stderr, "Server listening on %s:%d (IPv4)\n", address, port);
+        return true;
+    }
 }
 
-
-/**
- * Accept an incoming client connection
- * \return unique_ptr to new CEventSocket with client connection, non-blocking by default
- */
 std::unique_ptr<CEventSocket> CServerSocket::Accept() {
-    return this->Accept(false);  // Non-blocking by default for event-based
+    return this->Accept(false);
 }
 
-/**
- * Accept an incoming client connection with specified blocking mode
- * \param blocking true for blocking, false for non-blocking
- * \return unique_ptr to new CEventSocket with client connection, nullptr if no connection available (non-blocking), or error socket
- */
 std::unique_ptr<CEventSocket> CServerSocket::Accept(bool blocking) {
     auto client_socket = std::make_unique<CEventSocket>();
     CEventSocket* result = this->Accept(client_socket.get(), blocking);
     if (result) {
-        // Transfer ownership: we allocated it, now return it via unique_ptr
         client_socket.release();
         return std::unique_ptr<CEventSocket>(result);
     }
-    return nullptr;  // client_socket auto-deletes on scope exit
+    return nullptr;
 }
 
-/**
- * Accept an incoming client connection into provided socket
- * \param client_socket Existing CEventSocket to populate with connection
- * \param blocking true for blocking, false for non-blocking
- * \return Pointer to populated CEventSocket, nullptr on timeout/no pending, or error socket
- * \note Caller retains responsibility for deleting client_socket
- */
 CEventSocket* CServerSocket::Accept(CEventSocket* client_socket, bool blocking) {
     if (!client_socket) {
         return nullptr;
@@ -170,7 +215,6 @@ CEventSocket* CServerSocket::Accept(CEventSocket* client_socket, bool blocking) 
         return nullptr;
     }
 
-    // If a timeout is set, use select() to wait with timeout
     if (this->accept_timeout_ms > 0) {
         fd_set readset;
         FD_ZERO(&readset);
@@ -180,9 +224,6 @@ CEventSocket* CServerSocket::Accept(CEventSocket* client_socket, bool blocking) 
         tv.tv_sec = this->accept_timeout_ms / 1000;
         tv.tv_usec = (this->accept_timeout_ms % 1000) * 1000;
         
-        // Platform-specific select() call
-        // Windows: first param (nfds) is ignored, use 0
-        // POSIX: first param must be max fd + 1
         int select_result;
 #ifdef PLATFORM_WINDOWS
         select_result = select(0, &readset, nullptr, nullptr, &tv);
@@ -190,24 +231,20 @@ CEventSocket* CServerSocket::Accept(CEventSocket* client_socket, bool blocking) 
         select_result = select(this->server_socket + 1, &readset, nullptr, nullptr, &tv);
 #endif
         
-        // Unified error checking: select_result < 0 means error on all platforms
         if (select_result < 0) {
             this->error_code = GET_NET_SOCKET_ERROR();
             this->error_state = SOCK_ACCEPT;
             return nullptr;
         }
         
-        // select_result == 0 means timeout
         if (select_result == 0) {
             return nullptr;
         }
     }
 
-    // Declare address on stack
-    struct sockaddr_in client_addr;
+    struct sockaddr_storage client_addr;
     socklen_t addr_len = sizeof(client_addr);
     
-    // Accept connection
     socket_t client_fd = accept(this->server_socket, 
                                (struct sockaddr*)&client_addr, 
                                &addr_len);
@@ -225,15 +262,12 @@ CEventSocket* CServerSocket::Accept(CEventSocket* client_socket, bool blocking) 
         }
 #endif
         
-        // Actual error
         client_socket->connected = false;
         this->error_code = err;
         this->error_state = SOCK_ACCEPT;
         return client_socket;
     }
 
-    // Populate the provided socket with the accepted connection
-    // First, close any existing socket to prevent leaks
     if (IsValidSocket(client_socket->sockfd)) {
         CLOSE_SOCKET(client_socket->sockfd);
     }
@@ -242,7 +276,10 @@ CEventSocket* CServerSocket::Accept(CEventSocket* client_socket, bool blocking) 
     client_socket->remote_addr = client_addr;
     client_socket->connected = true;
     
-    // Set blocking mode
+    // PERFORMANCE: Apply socket options for low-latency communication
+    client_socket->SetSocketTCPNodelay();          // Disable Nagle's algorithm
+    client_socket->SetSocketLinger(0);           // Disable linger to avoid TIME_WAIT
+    
     client_socket->SetBlocking(blocking);
 
     return client_socket;
@@ -250,4 +287,4 @@ CEventSocket* CServerSocket::Accept(CEventSocket* client_socket, bool blocking) 
 
 }  // namespace net
 
-#endif  // _CSERVER_SOCKET_CPP
+#endif
