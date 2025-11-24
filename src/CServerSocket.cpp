@@ -17,15 +17,6 @@
 
 namespace net {
 
-// Platform-specific helper macros
-#ifdef PLATFORM_WINDOWS
-    #define CLOSE_SOCKET(s) closesocket(s)
-    #define GET_NET_SOCKET_ERROR() WSAGetLastError()
-#else
-    #define CLOSE_SOCKET(s) close(s)
-    #define GET_NET_SOCKET_ERROR() errno
-#endif
-
 /**
  * CServerSocket default constructor
  */
@@ -56,7 +47,7 @@ CServerSocket::~CServerSocket() {
  * - ERR_NOSOCKET: Invalid timeout value (negative)
  */
 int CServerSocket::SetAcceptTimeout(int timeout_ms) {
-    if (timeout_ms < 0 || timeout_ms > 600000) {  // Cap at 600 seconds (10 minutes)
+    if (timeout_ms < 0 || timeout_ms > 60000) {  // Cap at 60 seconds as per audit
         this->error_code = ERR_NOSOCKET;
         return -1;
     }
