@@ -132,7 +132,7 @@ bool CClientSocketUDP::Connect(const CAddress& addr) {
             this->error_state = SOCK_CREATE;
             return false;
         }
-        SetSocketReusAddr(this->sockfd);
+        this->SetSocketReusAddr();
         this->net_family = target_family;
     }
     
