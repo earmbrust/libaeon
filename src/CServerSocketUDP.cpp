@@ -12,15 +12,6 @@
 
 namespace net {
 
-// Platform-specific helper macros
-#ifdef PLATFORM_WINDOWS
-    #define CLOSE_SOCKET(s) closesocket(s)
-    #define GET_NET_SOCKET_ERROR() WSAGetLastError()
-#else
-    #define CLOSE_SOCKET(s) close(s)
-    #define GET_NET_SOCKET_ERROR() errno
-#endif
-
 /**
  * CServerSocketUDP default constructor
  */
@@ -41,7 +32,7 @@ CServerSocketUDP::~CServerSocketUDP() {
 bool CServerSocketUDP::Listen(int port) {
     this->port = port;
 
-    // UDP socket already created in CSocketUDP constructor
+    // UDP socket already created in CSocketUDP constructor (as IPv4)
     if (!IsValidSocket(this->sockfd)) {
         this->error_code = ERR_NOSOCKET;
         this->error_state = SOCK_CREATE;
@@ -55,16 +46,55 @@ bool CServerSocketUDP::Listen(int port) {
         return false;
     }
 
-    // Set up server address structure
-    std::memset(&this->serv_addr, 0, sizeof(this->serv_addr));
-    this->serv_addr.sin_family = CSocket::DefaultFamilyType;
-    this->serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);  // Listen on any interface
-    this->serv_addr.sin_port = htons(static_cast<u_short>(port));
+    // Try IPv6 first with dual-stack mode (can accept both IPv4 and IPv6)
+    // If that fails, fall back to IPv4
+    
+    // Try to create and bind IPv6 socket first
+    socket_t ipv6_sock = socket(AF_INET6, CSocket::DatagramSocketType, 0);
+    if (IsValidSocket(ipv6_sock)) {
+        // Try to enable dual-stack mode (accepts both IPv4 and IPv6)
+        // This is not available on all platforms, so we ignore failures
+#ifdef IPV6_V6ONLY
+        int v6only = 0;
+        setsockopt(ipv6_sock, IPPROTO_IPV6, IPV6_V6ONLY, (const char*)&v6only, sizeof(v6only));
+#endif
 
-    // Bind socket to port
+        // Set up IPv6 address structure
+        std::memset(&this->serv_addr, 0, sizeof(this->serv_addr));
+        struct sockaddr_in6* addr6 = (struct sockaddr_in6*)&this->serv_addr;
+        addr6->sin6_family = AF_INET6;
+        addr6->sin6_addr = in6addr_any;  // Listen on any interface
+        addr6->sin6_port = htons(static_cast<u_short>(port));
+
+        // Try to bind IPv6 socket
+        int bind_result = bind(ipv6_sock, 
+                              (struct sockaddr*)&this->serv_addr, 
+                              sizeof(struct sockaddr_in6));
+        
+        if (bind_result == 0) {
+            // IPv6 bind succeeded - close old IPv4 socket and use IPv6
+            CLOSE_SOCKET(this->sockfd);
+            this->sockfd = ipv6_sock;
+            this->connected = true;
+            return true;
+        } else {
+            // IPv6 bind failed, close it and try IPv4
+            CLOSE_SOCKET(ipv6_sock);
+        }
+    }
+
+    // Fall back to IPv4
+    // Set up IPv4 address structure
+    std::memset(&this->serv_addr, 0, sizeof(this->serv_addr));
+    struct sockaddr_in* addr4 = (struct sockaddr_in*)&this->serv_addr;
+    addr4->sin_family = AF_INET;
+    addr4->sin_addr.s_addr = htonl(INADDR_ANY);  // Listen on any interface
+    addr4->sin_port = htons(static_cast<u_short>(port));
+
+    // Bind IPv4 socket
     int bind_result = bind(this->sockfd, 
                           (struct sockaddr*)&this->serv_addr, 
-                          sizeof(this->serv_addr));
+                          sizeof(struct sockaddr_in));
     
     if (bind_result < 0) {
         this->error_code = GET_NET_SOCKET_ERROR();

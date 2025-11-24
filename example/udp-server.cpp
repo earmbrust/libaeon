@@ -38,10 +38,11 @@ int main(void) {
             buffer[bytes_read] = '\0';
             ++message_count;
 
+            // Use accessor methods - they handle IPv4/IPv6 casting internally
             std::printf("Message %d from %s:%d: %s\n",
                        message_count,
-                       inet_ntoa(server.remote_addr.sin_addr),
-                       ntohs(server.remote_addr.sin_port),
+                       server.GetRemoteIP().c_str(),
+                       server.GetRemotePort(),
                        buffer);
 
             // Send response back to client

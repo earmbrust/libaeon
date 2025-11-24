@@ -101,12 +101,23 @@ CHECK_INCLUDE_FILES(stdlib.h HAVE_STDLIB_H)
 CHECK_INCLUDE_FILES(strings.h HAVE_STRINGS_H)
 CHECK_INCLUDE_FILES(string.h HAVE_STRING_H)
 
-# Include directories
-include_directories(src)
+# Include directories - headers are in include/, sources in src/
+include_directories(include)
 
-# Main library sources
+# Main library sources - list all implementation files
 set(LIBAEON_SOURCES
     src/libaeon.cpp
+    src/CAddress.cpp
+    src/CResolver.cpp
+    src/CSocket.cpp
+    src/CClientSocket.cpp
+    src/CServerSocket.cpp
+    src/CEventSocket.cpp
+    src/CSocketSet.cpp
+    src/CEventSocketSet.cpp
+    src/CSocketUDP.cpp
+    src/CClientSocketUDP.cpp
+    src/CServerSocketUDP.cpp
 )
 
 # Shared library
