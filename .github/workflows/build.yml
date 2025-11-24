@@ -106,29 +106,60 @@ jobs:
           
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
+  # Linux builds - multi-architecture
   build-linux:
     needs: build-context
     if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        cc: [gcc, clang]
+        include:
+          # x64 GCC
+          - arch: x64
+            cc: gcc
+            cxx: g++
+            cmake_args: ""
+            toolchain_install: "build-essential cmake"
+          # x64 Clang
+          - arch: x64
+            cc: clang
+            cxx: clang++
+            cmake_args: ""
+            toolchain_install: "build-essential cmake clang"
+          # x86 (32-bit)
+          - arch: x86
+            cc: gcc
+            cxx: g++
+            cmake_args: "-DCMAKE_CXX_FLAGS=-m32 -DCMAKE_C_FLAGS=-m32"
+            toolchain_install: "build-essential cmake gcc-multilib g++-multilib"
+          # ARM (ARMv7)
+          - arch: arm
+            cc: arm-linux-gnueabihf-gcc
+            cxx: arm-linux-gnueabihf-g++
+            cmake_args: "-DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=armv7l -DCMAKE_CXX_COMPILER=arm-linux-gnueabihf-g++ -DCMAKE_C_COMPILER=arm-linux-gnueabihf-gcc"
+            toolchain_install: "build-essential cmake gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf"
+          # ARM64 (aarch64)
+          - arch: arm64
+            cc: aarch64-linux-gnu-gcc
+            cxx: aarch64-linux-gnu-g++
+            cmake_args: "-DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64 -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc"
+            toolchain_install: "build-essential cmake gcc-aarch64-linux-gnu g++-aarch64-linux-gnu"
     env:
       CC: ${{ matrix.cc }}
-      CXX: ${{ matrix.cc == 'gcc' && 'g++' || 'clang++' }}
+      CXX: ${{ matrix.cxx }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref }}
       
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake build-essential
+        run: sudo apt-get update && sudo apt-get install -y ${{ matrix.toolchain_install }}
       
       - name: Create build directory
         run: mkdir -p build
       
       - name: Configure CMake
-        run: cd build && cmake .. -DCMAKE_BUILD_TYPE=Release
+        run: cd build && cmake .. -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake_args }}
       
       - name: Build
         run: cd build && cmake --build . --config Release
@@ -137,21 +168,31 @@ jobs:
         if: needs.build-context.outputs.package-artifacts == 'true'
         run: |
           cd build
-          tar -czf ${{ env.PROJECT_NAME }}-linux-${{ matrix.cc }}.tar.gz \
+          tar -czf ${{ env.PROJECT_NAME }}-linux-${{ matrix.arch }}.tar.gz \
             lib* src/ example/ CMakeLists.txt README* LICENSE* || true
       
       - name: Upload artifacts
         if: needs.build-context.outputs.package-artifacts == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: linux-${{ matrix.cc }}-build
-          path: build/${{ env.PROJECT_NAME }}-linux-${{ matrix.cc }}.tar.gz
+          name: linux-${{ matrix.arch }}-build
+          path: build/${{ env.PROJECT_NAME }}-linux-${{ matrix.arch }}.tar.gz
           retention-days: 30
 
+  # Windows builds - multi-architecture
   build-windows:
     needs: build-context
     if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
     runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - arch: x86
+            cmake_arch: Win32
+          - arch: x64
+            cmake_arch: x64
+          - arch: arm64
+            cmake_arch: ARM64
     steps:
       - uses: actions/checkout@v4
         with:
@@ -161,7 +202,7 @@ jobs:
         run: mkdir -p build
       
       - name: Configure CMake (MSVC)
-        run: cd build && cmake .. -G "Visual Studio 17 2022" -DCMAKE_BUILD_TYPE=Release
+        run: cd build && cmake .. -G "Visual Studio 17 2022" -A ${{ matrix.cmake_arch }} -DCMAKE_BUILD_TYPE=Release
       
       - name: Build
         run: cd build && cmake --build . --config Release
@@ -173,24 +214,32 @@ jobs:
           cd build
           if (Test-Path "Release") {
             Compress-Archive -Path "Release\*", "..\src\", "..\example\", "..\CMakeLists.txt", "..\README*", "..\LICENSE*" `
-              -DestinationPath "${{ env.PROJECT_NAME }}-windows-msvc.zip" -Force
+              -DestinationPath "${{ env.PROJECT_NAME }}-windows-${{ matrix.arch }}.zip" -Force
           } else {
             Compress-Archive -Path "*", "..\src\", "..\example\", "..\CMakeLists.txt", "..\README*", "..\LICENSE*" `
-              -DestinationPath "${{ env.PROJECT_NAME }}-windows-msvc.zip" -Force
+              -DestinationPath "${{ env.PROJECT_NAME }}-windows-${{ matrix.arch }}.zip" -Force
           }
       
       - name: Upload artifacts
         if: needs.build-context.outputs.package-artifacts == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: windows-msvc-build
-          path: build/${{ env.PROJECT_NAME }}-windows-msvc.zip
+          name: windows-${{ matrix.arch }}-build
+          path: build/${{ env.PROJECT_NAME }}-windows-${{ matrix.arch }}.zip
           retention-days: 30
 
+  # macOS builds - multi-architecture
   build-macos:
     needs: build-context
     if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
-    runs-on: macos-latest
+    strategy:
+      matrix:
+        include:
+          - arch: intel
+            runner: macos-14
+          - arch: apple-silicon
+            runner: macos-latest
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -212,17 +261,18 @@ jobs:
         if: needs.build-context.outputs.package-artifacts == 'true'
         run: |
           cd build
-          tar -czf ${{ env.PROJECT_NAME }}-macos.tar.gz \
+          tar -czf ${{ env.PROJECT_NAME }}-macos-${{ matrix.arch }}.tar.gz \
             lib* src/ example/ CMakeLists.txt README* LICENSE* || true
       
       - name: Upload artifacts
         if: needs.build-context.outputs.package-artifacts == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: macos-build
-          path: build/${{ env.PROJECT_NAME }}-macos.tar.gz
+          name: macos-${{ matrix.arch }}-build
+          path: build/${{ env.PROJECT_NAME }}-macos-${{ matrix.arch }}.tar.gz
           retention-days: 30
 
+  # MinGW build (legacy, can be expanded if needed)
   build-mingw:
     needs: build-context
     if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
@@ -266,52 +316,9 @@ jobs:
           path: build/${{ env.PROJECT_NAME }}-mingw64.tar.gz
           retention-days: 30
 
-  build-arm:
-    needs: build-context
-    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref }}
-      
-      - name: Install ARM toolchain
-        run: sudo apt-get update && sudo apt-get install -y cmake gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
-      
-      - name: Create build directory
-        run: mkdir -p build
-      
-      - name: Configure CMake (ARM cross-compile)
-        run: |
-          cd build
-          cmake .. \
-            -DCMAKE_SYSTEM_NAME=Linux \
-            -DCMAKE_SYSTEM_PROCESSOR=armv7l \
-            -DCMAKE_CXX_COMPILER=arm-linux-gnueabihf-g++ \
-            -DCMAKE_C_COMPILER=arm-linux-gnueabihf-gcc \
-            -DCMAKE_BUILD_TYPE=Release
-      
-      - name: Build
-        run: cd build && cmake --build .
-      
-      - name: Package artifacts (develop/master only)
-        if: needs.build-context.outputs.package-artifacts == 'true'
-        run: |
-          cd build
-          tar -czf ${{ env.PROJECT_NAME }}-arm-linux-gnueabihf.tar.gz \
-            lib* src/ example/ CMakeLists.txt README* LICENSE* || true
-      
-      - name: Upload artifacts
-        if: needs.build-context.outputs.package-artifacts == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: arm-linux-build
-          path: build/${{ env.PROJECT_NAME }}-arm-linux-gnueabihf.tar.gz
-          retention-days: 30
-
   # Release job - runs only on master with a tag
   create-release:
-    needs: [build-context, build-linux, build-windows, build-macos, build-mingw, build-arm]
+    needs: [build-context, build-linux, build-windows, build-macos, build-mingw]
     if: needs.build-context.outputs.create-release == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -333,10 +340,19 @@ jobs:
           echo "## Build Artifacts" >> release_notes.md
           echo "" >> release_notes.md
           echo "This release includes compiled binaries for:" >> release_notes.md
-          echo "- Linux (GCC and Clang)" >> release_notes.md
-          echo "- Windows (MSVC and MinGW)" >> release_notes.md
-          echo "- macOS" >> release_notes.md
-          echo "- ARM Linux (ARMv7)" >> release_notes.md
+          echo "### Linux" >> release_notes.md
+          echo "- x86 (32-bit)" >> release_notes.md
+          echo "- x64 (64-bit, GCC and Clang)" >> release_notes.md
+          echo "- ARM (ARMv7)" >> release_notes.md
+          echo "- ARM64 (aarch64)" >> release_notes.md
+          echo "### Windows" >> release_notes.md
+          echo "- x86 (32-bit MSVC)" >> release_notes.md
+          echo "- x64 (64-bit MSVC)" >> release_notes.md
+          echo "- ARM64 (MSVC)" >> release_notes.md
+          echo "- MinGW64" >> release_notes.md
+          echo "### macOS" >> release_notes.md
+          echo "- Intel" >> release_notes.md
+          echo "- Apple Silicon" >> release_notes.md
       
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1

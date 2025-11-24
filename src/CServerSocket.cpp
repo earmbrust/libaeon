@@ -17,15 +17,6 @@
 
 namespace net {
 
-// Platform-specific helper macros
-#ifdef PLATFORM_WINDOWS
-    #define CLOSE_SOCKET(s) closesocket(s)
-    #define GET_NET_SOCKET_ERROR() WSAGetLastError()
-#else
-    #define CLOSE_SOCKET(s) close(s)
-    #define GET_NET_SOCKET_ERROR() errno
-#endif
-
 /**
  * CServerSocket default constructor
  */
@@ -46,9 +37,23 @@ CServerSocket::~CServerSocket() {
 /**
  * Set the timeout for Accept() calls
  * \param timeout_ms Timeout in milliseconds (0 = no timeout, blocking mode)
+ * \return 0 on success, -1 on error (check GetError() for details)
+ * 
+ * When a timeout is set, Accept() will return immediately if no pending
+ * connections are available, after waiting the specified time.
+ * Use 0 for no timeout (blocking mode, wait indefinitely).
+ * 
+ * Error code set on failure:
+ * - ERR_NOSOCKET: Invalid timeout value (negative)
  */
-void CServerSocket::SetAcceptTimeout(int timeout_ms) {
+int CServerSocket::SetAcceptTimeout(int timeout_ms) {
+    if (timeout_ms < 0 || timeout_ms > 60000) {  // Cap at 60 seconds as per audit
+        this->error_code = ERR_NOSOCKET;
+        return -1;
+    }
     this->accept_timeout_ms = timeout_ms;
+    this->error_code = ERR_NONE;  // Clear previous errors on success
+    return 0;
 }
 /**
  * Start listening on previously set port
@@ -64,6 +69,13 @@ bool CServerSocket::Listen() {
  * \return true if successful, false otherwise
  */
 bool CServerSocket::Listen(int port) {
+    // Validate port range
+    if (!IsValidPort(port)) {
+        this->error_code = ERR_NOSOCKET;
+        this->error_state = SOCK_BIND;
+        return false;
+    }
+
     this->port = port;
 
     // Create server socket
@@ -99,7 +111,7 @@ bool CServerSocket::Listen(int port) {
     
     if (bind_result < 0) {
         this->error_code = GET_NET_SOCKET_ERROR();
-        this->error_state = SOCK_ACCEPT;
+        this->error_state = SOCK_BIND;
         CLOSE_SOCKET(this->server_socket);
         return false;
     }
@@ -120,22 +132,26 @@ bool CServerSocket::Listen(int port) {
 
 /**
  * Accept an incoming client connection
- * \return Pointer to new CEventSocket with client connection, non-blocking by default
- * \note Caller is responsible for deleting the returned CEventSocket
+ * \return unique_ptr to new CEventSocket with client connection, non-blocking by default
  */
-CEventSocket* CServerSocket::Accept() {
+std::unique_ptr<CEventSocket> CServerSocket::Accept() {
     return this->Accept(false);  // Non-blocking by default for event-based
 }
 
 /**
  * Accept an incoming client connection with specified blocking mode
  * \param blocking true for blocking, false for non-blocking
- * \return Pointer to new CEventSocket with client connection, nullptr if no connection available (non-blocking), or error socket
- * \note Caller is responsible for deleting the returned CEventSocket
+ * \return unique_ptr to new CEventSocket with client connection, nullptr if no connection available (non-blocking), or error socket
  */
-CEventSocket* CServerSocket::Accept(bool blocking) {
-    CEventSocket* client_socket = new CEventSocket();
-    return this->Accept(client_socket, blocking);
+std::unique_ptr<CEventSocket> CServerSocket::Accept(bool blocking) {
+    auto client_socket = std::make_unique<CEventSocket>();
+    CEventSocket* result = this->Accept(client_socket.get(), blocking);
+    if (result) {
+        // Transfer ownership: we allocated it, now return it via unique_ptr
+        client_socket.release();
+        return std::unique_ptr<CEventSocket>(result);
+    }
+    return nullptr;  // client_socket auto-deletes on scope exit
 }
 
 /**
@@ -156,47 +172,35 @@ CEventSocket* CServerSocket::Accept(CEventSocket* client_socket, bool blocking) 
 
     // If a timeout is set, use select() to wait with timeout
     if (this->accept_timeout_ms > 0) {
+        fd_set readset;
+        FD_ZERO(&readset);
+        FD_SET(this->server_socket, &readset);
+        
+        timeval tv;
+        tv.tv_sec = this->accept_timeout_ms / 1000;
+        tv.tv_usec = (this->accept_timeout_ms % 1000) * 1000;
+        
+        // Platform-specific select() call
+        // Windows: first param (nfds) is ignored, use 0
+        // POSIX: first param must be max fd + 1
+        int select_result;
 #ifdef PLATFORM_WINDOWS
-        fd_set readset;
-        FD_ZERO(&readset);
-        FD_SET(this->server_socket, &readset);
-        
-        timeval tv;
-        tv.tv_sec = this->accept_timeout_ms / 1000;
-        tv.tv_usec = (this->accept_timeout_ms % 1000) * 1000;
-        
-        int select_result = select(0, &readset, nullptr, nullptr, &tv);
-        
-        if (select_result == NET_SOCKET_ERROR) {
-            this->error_code = GET_NET_SOCKET_ERROR();
-            this->error_state = SOCK_ACCEPT;
-            return nullptr;
-        }
-        
-        if (select_result == 0) {
-            return nullptr;
-        }
+        select_result = select(0, &readset, nullptr, nullptr, &tv);
 #else
-        fd_set readset;
-        FD_ZERO(&readset);
-        FD_SET(this->server_socket, &readset);
+        select_result = select(this->server_socket + 1, &readset, nullptr, nullptr, &tv);
+#endif
         
-        timeval tv;
-        tv.tv_sec = this->accept_timeout_ms / 1000;
-        tv.tv_usec = (this->accept_timeout_ms % 1000) * 1000;
-        
-        int select_result = select(this->server_socket + 1, &readset, nullptr, nullptr, &tv);
-        
+        // Unified error checking: select_result < 0 means error on all platforms
         if (select_result < 0) {
             this->error_code = GET_NET_SOCKET_ERROR();
             this->error_state = SOCK_ACCEPT;
             return nullptr;
         }
         
+        // select_result == 0 means timeout
         if (select_result == 0) {
             return nullptr;
         }
-#endif
     }
 
     // Declare address on stack
@@ -229,6 +233,11 @@ CEventSocket* CServerSocket::Accept(CEventSocket* client_socket, bool blocking) 
     }
 
     // Populate the provided socket with the accepted connection
+    // First, close any existing socket to prevent leaks
+    if (IsValidSocket(client_socket->sockfd)) {
+        CLOSE_SOCKET(client_socket->sockfd);
+    }
+    
     client_socket->sockfd = client_fd;
     client_socket->remote_addr = client_addr;
     client_socket->connected = true;
