@@ -75,6 +75,9 @@ namespace net {
         int ReadLine(char* buffer, int size);
         int ReadUntil(char* buffer, int size);
         std::string Read(int size);
+        void SetSocketReusAddr();
+        void SetSocketTCPNodelay();
+        void SetSocketLinger(u_short linger_sec);
         
         CSocket();
         CSocket(int family_type);
@@ -126,15 +129,6 @@ namespace net {
         // Socket configuration and utility methods
         void ConfigureSocketForConnect();
         static bool IsValidSocket(socket_t s);
-        void SetSocketReusAddr();
-        static void SetSocketReusAddr(socket_t sock);
-        void SetSocketTCPNodelay();
-        void SetSocketLinger(u_short linger_sec);
-        
-        // Static versions for temporary sockets
-        static void SetSocketTCPNodelay(socket_t sock);
-        static void SetSocketLinger(socket_t sock, u_short linger_sec);
-        
         int SetSocketNonblocking(bool nonblocking);
         void SafeClearBuffer(char* buffer, std::size_t size);
         

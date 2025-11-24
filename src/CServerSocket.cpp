@@ -23,8 +23,8 @@ CServerSocket::CServerSocket() {
  * CServerSocket destructor
  */
 CServerSocket::~CServerSocket() {
-    if (IsValidSocket(this->sockfd)) {
-        CLOSE_SOCKET(this->sockfd);
+    if (IsValidSocket(this->server_socket)) {
+        CLOSE_SOCKET(this->server_socket);
     }
 }
 
@@ -116,7 +116,7 @@ bool CServerSocket::Listen(const char* address, int port) {
             if (listen_result == 0) {
                 // IPv6 listen succeeded - use it
                 std::fprintf(stderr, "Server listening on [%s]:%d (IPv6)\n", address, port);
-                this->sockfd = ipv6_sock;
+                this->server_socket = ipv6_sock;
                 return true;
             } else {
                 std::fprintf(stderr, "IPv6 listen failed: %d\n", GET_NET_SOCKET_ERROR());
@@ -131,9 +131,9 @@ bool CServerSocket::Listen(const char* address, int port) {
         return false;
     } else {
         // IPv4 address
-        this->sockfd = socket(AF_INET, CSocket::DefaultSocketType, 0);
+        this->server_socket = socket(AF_INET, CSocket::DefaultSocketType, 0);
         
-        if (!IsValidSocket(this->sockfd)) {
+        if (!IsValidSocket(this->server_socket)) {
             this->error_code = ERR_NOSOCKET;
             this->error_state = SOCK_CREATE;
             return false;
@@ -141,11 +141,11 @@ bool CServerSocket::Listen(const char* address, int port) {
 
         // Set SO_REUSEADDR
         int reuse = 1;
-        if (setsockopt(this->sockfd, SOL_SOCKET, SO_REUSEADDR, 
+        if (setsockopt(this->server_socket, SOL_SOCKET, SO_REUSEADDR, 
                        (const char*)&reuse, sizeof(reuse)) < 0) {
             this->error_code = GET_NET_SOCKET_ERROR();
             this->error_state = SOCK_ACCEPT;
-            CLOSE_SOCKET(this->sockfd);
+            CLOSE_SOCKET(this->server_socket);
             return false;
         }
 
@@ -159,31 +159,31 @@ bool CServerSocket::Listen(const char* address, int port) {
         int inet_pton_result = inet_pton(AF_INET, address, &addr4->sin_addr);
         if (inet_pton_result <= 0) {
             std::fprintf(stderr, "Invalid IPv4 address: %s\n", address);
-            CLOSE_SOCKET(this->sockfd);
+            CLOSE_SOCKET(this->server_socket);
             this->error_code = ERR_NOSOCKET;
             this->error_state = SOCK_BIND;
             return false;
         }
 
         // Bind socket to port
-        int bind_result = bind(this->sockfd, 
+        int bind_result = bind(this->server_socket, 
                               (struct sockaddr*)&this->serv_addr, 
                               sizeof(struct sockaddr_in));
         
         if (bind_result < 0) {
             this->error_code = GET_NET_SOCKET_ERROR();
             this->error_state = SOCK_BIND;
-            CLOSE_SOCKET(this->sockfd);
+            CLOSE_SOCKET(this->server_socket);
             return false;
         }
 
         // Start listening
-        int listen_result = listen(this->sockfd, SOMAXCONN);
+        int listen_result = listen(this->server_socket, SOMAXCONN);
         
         if (listen_result < 0) {
             this->error_code = GET_NET_SOCKET_ERROR();
             this->error_state = SOCK_ACCEPT;
-            CLOSE_SOCKET(this->sockfd);
+            CLOSE_SOCKET(this->server_socket);
             return false;
         }
 
@@ -211,14 +211,14 @@ CEventSocket* CServerSocket::Accept(CEventSocket* client_socket, bool blocking) 
         return nullptr;
     }
     
-    if (!IsValidSocket(this->sockfd)) {
+    if (!IsValidSocket(this->server_socket)) {
         return nullptr;
     }
 
     if (this->accept_timeout_ms > 0) {
         fd_set readset;
         FD_ZERO(&readset);
-        FD_SET(this->sockfd, &readset);
+        FD_SET(this->server_socket, &readset);
         
         timeval tv;
         tv.tv_sec = this->accept_timeout_ms / 1000;
@@ -228,7 +228,7 @@ CEventSocket* CServerSocket::Accept(CEventSocket* client_socket, bool blocking) 
 #ifdef PLATFORM_WINDOWS
         select_result = select(0, &readset, nullptr, nullptr, &tv);
 #else
-        select_result = select(this->sockfd + 1, &readset, nullptr, nullptr, &tv);
+        select_result = select(this->server_socket + 1, &readset, nullptr, nullptr, &tv);
 #endif
         
         if (select_result < 0) {
@@ -245,7 +245,7 @@ CEventSocket* CServerSocket::Accept(CEventSocket* client_socket, bool blocking) 
     struct sockaddr_storage client_addr;
     socklen_t addr_len = sizeof(client_addr);
     
-    socket_t client_fd = accept(this->sockfd, 
+    socket_t client_fd = accept(this->server_socket, 
                                (struct sockaddr*)&client_addr, 
                                &addr_len);
 
@@ -277,8 +277,8 @@ CEventSocket* CServerSocket::Accept(CEventSocket* client_socket, bool blocking) 
     client_socket->connected = true;
     
     // PERFORMANCE: Apply socket options for low-latency communication
-    CSocket::SetSocketTCPNodelay(client_fd);          // Disable Nagle's algorithm
-    CSocket::SetSocketLinger(client_fd, 0);           // Disable linger to avoid TIME_WAIT
+    client_socket->SetSocketTCPNodelay();          // Disable Nagle's algorithm
+    client_socket->SetSocketLinger(0);           // Disable linger to avoid TIME_WAIT
     
     client_socket->SetBlocking(blocking);
 
