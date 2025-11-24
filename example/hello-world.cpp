@@ -1,66 +1,79 @@
 /******************************************************************
- * hello-world.cpp - A simple simple "Hello World" server
- * Copyright (c) 2006-2018 Elden Armbrust
- ******************************************************************/
-#include <iostream>
-#include <libaeon.h>
-#include <signal.h>
+ * hello-world.cpp - A simple "Hello World" server using libaeon
+ * Copyright 2006-2025 (c) Elden Armbrust
+ * This software is licensed under the BSD software license.
+ *********************************************************************/
 
-//define the port to use.
+#include <libaeon.h>
+#include <iostream>
+#include <csignal>
+#include <cstdlib>
+#include <atomic>
+
 #define PORT 2300
 
-//to reduce requirements, basic signal handling is used in this example
-//however, a more robust signal handler should most likely be used
-static void signal_handler(int sig);
-static net::CServerSocket *__server;
-static net::CSocket *__client;
+// Global flag for signal handling
+static std::atomic<bool> shutdown_requested(false);
 
-int main()
-{
-    std::cout << "hello-world.cpp - A simple libaeon hello world server" << std::endl;
-    std::cout << "2007-2016 (c) Elden Armbrust (BSD License)" << std::endl;
-    std::cout << "Press Ctrl-C to exit." << std::endl;
-    net::CServerSocket *server = new net::CServerSocket();
-    __server = server;
-    if (server->Listen(PORT) != true) { //check to see if we can open the port
-        std::cout << "Error opening socket for listening on port " << PORT << "." << std::endl;
-        exit(EXIT_FAILURE); //return with failure
-    };
+// Forward declaration
+void signal_handler(int sig);
 
-    //here we create a new client socket to handle communications
-    net::CSocket *client = new net::CSocket();
-    __client = client;
-    if (signal(SIGINT, signal_handler) == SIG_ERR) {
-        std::cout << "Cannot create signal handler." << std::endl;
-        exit(EXIT_FAILURE);
+int main(void) {
+    std::cout << "hello-world.cpp - A simple libaeon hello world server\n";
+    std::cout << "2007-2025 (c) Elden Armbrust (BSD License)\n";
+    std::cout << "Press Ctrl-C to exit.\n";
+
+    // Set up signal handler for ctrl-c
+    if (std::signal(SIGINT, signal_handler) == SIG_ERR) {
+        std::cout << "Error: Cannot create signal handler.\n";
+        return EXIT_FAILURE;
     }
 
-    while (1) {
-        client = server->Accept();  //attempt to accept the connection
-        if (client->connected != false) { //check if the connection succeeded
-            std::cout << "Client accepted." << std::endl;
-            client->Write((char *)"Hello world!\n"); //send our hello world
-            client->Close(); //close the socket and prepare for another connection
-			std::cout << "Client connection closed." << std::endl;
+    // Create server socket
+    net::CServerSocket server;
+
+    // Check if we can open the port
+    if (!server.Listen(PORT)) {
+        std::cout << "Error: Failed to listen on port " << PORT << ".\n";
+        return EXIT_FAILURE;
+    }
+
+    std::cout << "Server listening on port " << PORT << ".\n";
+
+    // Main server loop
+    while (!shutdown_requested) {
+        // Accept incoming connection - returns unique_ptr for automatic cleanup
+        auto client = server.Accept();
+
+        if (client && client->connected) {
+            std::cout << "Client accepted.\n";
+            
+            // Send hello world message
+            int bytes_sent = client->Write("Hello world!\n");
+            if (bytes_sent > 0) {
+                std::cout << "Sent greeting (" << bytes_sent << " bytes).\n";
+            } else {
+                std::cout << "Error: Failed to send greeting.\n";
+            }
+            
+            // Close the connection
+            client->Close();
+            // No delete needed - unique_ptr handles cleanup automatically
+            std::cout << "Client connection closed.\n";
         }
-
+        // If client is nullptr or not connected, unique_ptr auto-deletes on scope exit
     }
-    exit(EXIT_SUCCESS); //exit successfully
+
+    std::cout << "Shutdown complete.\n";
+    return EXIT_SUCCESS;
 }
 
-
-static void signal_handler(int sig)
-{
-    //std::cout << "Got signal!" << std::endl;
-    switch (sig) {
-    case SIGINT:
-        std::cout << "Got SIGINT.  Shutting down gracefully." << std::endl;
-        __client->Close();
-        __server->Close();
-        std::cout << "Shutdown complete." << std::endl;
-        exit(EXIT_FAILURE);
-        break;
-    default:
-        break;
+/**
+ * Signal handler for SIGINT (ctrl-c)
+ */
+void signal_handler(int sig) {
+    if (sig == SIGINT) {
+        std::cout << "\nGot SIGINT. Shutting down gracefully.\n";
+        shutdown_requested = true;
     }
-};
+}

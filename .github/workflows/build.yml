@@ -1,0 +1,367 @@
+name: Build libaeon
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'master'
+      - 'develop'
+      - '*-devel'
+    tags:
+      - 'v*'
+      - '[0-9]+.[0-9]+.[0-9]+*'
+  pull_request:
+    types: [closed]
+    branches: 
+      - master
+      - development
+
+env:
+  PROJECT_NAME: libaeon
+  VERSION: ${{ github.ref_name }}
+
+jobs:
+  # Determine build context
+  build-context:
+    runs-on: ubuntu-latest
+    outputs:
+      is-work-branch: ${{ steps.context.outputs.is-work-branch }}
+      is-develop: ${{ steps.context.outputs.is-develop }}
+      is-master: ${{ steps.context.outputs.is-master }}
+      is-tag: ${{ steps.context.outputs.is-tag }}
+      version: ${{ steps.context.outputs.version }}
+      package-artifacts: ${{ steps.context.outputs.package-artifacts }}
+      create-release: ${{ steps.context.outputs.create-release }}
+    steps:
+      - name: Debug - Print GitHub context
+        run: |
+          echo "GitHub Ref: ${{ github.ref }}"
+          echo "GitHub Ref Name: ${{ github.ref_name }}"
+          echo "GitHub Event Name: ${{ github.event_name }}"
+          echo "GitHub Base Ref: ${{ github.base_ref }}"
+          echo "PR Merged: ${{ github.event.pull_request.merged }}"
+      
+      - name: Determine build context
+        id: context
+        run: |
+          GITHUB_REF="${{ github.ref }}"
+          GITHUB_REF_NAME="${{ github.ref_name }}"
+          EVENT_NAME="${{ github.event_name }}"
+          
+          # Handle PR merge events - use base_ref (target branch) instead of ref
+          if [[ "$EVENT_NAME" == "pull_request" && "${{ github.event.pull_request.merged }}" == "true" ]]; then
+            echo "Detected PR merge to: ${{ github.base_ref }}"
+            GITHUB_REF="refs/heads/${{ github.base_ref }}"
+            GITHUB_REF_NAME="${{ github.base_ref }}"
+          fi
+          
+          echo "Processing: $GITHUB_REF"
+          
+          # Check if this is a tag push
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "is-tag=true" >> $GITHUB_OUTPUT
+            VERSION="$GITHUB_REF_NAME"
+            echo "Detected TAG: $VERSION"
+          else
+            echo "is-tag=false" >> $GITHUB_OUTPUT
+            VERSION="$GITHUB_REF_NAME"
+            echo "Detected BRANCH: $VERSION"
+          fi
+          
+          # Check branch type
+          if [[ "$GITHUB_REF" == refs/heads/*-devel ]]; then
+            echo "TYPE: Work branch (*-devel)"
+            echo "is-work-branch=true" >> $GITHUB_OUTPUT
+            echo "is-develop=false" >> $GITHUB_OUTPUT
+            echo "is-master=false" >> $GITHUB_OUTPUT
+            echo "package-artifacts=false" >> $GITHUB_OUTPUT
+            echo "create-release=false" >> $GITHUB_OUTPUT
+          elif [[ "$GITHUB_REF" == refs/heads/develop ]]; then
+            echo "TYPE: Develop branch"
+            echo "is-work-branch=false" >> $GITHUB_OUTPUT
+            echo "is-develop=true" >> $GITHUB_OUTPUT
+            echo "is-master=false" >> $GITHUB_OUTPUT
+            echo "package-artifacts=true" >> $GITHUB_OUTPUT
+            echo "create-release=false" >> $GITHUB_OUTPUT
+          elif [[ "$GITHUB_REF" == refs/heads/master ]]; then
+            echo "TYPE: Master branch"
+            echo "is-work-branch=false" >> $GITHUB_OUTPUT
+            echo "is-develop=false" >> $GITHUB_OUTPUT
+            echo "is-master=true" >> $GITHUB_OUTPUT
+            echo "package-artifacts=true" >> $GITHUB_OUTPUT
+            # Only create release if this is a tag push to master
+            if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+              echo "create-release=true" >> $GITHUB_OUTPUT
+            else
+              echo "create-release=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "TYPE: Other/PR"
+            echo "is-work-branch=false" >> $GITHUB_OUTPUT
+            echo "is-develop=false" >> $GITHUB_OUTPUT
+            echo "is-master=false" >> $GITHUB_OUTPUT
+            echo "package-artifacts=false" >> $GITHUB_OUTPUT
+            echo "create-release=false" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+  # Linux builds - multi-architecture
+  build-linux:
+    needs: build-context
+    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # x64 GCC
+          - arch: x64
+            cc: gcc
+            cxx: g++
+            cmake_args: ""
+            toolchain_install: "build-essential cmake"
+          # x64 Clang
+          - arch: x64
+            cc: clang
+            cxx: clang++
+            cmake_args: ""
+            toolchain_install: "build-essential cmake clang"
+          # x86 (32-bit)
+          - arch: x86
+            cc: gcc
+            cxx: g++
+            cmake_args: "-DCMAKE_CXX_FLAGS=-m32 -DCMAKE_C_FLAGS=-m32"
+            toolchain_install: "build-essential cmake gcc-multilib g++-multilib"
+          # ARM (ARMv7)
+          - arch: arm
+            cc: arm-linux-gnueabihf-gcc
+            cxx: arm-linux-gnueabihf-g++
+            cmake_args: "-DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=armv7l -DCMAKE_CXX_COMPILER=arm-linux-gnueabihf-g++ -DCMAKE_C_COMPILER=arm-linux-gnueabihf-gcc"
+            toolchain_install: "build-essential cmake gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf"
+          # ARM64 (aarch64)
+          - arch: arm64
+            cc: aarch64-linux-gnu-gcc
+            cxx: aarch64-linux-gnu-g++
+            cmake_args: "-DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64 -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc"
+            toolchain_install: "build-essential cmake gcc-aarch64-linux-gnu g++-aarch64-linux-gnu"
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref }}
+      
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y ${{ matrix.toolchain_install }}
+      
+      - name: Create build directory
+        run: mkdir -p build
+      
+      - name: Configure CMake
+        run: cd build && cmake .. -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake_args }}
+      
+      - name: Build
+        run: cd build && cmake --build . --config Release
+      
+      - name: Package artifacts (develop/master only)
+        if: needs.build-context.outputs.package-artifacts == 'true'
+        run: |
+          cd build
+          tar -czf ${{ env.PROJECT_NAME }}-linux-${{ matrix.arch }}.tar.gz \
+            lib* src/ example/ CMakeLists.txt README* LICENSE* || true
+      
+      - name: Upload artifacts
+        if: needs.build-context.outputs.package-artifacts == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.arch }}-build
+          path: build/${{ env.PROJECT_NAME }}-linux-${{ matrix.arch }}.tar.gz
+          retention-days: 30
+
+  # Windows builds - multi-architecture
+  build-windows:
+    needs: build-context
+    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - arch: x86
+            cmake_arch: Win32
+          - arch: x64
+            cmake_arch: x64
+          - arch: arm64
+            cmake_arch: ARM64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref }}
+      
+      - name: Create build directory
+        run: mkdir -p build
+      
+      - name: Configure CMake (MSVC)
+        run: cd build && cmake .. -G "Visual Studio 17 2022" -A ${{ matrix.cmake_arch }} -DCMAKE_BUILD_TYPE=Release
+      
+      - name: Build
+        run: cd build && cmake --build . --config Release
+      
+      - name: Package artifacts (develop/master only)
+        if: needs.build-context.outputs.package-artifacts == 'true'
+        shell: pwsh
+        run: |
+          cd build
+          if (Test-Path "Release") {
+            Compress-Archive -Path "Release\*", "..\src\", "..\example\", "..\CMakeLists.txt", "..\README*", "..\LICENSE*" `
+              -DestinationPath "${{ env.PROJECT_NAME }}-windows-${{ matrix.arch }}.zip" -Force
+          } else {
+            Compress-Archive -Path "*", "..\src\", "..\example\", "..\CMakeLists.txt", "..\README*", "..\LICENSE*" `
+              -DestinationPath "${{ env.PROJECT_NAME }}-windows-${{ matrix.arch }}.zip" -Force
+          }
+      
+      - name: Upload artifacts
+        if: needs.build-context.outputs.package-artifacts == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}-build
+          path: build/${{ env.PROJECT_NAME }}-windows-${{ matrix.arch }}.zip
+          retention-days: 30
+
+  # macOS builds - multi-architecture
+  build-macos:
+    needs: build-context
+    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
+    strategy:
+      matrix:
+        include:
+          - arch: intel
+            runner: macos-14
+          - arch: apple-silicon
+            runner: macos-latest
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref }}
+      
+      - name: Install dependencies
+        run: brew install cmake
+      
+      - name: Create build directory
+        run: mkdir -p build
+      
+      - name: Configure CMake
+        run: cd build && cmake .. -DCMAKE_BUILD_TYPE=Release
+      
+      - name: Build
+        run: cd build && cmake --build . --config Release
+      
+      - name: Package artifacts (develop/master only)
+        if: needs.build-context.outputs.package-artifacts == 'true'
+        run: |
+          cd build
+          tar -czf ${{ env.PROJECT_NAME }}-macos-${{ matrix.arch }}.tar.gz \
+            lib* src/ example/ CMakeLists.txt README* LICENSE* || true
+      
+      - name: Upload artifacts
+        if: needs.build-context.outputs.package-artifacts == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}-build
+          path: build/${{ env.PROJECT_NAME }}-macos-${{ matrix.arch }}.tar.gz
+          retention-days: 30
+
+  # MinGW build (legacy, can be expanded if needed)
+  build-mingw:
+    needs: build-context
+    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref }}
+      
+      - name: Install MinGW
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-make
+      
+      - name: Create build directory
+        shell: msys2 {0}
+        run: mkdir -p build
+      
+      - name: Configure CMake
+        shell: msys2 {0}
+        run: cd build && cmake .. -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
+      
+      - name: Build
+        shell: msys2 {0}
+        run: cd build && cmake --build .
+      
+      - name: Package artifacts (develop/master only)
+        if: needs.build-context.outputs.package-artifacts == 'true'
+        shell: msys2 {0}
+        run: |
+          cd build
+          tar -czf ${{ env.PROJECT_NAME }}-mingw64.tar.gz \
+            lib* src/ example/ CMakeLists.txt README* LICENSE* || true
+      
+      - name: Upload artifacts
+        if: needs.build-context.outputs.package-artifacts == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mingw64-build
+          path: build/${{ env.PROJECT_NAME }}-mingw64.tar.gz
+          retention-days: 30
+
+  # Release job - runs only on master with a tag
+  create-release:
+    needs: [build-context, build-linux, build-windows, build-macos, build-mingw]
+    if: needs.build-context.outputs.create-release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref }}
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+      
+      - name: Prepare release notes
+        id: release-notes
+        run: |
+          VERSION="${{ needs.build-context.outputs.version }}"
+          echo "Release: $VERSION" > release_notes.md
+          echo "" >> release_notes.md
+          echo "## Build Artifacts" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "This release includes compiled binaries for:" >> release_notes.md
+          echo "### Linux" >> release_notes.md
+          echo "- x86 (32-bit)" >> release_notes.md
+          echo "- x64 (64-bit, GCC and Clang)" >> release_notes.md
+          echo "- ARM (ARMv7)" >> release_notes.md
+          echo "- ARM64 (aarch64)" >> release_notes.md
+          echo "### Windows" >> release_notes.md
+          echo "- x86 (32-bit MSVC)" >> release_notes.md
+          echo "- x64 (64-bit MSVC)" >> release_notes.md
+          echo "- ARM64 (MSVC)" >> release_notes.md
+          echo "- MinGW64" >> release_notes.md
+          echo "### macOS" >> release_notes.md
+          echo "- Intel" >> release_notes.md
+          echo "- Apple Silicon" >> release_notes.md
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/*/*.tar.gz
+            artifacts/*/*.zip
+          body_path: release_notes.md
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

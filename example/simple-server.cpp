@@ -1,56 +1,94 @@
 /******************************************************************
- * simple-server.cpp - A simple "Hello world!" server using libaeon
- * Copyright (c) 2006-2018 Elden Armbrust
- ******************************************************************/
+ * simple-server.cpp - Event-driven server using CEventSocket
+ * Demonstrates the proper way to use libaeon for medical-grade resilience
+ * No timeouts, no polling loops, just event-driven I/O with callbacks
+ * Copyright 2006-2025 (c) Elden Armbrust
+ * This software is licensed under the BSD software license.
+ *********************************************************************/
 
 #include <libaeon.h>
-#define SERVER_PORT 2300
-class clientSocket : public net::CEventSocket
-{
-    bool OnRead(const char* buffer, int size);
-};
+#include <iostream>
+#include <cstdio>
+#include <csignal>
+#include <atomic>
+#include <memory>
+#include <thread>
+#include <chrono>
 
-bool clientSocket::OnRead(const char* buffer, int size)
-{
-    printf("Client said: %s\r\n", buffer);
-    return true;
+#define SERVER_PORT 2300
+
+static std::atomic<bool> shutdown_requested(false);
+
+void signal_handler(int sig) {
+    if (sig == SIGINT) {
+        std::cout << "\n*** Shutdown requested...\n";
+        shutdown_requested = true;
+    }
 }
 
-int main(void)
-{
-    int iConnectionCount = 0;
-    net::CServerSocket* server = new net::CServerSocket();
+int main(void) {
+    std::cout << "Event-driven server using CEventSocket\n";
+    std::cout << "Listening on port " << SERVER_PORT << "\n";
+    std::cout << "Press Ctrl-C to exit.\n";
 
-    net::CEventSocketSet* socketset = new net::CEventSocketSet();
-    if (server->Listen(SERVER_PORT) == false) {
-        printf("Error when opening port.\r\n");
-        delete server;
-        delete socketset;
+    if (std::signal(SIGINT, signal_handler) == SIG_ERR) {
+        std::cout << "Error: Cannot create signal handler.\n";
         return EXIT_FAILURE;
     }
-    printf("Waiting for connection...\r\n");
-    while (1) {
-        socketset->Add((net::CEventSocket*)(new clientSocket));
 
-        // clientSocket = socketset->Sockets[socketset->Size()-1];
-        socketset->Sockets[socketset->Size() - 1] = (clientSocket*)server->Accept();
-        if (socketset->Sockets[socketset->Size() - 1]->connected == true) {
-            ++iConnectionCount;
+    net::CServerSocket server;
 
-            printf("Client %d accepted...\r\n", iConnectionCount);
-        } else if (socketset->Sockets[socketset->Size() - 1]->sockfd < 0) {
-            printf("Socket error!\r\n");
-        }
-        if (socketset->Sockets[socketset->Size() - 1]->connected == true) {
-            if (socketset->Sockets[socketset->Size() - 1]->Write((char *)"Hello, world!\r\n") == -1) {
-                printf("Error sending data to client!\r\n");
-            }
-        }
-        socketset->Poll();
-
-        // server->Close();
-
+    if (!server.Listen(SERVER_PORT)) {
+        std::fprintf(stderr, "Error: Failed to listen on port %d\n", SERVER_PORT);
+        return EXIT_FAILURE;
     }
-    delete server;
-    delete socketset;
+
+    std::cout << "Server listening...\n";
+
+    // Make Accept() non-blocking - returns immediately if no pending connections
+    // This allows the main loop to check shutdown_requested without artificial timeouts
+    server.SetBlocking(false);
+    
+    net::CEventSocketSet client_sockets;
+    int connection_count = 0;
+
+    // Main server loop - event-driven
+    while (!shutdown_requested) {
+        // Accept new connections - returns unique_ptr, transfer ownership to set
+        auto client = server.Accept();
+        
+        if (client && client->connected) {
+            ++connection_count;
+            std::printf("Client %d accepted\n", connection_count);
+            
+            // Configure socket
+            client->SetTCPNodelay(true);
+            
+            std::printf("About to send greeting - client->connected=%d, sockfd=%d\n", client->connected, (int)client->sockfd);
+
+            // Send greeting
+            int bytes_sent = client->Write("Hello, world!\r\n");
+            if (bytes_sent > 0) {
+                std::printf("Sent greeting to client %d (%d bytes)\n", 
+                           connection_count, bytes_sent);
+            }
+            
+            // Transfer ownership to managed set via release()
+            // The set will clean up the pointer in Cleanup()
+            client_sockets.Add(client.release());
+            
+        }
+        
+        // Poll all connected clients
+        client_sockets.Poll();
+        
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    // Cleanup
+    client_sockets.Cleanup();
+    server.Close();
+    
+    std::cout << "Server shutdown complete.\n";
+    return EXIT_SUCCESS;
 }
