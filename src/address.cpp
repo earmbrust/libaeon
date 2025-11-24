@@ -1,7 +1,5 @@
-#ifndef _CADDRESS_CPP
-#define _CADDRESS_CPP
 
-#include "libaeon.h"
+#include <net.h>
 #include <cstring>
 #include <stdexcept>
 
@@ -10,21 +8,21 @@ namespace net {
 /**
  * Default constructor - creates empty address
  */
-CAddress::CAddress() : family(0) {
+address::address() : family(0) {
     std::memset(&addr, 0, sizeof(addr));
 }
 
 /**
  * Constructor from sockaddr_storage
  */
-CAddress::CAddress(const sockaddr_storage& src_addr) : addr(src_addr) {
+address::address(const sockaddr_storage& src_addr) : addr(src_addr) {
     family = src_addr.ss_family;
 }
 
 /**
  * Constructor from sockaddr_in (IPv4)
  */
-CAddress::CAddress(const sockaddr_in& src_addr) {
+address::address(const sockaddr_in& src_addr) {
     family = AF_INET;
     std::memset(&addr, 0, sizeof(addr));
     std::memcpy(&addr, &src_addr, sizeof(sockaddr_in));
@@ -33,17 +31,17 @@ CAddress::CAddress(const sockaddr_in& src_addr) {
 /**
  * Constructor from sockaddr_in6 (IPv6)
  */
-CAddress::CAddress(const sockaddr_in6& src_addr) {
+address::address(const sockaddr_in6& src_addr) {
     family = AF_INET6;
     std::memset(&addr, 0, sizeof(addr));
     std::memcpy(&addr, &src_addr, sizeof(sockaddr_in6));
 }
 
-bool CAddress::IsIPv4() const {
+bool address::is_ipv4() const {
     return family == AF_INET;
 }
 
-bool CAddress::IsIPv6() const {
+bool address::is_ipv6() const {
     return family == AF_INET6;
 }
 
@@ -51,7 +49,7 @@ bool CAddress::IsIPv6() const {
  * Get address as string representation
  * Returns "a.b.c.d" for IPv4 or "x:x:x:x:x:x:x:x" for IPv6
  */
-std::string CAddress::GetString() const {
+std::string address::get_string() const {
     char buffer[INET6_ADDRSTRLEN];
     
     if (family == AF_INET) {
@@ -71,7 +69,7 @@ std::string CAddress::GetString() const {
  * Get port number
  * Works for both IPv4 and IPv6
  */
-uint16_t CAddress::GetPort() const {
+std::uint16_t address::get_port() const {
     if (family == AF_INET) {
         sockaddr_in* addr4 = (sockaddr_in*)&addr;
         return ntohs(addr4->sin_port);
@@ -86,8 +84,8 @@ uint16_t CAddress::GetPort() const {
  * Set port number
  * Works for both IPv4 and IPv6
  */
-void CAddress::SetPort(uint16_t port) {
-    uint16_t port_nbo = htons(port);
+void address::set_port(std::uint16_t port) {
+    std::uint16_t port_nbo = htons(port);
     
     if (family == AF_INET) {
         sockaddr_in* addr4 = (sockaddr_in*)&addr;
@@ -98,7 +96,7 @@ void CAddress::SetPort(uint16_t port) {
     }
 }
 
-sockaddr_storage CAddress::GetSockaddrStorage() const {
+sockaddr_storage address::get_sockaddr_storage() const {
     return addr;
 }
 
@@ -106,9 +104,9 @@ sockaddr_storage CAddress::GetSockaddrStorage() const {
  * Get as sockaddr_in (IPv4)
  * Throws if this is not an IPv4 address
  */
-sockaddr_in CAddress::GetSockaddrIPv4() const {
+sockaddr_in address::get_sockaddr_ipv4() const {
     if (family != AF_INET) {
-        throw std::runtime_error("CAddress is not IPv4");
+        throw std::runtime_error("address is not IPv4");
     }
     return *(sockaddr_in*)&addr;
 }
@@ -117,13 +115,12 @@ sockaddr_in CAddress::GetSockaddrIPv4() const {
  * Get as sockaddr_in6 (IPv6)
  * Throws if this is not an IPv6 address
  */
-sockaddr_in6 CAddress::GetSockaddrIPv6() const {
+sockaddr_in6 address::get_sockaddr_ipv6() const {
     if (family != AF_INET6) {
-        throw std::runtime_error("CAddress is not IPv6");
+        throw std::runtime_error("address is not IPv6");
     }
     return *(sockaddr_in6*)&addr;
 }
 
 } // namespace net
 
-#endif // _CADDRESS_CPP

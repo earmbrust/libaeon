@@ -7,40 +7,40 @@
 #ifndef _CSOCKET_UDP
 #define _CSOCKET_UDP
 
-#include "libaeon.h"
+#include <net.h>
 #include <cstring>
 
 namespace net {
 
 
 /**
- * CSocketUDP default constructor - creates UDP socket
+ * udp_socket default constructor - creates UDP socket
  */
-CSocketUDP::CSocketUDP() {
-    // Parent CSocket constructor already initialized:
+udp_socket::udp_socket() {
+    // Parent socket constructor already initialized:
     // net_family, connected, blocking, n, port, error_code, error_state, token_size
     
     // Close the TCP socket created by parent constructor
-    // CSocketUDP needs a UDP (datagram) socket instead
-    if (IsValidSocket(this->sockfd)) {
-        CLOSE_SOCKET(this->sockfd);
+    // udp_socket needs a UDP (datagram) socket instead
+    if (is_valid_socket(this->sockfd)) {
+        NET_CLOSE_SOCKET(this->sockfd);
     }
 
     // Create UDP (datagram) socket
-    this->sockfd = socket(CSocket::DefaultFamilyType, CSocket::DatagramSocketType, 0);
+    this->sockfd = ::socket(socket::default_family, socket::datagram_type, 0);
     
-    if (!IsValidSocket(this->sockfd)) {
-        this->error_code = ERR_NOSOCKET;
-        this->error_state = SOCK_CREATE;
+    if (!socket::is_valid_socket(this->sockfd)) {
+        this->error_code = err_no_socket;
+        this->error_state = state_create;
         return;
     }
 
     // PERFORMANCE: Set SO_REUSEADDR for rapid rebinding on UDP
     // Allows immediate port reuse after close (especially useful for UDP servers/clients)
-    this->SetSocketReusAddr();
+    this->set_socket_reuseaddr();
 
-    SafeClearBuffer(this->inbuffer, CSocket::MaxBufferSize);
-    SafeClearBuffer(this->outbuffer, CSocket::MaxBufferSize);
+    this->safe_clear_buffer(this->inbuffer, socket::max_buffer_size);
+    this->safe_clear_buffer(this->outbuffer, socket::max_buffer_size);
 }
 
 /**
@@ -49,8 +49,8 @@ CSocketUDP::CSocketUDP() {
  * \param size Number of bytes to write
  * \return Number of bytes sent
  */
-int CSocketUDP::Write(char* data, int size) {
-    if (!data || !IsValidSocket(this->sockfd) || size <= 0) {
+int udp_socket::write(char* data, int size) {
+    if (!data || !socket::is_valid_socket(this->sockfd) || size <= 0) {
         return NET_SOCKET_ERROR;
     }
 
@@ -58,7 +58,7 @@ int CSocketUDP::Write(char* data, int size) {
                         ? sizeof(struct sockaddr_in6) 
                         : sizeof(struct sockaddr_in);
 
-    int bytesSent = static_cast<int>(sendto(this->sockfd, data, size, CSocket::NULLFlag, 
+    int bytesSent = static_cast<int>(sendto(this->sockfd, data, size, 0, 
                           (struct sockaddr*)&this->remote_addr, 
                           addr_len));
     return bytesSent;
@@ -70,8 +70,8 @@ int CSocketUDP::Write(char* data, int size) {
  * \param size Number of bytes to write
  * \return Number of bytes sent
  */
-int CSocketUDP::Write(const char* data, int size) {
-    return this->Write(const_cast<char*>(data), size);
+int udp_socket::write(const char* data, int size) {
+    return this->write(const_cast<char*>(data), size);
 }
 
 /**
@@ -79,8 +79,8 @@ int CSocketUDP::Write(const char* data, int size) {
  * \param data Pointer to null-terminated string
  * \return Number of bytes sent
  */
-int CSocketUDP::Write(char* data) {
-    if (!data || !IsValidSocket(this->sockfd)) {
+int udp_socket::write(char* data) {
+    if (!data || !socket::is_valid_socket(this->sockfd)) {
         return NET_SOCKET_ERROR;
     }
 
@@ -94,7 +94,7 @@ int CSocketUDP::Write(char* data) {
                         : sizeof(struct sockaddr_in);
 
     int bytesSent = static_cast<int>(sendto(this->sockfd, data, static_cast<int>(len), 
-                          CSocket::NULLFlag,
+                          0,
                           (struct sockaddr*)&this->remote_addr, 
                           addr_len));
     return bytesSent;
@@ -105,8 +105,8 @@ int CSocketUDP::Write(char* data) {
  * \param data Pointer to null-terminated string
  * \return Number of bytes sent
  */
-int CSocketUDP::Write(const char* data) {
-    return this->Write(const_cast<char*>(data));
+int udp_socket::write(const char* data) {
+    return this->write(const_cast<char*>(data));
 }
 
 /**
@@ -114,8 +114,8 @@ int CSocketUDP::Write(const char* data) {
  * \param data std::string to write
  * \return Number of bytes sent
  */
-int CSocketUDP::Write(const std::string& data) {
-    if (!IsValidSocket(this->sockfd) || data.empty()) {
+int udp_socket::write(const std::string& data) {
+    if (!socket::is_valid_socket(this->sockfd) || data.empty()) {
         return NET_SOCKET_ERROR;
     }
 
@@ -124,7 +124,7 @@ int CSocketUDP::Write(const std::string& data) {
                         : sizeof(struct sockaddr_in);
 
     int bytesSent = static_cast<int>(sendto(this->sockfd, data.c_str(), static_cast<int>(data.size()), 
-                          CSocket::NULLFlag,
+                          0,
                           (struct sockaddr*)&this->remote_addr, 
                           addr_len));
     return bytesSent;
@@ -136,21 +136,21 @@ int CSocketUDP::Write(const std::string& data) {
  * \param size Maximum number of bytes to read
  * \return Number of bytes read
  */
-int CSocketUDP::Read(char* buffer, int size) {
-    if (!buffer || !IsValidSocket(this->sockfd) || size <= 0) {
+int udp_socket::read(char* buffer, int size) {
+    if (!buffer || !socket::is_valid_socket(this->sockfd) || size <= 0) {
         return NET_SOCKET_ERROR;
     }
 
     // Validate and clamp size to prevent buffer overflow
     // Protect against INT_MAX and unreasonably large read sizes
-    int safe_size = (size > CSocket::MaxBufferSize) 
-                  ? CSocket::MaxBufferSize 
+    int safe_size = (size > socket::max_buffer_size) 
+                  ? socket::max_buffer_size 
                   : size;
 
-    SafeClearBuffer(buffer, safe_size);
+    this->safe_clear_buffer(buffer, safe_size);
     socklen_t sockaddr_size = sizeof(struct sockaddr_storage);
     
-    int bytesRead = static_cast<int>(recvfrom(this->sockfd, buffer, safe_size, CSocket::NULLFlag, 
+    int bytesRead = static_cast<int>(recvfrom(this->sockfd, buffer, safe_size, 0, 
                             (struct sockaddr*)&this->remote_addr, &sockaddr_size));
     
     this->n = bytesRead;
@@ -159,7 +159,7 @@ int CSocketUDP::Read(char* buffer, int size) {
         this->connected = false;
     } else if (bytesRead < 0) {
         this->error_code = GET_NET_SOCKET_ERROR();
-        this->error_state = SOCK_ACCEPT;
+        this->error_state = state_accept;
     }
     
     return bytesRead;
@@ -170,23 +170,23 @@ int CSocketUDP::Read(char* buffer, int size) {
  * \param size Maximum number of bytes to read
  * \return std::string containing read data
  */
-std::string CSocketUDP::Read(int size) {
+std::string udp_socket::read(int size) {
     std::string retVal;
     
-    if (!IsValidSocket(this->sockfd) || size <= 0) {
+    if (!socket::is_valid_socket(this->sockfd) || size <= 0) {
         return retVal;
     }
 
     // Validate and clamp size to prevent buffer overflow
     // Protect against INT_MAX and values exceeding MaxBufferSize
-    int safe_size = (size > CSocket::MaxBufferSize - 1) 
-                  ? CSocket::MaxBufferSize - 1 
+    int safe_size = (size > socket::max_buffer_size - 1) 
+                  ? socket::max_buffer_size - 1 
                   : size;
 
-    SafeClearBuffer(this->inbuffer, CSocket::MaxBufferSize);
+    this->safe_clear_buffer(this->inbuffer, socket::max_buffer_size);
     socklen_t sockaddr_size = sizeof(struct sockaddr_storage);
     
-    int bytesRead = static_cast<int>(recvfrom(this->sockfd, this->inbuffer, safe_size, CSocket::NULLFlag, 
+    int bytesRead = static_cast<int>(recvfrom(this->sockfd, this->inbuffer, safe_size, 0, 
                             (struct sockaddr*)&this->remote_addr, &sockaddr_size));
     
     this->n = bytesRead;
@@ -198,7 +198,7 @@ std::string CSocketUDP::Read(int size) {
         this->connected = false;
     } else {
         this->error_code = GET_NET_SOCKET_ERROR();
-        this->error_state = SOCK_ACCEPT;
+        this->error_state = state_accept;
     }
     
     return retVal;
@@ -208,8 +208,8 @@ std::string CSocketUDP::Read(int size) {
  * Read data from UDP socket into internal buffer
  * \return Number of bytes read
  */
-int CSocketUDP::Read() {
-    return this->Read(this->inbuffer, CSocket::MaxBufferSize - 1);
+int udp_socket::read() {
+    return this->read(this->inbuffer, socket::max_buffer_size - 1);
 }
 
 }  // namespace net

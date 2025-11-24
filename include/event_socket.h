@@ -4,21 +4,23 @@
  * This software is licensed under the BSD software license.
  *********************************************************************/
 
-#ifndef _CSERVER_SOCKET_UDP_H
-#define _CSERVER_SOCKET_UDP_H
+#pragma once
 
-#include "CSocketUDP.h"
+#include "socket.h"
 
 namespace net {
-    class CServerSocketUDP : public CSocketUDP {
-    public:
-        CServerSocketUDP();
-        ~CServerSocketUDP();
-        bool Listen();
-        bool Listen(int port);
-    protected:
-        struct sockaddr_storage serv_addr;
-    };
-}
 
-#endif // _CSERVER_SOCKET_UDP_H
+    class event_socket : public socket {
+    public:
+        bool poll();
+
+        int write(char* data);
+        int write(const char* data);
+        int write(const std::string& data);
+
+    protected:
+        virtual bool on_read(const char* buffer, int size);
+        virtual void on_write(const char* buffer, int size, int sentsize);
+    };
+
+} // namespace net

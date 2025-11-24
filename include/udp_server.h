@@ -4,14 +4,19 @@
  * This software is licensed under the BSD software license.
  *********************************************************************/
 
-#include <net.h>
+#pragma once
 
-// Stringification macros to convert version numbers to string
-#define STR_(x) #x
-#define STR(x) STR_(x)
+#include "udp_socket.h"
 
 namespace net {
-    const char* GetLibraryVersion() {
-        return STR(VERSION);
+
+    class udp_server : public udp_socket {
+    public:
+        udp_server();
+        virtual ~udp_server();
+
+        bool listen(int port);
+        bool listen();
     };
-}
+
+} // namespace net

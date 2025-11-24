@@ -4,10 +4,8 @@
  * This software is licensed under the BSD software license.
  *********************************************************************/
 
-#ifndef _CEVENT_SOCKET_CPP
-#define _CEVENT_SOCKET_CPP
 
-#include "libaeon.h"
+#include <net.h>
 #include <cstring>
 
 namespace net {
@@ -21,29 +19,29 @@ namespace net {
  * then calls the OnRead() member function with the data.
  * Override OnRead() in derived classes to handle incoming data.
  */
-bool CEventSocket::Poll() {
-    if (!IsValidSocket(this->sockfd)) {
+bool event_socket::poll() {
+    if (!this->is_valid_socket()) {
         return false;
     }
 
-    this->SafeClearBuffer(this->inbuffer, CSocket::MaxBufferSize);
-    int bytesRead = recv(this->sockfd, this->inbuffer, CSocket::MaxBufferSize, 0);
+    this->safe_clear_buffer(this->inbuffer, socket::max_buffer_size);
+    int bytesRead = recv(this->sockfd, this->inbuffer, socket::max_buffer_size, 0);
     this->n = bytesRead;
 
     // Handle error and disconnect cases - don't pass negative values to callback
     if (bytesRead <= 0) {
         if (bytesRead < 0) {
             this->error_code = GET_NET_SOCKET_ERROR();
-            this->error_state = SOCK_ACCEPT;
+            this->error_state = state_accept;
         } else {
             this->connected = false;
         }
         // Don't process on error or disconnect
-        return this->OnRead(nullptr, 0);
+        return this->on_read(nullptr, 0);
     }
 
     // Call the OnRead callback with valid data
-    return this->OnRead(this->inbuffer, bytesRead);
+    return this->on_read(this->inbuffer, bytesRead);
 }
 
 /**
@@ -53,8 +51,8 @@ bool CEventSocket::Poll() {
  * 
  * Sends data to the socket and calls the OnWrite() callback
  */
-int CEventSocket::Write(char* data) {
-    if (!data || !IsValidSocket(this->sockfd)) {
+int event_socket::write(char* data) {
+    if (!data || !this->is_valid_socket()) {
         return NET_SOCKET_ERROR;
     }
 
@@ -67,14 +65,14 @@ int CEventSocket::Write(char* data) {
     
     if (bytesSent < 0) {
         this->error_code = GET_NET_SOCKET_ERROR();
-        this->error_state = SOCK_CONNECT;
+        this->error_state = state_connect;
         // Call callback with 0 bytes sent on error, not -1
-        this->OnWrite(data, static_cast<int>(len), 0);
+        this->on_write(data, static_cast<int>(len), 0);
         return bytesSent;
     }
 
     // Call the OnWrite callback with actual bytes sent
-    this->OnWrite(data, static_cast<int>(len), bytesSent);
+    this->on_write(data, static_cast<int>(len), bytesSent);
     return bytesSent;
 }
 
@@ -83,8 +81,8 @@ int CEventSocket::Write(char* data) {
  * \param data Pointer to null-terminated const string to write
  * \return The number of bytes written
  */
-int CEventSocket::Write(const char* data) {
-    return this->Write(const_cast<char*>(data));
+int event_socket::write(const char* data) {
+    return this->write(const_cast<char*>(data));
 }
 
 /**
@@ -94,8 +92,8 @@ int CEventSocket::Write(const char* data) {
  * 
  * Sends string data to the socket and calls the OnWrite() callback
  */
-int CEventSocket::Write(const std::string& data) {
-    if (!IsValidSocket(this->sockfd) || data.empty()) {
+int event_socket::write(const std::string& data) {
+    if (!this->is_valid_socket() || data.empty()) {
         return NET_SOCKET_ERROR;
     }
 
@@ -103,14 +101,14 @@ int CEventSocket::Write(const std::string& data) {
     
     if (bytesSent < 0) {
         this->error_code = GET_NET_SOCKET_ERROR();
-        this->error_state = SOCK_CONNECT;
+        this->error_state = state_connect;
         // Call callback with 0 bytes sent on error, not -1
-        this->OnWrite(data.c_str(), static_cast<int>(data.size()), 0);
+        this->on_write(data.c_str(), static_cast<int>(data.size()), 0);
         return bytesSent;
     }
 
     // Call the OnWrite callback with actual bytes sent
-    this->OnWrite(data.c_str(), static_cast<int>(data.size()), bytesSent);
+    this->on_write(data.c_str(), static_cast<int>(data.size()), bytesSent);
     return bytesSent;
 }
 
@@ -123,7 +121,7 @@ int CEventSocket::Write(const std::string& data) {
  * Override this method in derived classes to handle incoming data.
  * Return false to stop the polling mechanism.
  */
-bool CEventSocket::OnRead(const char* buffer, int size) {
+bool event_socket::on_read(const char* buffer, int size) {
     (void)buffer;  // Suppress unused parameter warning
     (void)size;
     return false;
@@ -137,12 +135,10 @@ bool CEventSocket::OnRead(const char* buffer, int size) {
  * 
  * Override this method in derived classes to handle send completion.
  */
-void CEventSocket::OnWrite(const char* buffer, int size, int sentsize) {
+void event_socket::on_write(const char* buffer, int size, int sentsize) {
     (void)buffer;       // Suppress unused parameter warning
     (void)size;
     (void)sentsize;
 }
 
 }  // namespace net
-
-#endif  // _CEVENT_SOCKET_CPP
