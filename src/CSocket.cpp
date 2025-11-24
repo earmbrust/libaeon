@@ -295,6 +295,14 @@ int CSocket::GetRemotePort() const {
 }
 
 /**
+ * GetRemoteAddress returns the remote address as a CAddress object
+ * \return CAddress wrapping the remote peer's address and port
+ */
+CAddress CSocket::GetRemoteAddress() const {
+    return CAddress(remote_addr);
+}
+
+/**
  * CSocket constructor - initializes socket with default settings
  */
 CSocket::CSocket() {

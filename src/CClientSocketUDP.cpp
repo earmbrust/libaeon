@@ -53,13 +53,11 @@ CClientSocketUDP::~CClientSocketUDP() {
  * \return true if setup succeeded, false otherwise
  */
 bool CClientSocketUDP::Connect(const char* hostname, int port) {
-    // Validate port range
     if (!IsValidPort(port)) {
         this->error_code = ERR_NOSOCKET;
         this->error_state = SOCK_CONNECT;
         return false;
     }
-
     this->remote_host = hostname;
     this->port = port;
     return this->Connect();
@@ -67,63 +65,81 @@ bool CClientSocketUDP::Connect(const char* hostname, int port) {
 
 /**
  * Connect to previously set remote host and port
+ * Resolves hostname and delegates to Connect(const CAddress&)
  * \return true if setup succeeded, false otherwise
  */
 bool CClientSocketUDP::Connect() {
     struct addrinfo hints, *server_info, *connection;
     std::memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_UNSPEC;      // IPv4 or IPv6
-    hints.ai_socktype = SOCK_DGRAM;   // UDP
-    
-    int rv;
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_DGRAM;
 
-    // Validate socket
     if (!IsValidSocket(this->sockfd)) {
         this->error_code = ERR_NOSOCKET;
         this->error_state = SOCK_CREATE;
         return false;
     }
 
-    // Get address info for the host
     std::string port_str = std::to_string(this->port);
-    rv = getaddrinfo(this->remote_host.c_str(), port_str.c_str(), &hints, &server_info);
+    int rv = getaddrinfo(this->remote_host.c_str(), port_str.c_str(), &hints, &server_info);
     if (rv != 0) {
         this->error_code = ERR_NOHOST;
         this->error_state = SOCK_RESOLVE;
         return false;
     }
 
-    // Use first available address (getaddrinfo returns in preferred order)
+    // Try each address until one succeeds
     for (connection = server_info; connection != nullptr; connection = connection->ai_next) {
-        // Check if we need to recreate socket for a different family
-        if (connection->ai_family != AF_INET) {
-            // Need IPv6 socket, but we have IPv4 - recreate it
-            if (IsValidSocket(this->sockfd)) {
-                CLOSE_SOCKET(this->sockfd);
-            }
-            this->sockfd = socket(connection->ai_family, connection->ai_socktype, connection->ai_protocol);
-            if (!IsValidSocket(this->sockfd)) {
-                this->error_code = ERR_NOSOCKET;
-                this->error_state = SOCK_CREATE;
-                freeaddrinfo(server_info);
-                return false;
-            }
+        CAddress addr;
+        if (connection->ai_family == AF_INET) {
+            addr = CAddress(*(sockaddr_in*)connection->ai_addr);
+        } else if (connection->ai_family == AF_INET6) {
+            addr = CAddress(*(sockaddr_in6*)connection->ai_addr);
+        } else {
+            continue;
         }
-        
-        // Copy the address into our remote_addr for sendto/recvfrom
-        std::memcpy(&this->remote_addr, connection->ai_addr, connection->ai_addrlen);
-        this->net_family = connection->ai_family;
-        this->connected = true;
-        freeaddrinfo(server_info);
-        return true;
+
+        if (this->Connect(addr)) {
+            freeaddrinfo(server_info);
+            return true;
+        }
     }
 
-    // No valid address found
     freeaddrinfo(server_info);
     this->connected = false;
     return false;
 }
 
+/**
+ * Connect to a previously resolved CAddress
+ * \param addr CAddress object containing the remote address and port
+ * \return true if setup succeeded, false otherwise
+ * 
+ * Single source of truth for UDP target setup.
+ * Just stores the address for use with sendto().
+ */
+bool CClientSocketUDP::Connect(const CAddress& addr) {
+    int target_family = addr.IsIPv6() ? AF_INET6 : AF_INET;
+    
+    // Recreate socket if family doesn't match
+    if (target_family != this->net_family) {
+        if (IsValidSocket(this->sockfd)) {
+            CLOSE_SOCKET(this->sockfd);
+        }
+        this->sockfd = socket(target_family, CSocket::DatagramSocketType, 0);
+        if (!IsValidSocket(this->sockfd)) {
+            this->error_code = ERR_NOSOCKET;
+            this->error_state = SOCK_CREATE;
+            return false;
+        }
+        SetSocketReusAddr(this->sockfd);
+        this->net_family = target_family;
+    }
+    
+    this->remote_addr = addr.GetSockaddrStorage();
+    this->connected = true;
+    return true;
+}
 
 }  // namespace net
 
