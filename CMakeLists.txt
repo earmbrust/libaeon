@@ -107,17 +107,17 @@ include_directories(include)
 # Main library sources - list all implementation files
 set(LIBAEON_SOURCES
     src/libaeon.cpp
-    src/CAddress.cpp
-    src/CResolver.cpp
-    src/CSocket.cpp
-    src/CClientSocket.cpp
-    src/CServerSocket.cpp
-    src/CEventSocket.cpp
-    src/CSocketSet.cpp
-    src/CEventSocketSet.cpp
-    src/CSocketUDP.cpp
-    src/CClientSocketUDP.cpp
-    src/CServerSocketUDP.cpp
+    src/address.cpp
+    src/resolver.cpp
+    src/socket.cpp
+    src/client_socket.cpp
+    src/server_socket.cpp
+    src/event_socket.cpp
+    src/socket_set.cpp
+    src/event_socket_set.cpp
+    src/udp_socket.cpp
+    src/udp_client.cpp
+    src/udp_server.cpp
 )
 
 # Shared library

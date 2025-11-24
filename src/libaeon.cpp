@@ -4,7 +4,7 @@
  * This software is licensed under the BSD software license.
  *********************************************************************/
 
-#include "libaeon.h"
+#include <net.h>
 
 // Stringification macros to convert version numbers to string
 #define STR_(x) #x
