@@ -84,8 +84,37 @@ static inline void SafeClearBuffer(char* buffer, std::size_t size) {
     }
 }
 
+/**
+ * BlockingModeGuard implementation
+ * Manages socket blocking mode with RAII semantics
+ */
+BlockingModeGuard::BlockingModeGuard(CSocket* socket) 
+    : socket_(socket), original_blocking_(false), valid_(false) {
+    
+    if (!socket_) {
+        return;
+    }
+    
+    original_blocking_ = socket_->blocking;
+    
+    // Attempt to set non-blocking mode
+    if (socket_->SetBlocking(false) == 0) {
+        // Success - mark guard as valid so destructor will restore
+        valid_ = true;
+    }
+    // If SetBlocking failed, valid_ remains false and destructor won't restore
+}
+
+BlockingModeGuard::~BlockingModeGuard() {
+    // Only restore if we successfully entered non-blocking mode
+    if (valid_ && socket_) {
+        // Ignore restoration errors - we tried our best
+        socket_->SetBlocking(original_blocking_);
+    }
+}
+
 // Helper: Wait for socket to be readable with timeout
-static int WaitForReadable(socket_t sockfd, int timeout_ms) {
+int CSocket::WaitForReadable(socket_t sockfd, int timeout_ms) {
     if (timeout_ms <= 0) {
         return 1;  // No timeout, proceed immediately
     }
@@ -116,7 +145,7 @@ static int WaitForReadable(socket_t sockfd, int timeout_ms) {
 }
 
 // Helper: Wait for socket to be writable with timeout
-static int WaitForWritable(socket_t sockfd, int timeout_ms) {
+int CSocket::WaitForWritable(socket_t sockfd, int timeout_ms) {
     if (timeout_ms <= 0) {
         return 1;  // No timeout, proceed immediately
     }
@@ -163,7 +192,7 @@ int CSocket::operator<<(char* data) {
  * \param data std::string object to write
  * \return Number of bytes written to socket
  */
-int CSocket::operator<<(std::string data) {
+int CSocket::operator<<(const std::string& data) {
     return this->Write(data);
 }
 
@@ -402,7 +431,7 @@ int CSocket::Write(char* data, int size) {
     
     // If write timeout is set, wait with timeout
     if (this->write_timeout_ms > 0) {
-        int wait_result = WaitForWritable(this->sockfd, this->write_timeout_ms);
+        int wait_result = CSocket::WaitForWritable(this->sockfd, this->write_timeout_ms);
         if (wait_result == 0) {
             // Timeout - socket not ready to write
             return 0;
@@ -432,7 +461,7 @@ int CSocket::Write(const char* data, int size) {
  * \param data std::string to write
  * \return Number of bytes written
  */
-int CSocket::Write(std::string data) {
+int CSocket::Write(const std::string& data) {
     if (!IsValidSocket(this->sockfd) || data.empty()) {
         return NET_SOCKET_ERROR;
     }
@@ -455,9 +484,15 @@ int CSocket::Read(char* buffer, int size) {
         return NET_SOCKET_ERROR;
     }
 
+    // Validate and clamp size to prevent buffer overflow
+    // Protect against INT_MAX and unreasonably large read sizes
+    int safe_size = (size > CSocket::MaxBufferSize) 
+                  ? CSocket::MaxBufferSize 
+                  : size;
+
     // If read timeout is set, wait with timeout
     if (this->read_timeout_ms > 0) {
-        int wait_result = WaitForReadable(this->sockfd, this->read_timeout_ms);
+        int wait_result = CSocket::WaitForReadable(this->sockfd, this->read_timeout_ms);
         if (wait_result == 0) {
             // Timeout - no data available
             this->n = 0;
@@ -470,8 +505,8 @@ int CSocket::Read(char* buffer, int size) {
         }
     }
 
-    SafeClearBuffer(buffer, size);
-    int bytesRead = static_cast<int>(recv(this->sockfd, buffer, size, 0));
+    SafeClearBuffer(buffer, safe_size);
+    int bytesRead = static_cast<int>(recv(this->sockfd, buffer, safe_size, 0));
     this->n = bytesRead;
     
     if (bytesRead == 0) {
@@ -494,17 +529,23 @@ int CSocket::ReadUntil(char* buffer, int size) {
         return NET_SOCKET_ERROR;
     }
 
-    SafeClearBuffer(buffer, size);
+    // Validate and clamp size to prevent buffer overflow
+    // Protect against INT_MAX and unreasonably large read sizes
+    int safe_size = (size > CSocket::MaxBufferSize) 
+                  ? CSocket::MaxBufferSize 
+                  : size;
+
+    SafeClearBuffer(buffer, safe_size);
     
     std::string accumulated;
-    accumulated.reserve(size);
+    accumulated.reserve(safe_size);
     
     int totalBytes = 0;
     char tempBuffer[256];
     
-    while (totalBytes < size) {
+    while (totalBytes < safe_size) {
         SafeClearBuffer(tempBuffer, sizeof(tempBuffer));
-        int remaining = size - totalBytes;
+        int remaining = safe_size - totalBytes;
         int toRead = (remaining < static_cast<int>(sizeof(tempBuffer))) 
                     ? remaining 
                     : static_cast<int>(sizeof(tempBuffer));
@@ -528,9 +569,9 @@ int CSocket::ReadUntil(char* buffer, int size) {
     
     // Safe copy to output buffer
     if (!accumulated.empty()) {
-        std::size_t copySize = (accumulated.size() < static_cast<std::size_t>(size - 1))
+        std::size_t copySize = (accumulated.size() < static_cast<std::size_t>(safe_size - 1))
                               ? accumulated.size()
-                              : static_cast<std::size_t>(size - 1);
+                              : static_cast<std::size_t>(safe_size - 1);
         std::memcpy(buffer, accumulated.data(), copySize);
         buffer[copySize] = '\0';
     }
@@ -558,9 +599,14 @@ std::string CSocket::Read(int size) {
         return retVal;
     }
 
+    // Validate and clamp size to prevent buffer overflow
+    // Protect against INT_MAX and values exceeding MaxBufferSize
+    int safe_size = (size > CSocket::MaxBufferSize - 1) 
+                  ? CSocket::MaxBufferSize - 1 
+                  : size;
+
     SafeClearBuffer(this->inbuffer, CSocket::MaxBufferSize);
-    int bytesRead = static_cast<int>(recv(this->sockfd, this->inbuffer, 
-                        CSocket::MaxBufferSize - 1, 0));
+    int bytesRead = static_cast<int>(recv(this->sockfd, this->inbuffer, safe_size, 0));
     
     this->n = bytesRead;
     
@@ -606,15 +652,20 @@ int CSocket::ReadLine(char* buffer, int size) {
         return NET_SOCKET_ERROR;
     }
 
-    SafeClearBuffer(buffer, size);
+    // Validate and clamp size to prevent buffer overflow
+    // Protect against INT_MAX and unreasonably large read sizes
+    int safe_size = (size > CSocket::MaxBufferSize) 
+                  ? CSocket::MaxBufferSize 
+                  : size;
+
+    SafeClearBuffer(buffer, safe_size);
     
     this->n = 0;
     bool bCarriage = false;
     bool bLinefeed = false;
     char tempBuff[1];
 
-    for (int i = 0; i < size - 1; ++i) {
-        SafeClearBuffer(tempBuff, sizeof(tempBuff));
+    for (int i = 0; i < safe_size - 1; ++i) {
         int bytesRead = static_cast<int>(recv(this->sockfd, tempBuff, 1, 0));
         
         if (bytesRead == 0) {
@@ -638,75 +689,132 @@ int CSocket::ReadLine(char* buffer, int size) {
 
         // Line terminator found (CRLF)
         if (bCarriage && bLinefeed) {
-            buffer[i + 1] = '\0';
+            buffer[std::min(i + 1, safe_size - 1)] = '\0';
             return this->n;
         }
     }
     
     // Ensure null termination
-    buffer[size - 1] = '\0';
+    buffer[safe_size - 1] = '\0';
     return this->n;
 }
 
 /**
  * Set socket blocking/non-blocking mode
  * \param flag true for blocking, false for non-blocking
- * \return 1 if blocking, 0 if non-blocking
+ * \return 0 on success, -1 on error (check GetError() for details)
+ * 
+ * Changes the socket between blocking and non-blocking mode.
+ * In blocking mode, operations wait until complete.
+ * In non-blocking mode, operations return immediately if not ready.
+ * 
+ * Error code set on failure:
+ * - ERR_NOSOCKET: Socket is invalid
+ * - Platform errno/WSAError: System call failed
  */
 int CSocket::SetBlocking(bool flag) {
     if (!IsValidSocket(this->sockfd)) {
+        this->error_code = ERR_NOSOCKET;
+        this->error_state = SOCK_CREATE;
         return -1;
     }
 
     int result = SetSocketNonblocking(this->sockfd, !flag);
     if (result != 0) {
         this->error_code = GET_NET_SOCKET_ERROR();
+        this->error_state = SOCK_CREATE;
         return -1;
     }
     
     this->blocking = flag;
-    return this->blocking ? 1 : 0;
+    this->error_code = ERR_NONE;  // Clear previous errors on success
+    return 0;  // Success
 }
 
 
 /**
  * Set read timeout
- * \param timeout_ms Timeout in milliseconds (0 = no timeout)
+ * \param timeout_ms Timeout in milliseconds (0 = no timeout, blocking behavior)
  * \return 0 on success, -1 on error
+ * 
+ * When a read timeout is set, Read() operations will wait for the specified time
+ * before returning 0 if no data is available. This allows for non-blocking reads
+ * with timeout semantics in blocking sockets.
+ * 
+ * Error code set on failure:
+ * - ERR_NOSOCKET: Socket is invalid
  */
 int CSocket::SetReadTimeout(int timeout_ms) {
+    if (timeout_ms < 0) {
+        this->error_code = ERR_NOSOCKET;  // Invalid parameter
+        return -1;
+    }
     this->read_timeout_ms = timeout_ms;
+    this->error_code = ERR_NONE;  // Clear previous errors on success
     return 0;
 }
 
 /**
  * Set write timeout
- * \param timeout_ms Timeout in milliseconds (0 = no timeout)
+ * \param timeout_ms Timeout in milliseconds (0 = no timeout, blocking behavior)
  * \return 0 on success, -1 on error
+ * 
+ * When a write timeout is set, Write() operations will apply timeout semantics
+ * if supported by the platform. Currently, this is primarily used for tracking
+ * intent and may be used for future async write operations.
+ * 
+ * Error code set on failure:
+ * - ERR_NOSOCKET: Socket is invalid
  */
 int CSocket::SetWriteTimeout(int timeout_ms) {
+    if (timeout_ms < 0) {
+        this->error_code = ERR_NOSOCKET;  // Invalid parameter
+        return -1;
+    }
     this->write_timeout_ms = timeout_ms;
+    this->error_code = ERR_NONE;  // Clear previous errors on success
     return 0;
 }
 
 /**
  * Set connect timeout
- * \param timeout_ms Timeout in milliseconds (0 = no timeout)
+ * \param timeout_ms Timeout in milliseconds (0 = blocking, wait indefinitely)
  * \return 0 on success, -1 on error
+ * 
+ * When a connect timeout is set, Connect() operations will fail if they cannot
+ * complete within the specified time. This is useful for network operations where
+ * the server may be slow or unreachable.
+ * 
+ * Error code set on failure:
+ * - ERR_NOSOCKET: Socket is invalid
  */
 int CSocket::SetConnectTimeout(int timeout_ms) {
+    if (timeout_ms < 0) {
+        this->error_code = ERR_NOSOCKET;  // Invalid parameter
+        return -1;
+    }
     this->connect_timeout_ms = timeout_ms;
+    this->error_code = ERR_NONE;  // Clear previous errors on success
     return 0;
 }
 
 /**
  * Set TCP_NODELAY (disable Nagle's algorithm)
- * \param enabled true to enable TCP_NODELAY, false to disable
- * \return 0 on success, -1 on error
+ * \param enabled true to enable TCP_NODELAY (disable Nagle), false to disable (enable Nagle)
+ * \return 0 on success, -1 on error (check GetError() for details)
+ * 
+ * TCP_NODELAY disables Nagle's algorithm, causing TCP to send packets immediately
+ * without waiting to combine small packets. This reduces latency but may increase
+ * bandwidth usage. Useful for interactive protocols like telnet, SSH, and games.
+ * 
+ * Error code set on failure:
+ * - ERR_NOSOCKET: Socket is invalid
+ * - Platform errno/WSAError: setsockopt() failed
  */
 int CSocket::SetTCPNodelay(bool enabled) {
     if (!IsValidSocket(this->sockfd)) {
         this->error_code = ERR_NOSOCKET;
+        this->error_state = SOCK_CREATE;
         return -1;
     }
 
@@ -714,9 +822,11 @@ int CSocket::SetTCPNodelay(bool enabled) {
     if (setsockopt(this->sockfd, IPPROTO_TCP, TCP_NODELAY, 
                    (const char*)&flag, sizeof(flag)) < 0) {
         this->error_code = GET_NET_SOCKET_ERROR();
+        this->error_state = SOCK_CREATE;
         return -1;
     }
     
+    this->error_code = ERR_NONE;  // Clear previous errors on success
     return 0;
 }
 } // namespace net

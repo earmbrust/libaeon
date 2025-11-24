@@ -12,7 +12,6 @@
  \brief The main libaeon include file.
  libaeon.h is the main include file for both libaeon as well as
  developers looking to develop against libaeon.
- \verbinclude documentation.h
  */
 
 // Platform detection - unified approach
@@ -56,6 +55,7 @@
 
 // Multi-platform includes
 #include <fcntl.h>
+#include <memory>
 #include <string>
 #include <vector>
 #include <cstring>
@@ -63,9 +63,10 @@
 
 // Error and state definitions
 #define SOCK_RESOLVE 1
+#define SOCK_CREATE 2
 #define SOCK_ACCEPT 3
 #define SOCK_CONNECT 4
-#define SOCK_CREATE 2
+#define SOCK_BIND 5
 #define ERR_NONE 0
 #define ERR_NOHOST 1
 #define ERR_NOSOCKET 2
@@ -93,7 +94,86 @@ namespace net {
     // Library-specific error constants
     #define NET_SOCKET_ERROR (-1)
 
+    // Platform-specific socket operation macros
+    #ifdef PLATFORM_WINDOWS
+        #define CLOSE_SOCKET(s) closesocket(s)
+        #define GET_NET_SOCKET_ERROR() WSAGetLastError()
+    #else
+        #define CLOSE_SOCKET(s) close(s)
+        #define GET_NET_SOCKET_ERROR() errno
+    #endif
+
     const char* GetLibraryVersion();
+
+    // Forward declaration
+    class CSocket;
+
+    /**
+     * \brief RAII guard to temporarily set socket to non-blocking mode
+     * \author Elden Armbrust
+     *
+     * BlockingModeGuard automatically restores the original blocking mode
+     * when the guard goes out of scope, even if an error occurs. This ensures
+     * exception-safe socket mode management.
+     *
+     * Usage:
+     * \code
+     * {
+     *     BlockingModeGuard guard(socket);
+     *     if (!guard.IsValid()) {
+     *         // SetBlocking(false) failed, socket still in original state
+     *         return;
+     *     }
+     *     // socket is now non-blocking
+     *     // ... perform non-blocking operations ...
+     * }  // Guard destructor automatically restores original blocking mode
+     * \endcode
+     *
+     * If SetBlocking(false) fails on construction, the guard is invalidated
+     * and will not attempt restoration.
+     */
+    class BlockingModeGuard {
+    private:
+        CSocket* socket_;
+        bool original_blocking_;
+        bool valid_;
+
+    public:
+        /**
+         * Construct guard and set socket to non-blocking mode
+         * \param socket Pointer to CSocket to manage
+         * 
+         * If SetBlocking(false) fails, the guard is marked invalid
+         * and will not restore on destruction.
+         */
+        explicit BlockingModeGuard(CSocket* socket);
+
+        /**
+         * Destructor - restores original blocking mode if guard is valid
+         */
+        ~BlockingModeGuard();
+
+        /**
+         * Check if guard successfully entered non-blocking mode
+         * \return true if socket is non-blocking and will be restored
+         */
+        bool IsValid() const { return valid_; }
+
+        // Prevent copying and moving
+        BlockingModeGuard(const BlockingModeGuard&) = delete;
+        BlockingModeGuard(BlockingModeGuard&&) = delete;
+        BlockingModeGuard& operator=(const BlockingModeGuard&) = delete;
+        BlockingModeGuard& operator=(BlockingModeGuard&&) = delete;
+    };
+
+    /**
+     * \brief Validate if a port number is in valid range
+     * \param port Port number to validate
+     * \return true if port is in valid range (0-65535), false otherwise
+     */
+    inline bool IsValidPort(int port) {
+        return port >= 0 && port <= 65535;
+    }
 
     /**
     * \class CSocket
@@ -105,6 +185,7 @@ namespace net {
     */
     class CSocket {
     public:
+        friend class BlockingModeGuard;  // Allow BlockingModeGuard to access protected members
         static const int MaxBufferSize = 256;
         static const int StreamSocketType = SOCK_STREAM;
         static const int DatagramSocketType = SOCK_DGRAM;
@@ -122,7 +203,7 @@ namespace net {
         int Write(const char* data, int size);
         int Write(char* data);
         int Write(const char* data);
-        int Write(std::string data);
+        int Write(const std::string& data);
         int Read();
         int Read(char* buffer, int size);
         int ReadLine(char* buffer, int size);
@@ -137,7 +218,7 @@ namespace net {
         bool Close();
         
         int operator<<(char* data);
-        int operator<<(std::string data);
+        int operator<<(const std::string& data);
         std::string operator>>(std::string);
 
         // Public members for API compatibility
@@ -168,6 +249,11 @@ namespace net {
         void SetError(int error);
         void ClearBuffers();
         void ClearBuffer(char* buffer, int size);
+        
+        // Internal helpers: Wait for socket I/O with timeout
+        // Returns: > 0 if ready, 0 if timeout, < 0 if error
+        static int WaitForReadable(socket_t sockfd, int timeout_ms);
+        static int WaitForWritable(socket_t sockfd, int timeout_ms);
 
 #ifdef PLATFORM_WINDOWS
         int wsaret;
@@ -210,10 +296,10 @@ namespace net {
         ~CServerSocket();
         bool Listen();
         bool Listen(int port);
-        CEventSocket* Accept();
-        CEventSocket* Accept(bool blocking);
+        std::unique_ptr<CEventSocket> Accept();
+        std::unique_ptr<CEventSocket> Accept(bool blocking);
         CEventSocket* Accept(CEventSocket* client_socket, bool blocking = false);
-        void SetAcceptTimeout(int timeout_ms);
+        int SetAcceptTimeout(int timeout_ms);
         int accept_timeout_ms;
     protected:
         struct sockaddr_in serv_addr;
@@ -239,7 +325,7 @@ namespace net {
         virtual void OnWrite(const char* buffer, int size, int sentsize);
         int Write(char* data);
         int Write(const char* data);
-        int Write(std::string data);
+        int Write(const std::string& data);
         bool Poll();
     };
 
@@ -270,12 +356,18 @@ namespace net {
       */
     class CSocketSet {
     public:
+        CSocketSet() : error_code(ERR_NONE), error_state(0) {}
+        
         std::vector<CSocket*> Sockets;
+        int error_code;
+        int error_state;
+        
         bool Add(CSocket* socket_ref);
+        [[deprecated("Use Add(CSocket*) instead")]]
         bool Add();
         bool Remove(unsigned int index);
         bool Remove(unsigned int index, unsigned int count);
-        int Size();
+        int Size() const;
     };
 
     /**
@@ -287,12 +379,19 @@ namespace net {
       */
     class CEventSocketSet {
     public:
+        CEventSocketSet() : error_code(ERR_NONE), error_state(0) {}
+        ~CEventSocketSet() { this->Cleanup(); }
+        
         std::vector<CEventSocket*> Sockets;
+        int error_code;
+        int error_state;
+        
         bool Add(CEventSocket* socket_ref);
+        [[deprecated("Use Add(CEventSocket*) instead")]]
         bool Add();
         bool Remove(unsigned int index);
         bool Remove(unsigned int index, unsigned int count);
-        int Size();
+        int Size() const;
         void Poll();
         void Cleanup();
     };
@@ -310,7 +409,7 @@ namespace net {
         int Write(const char* data, int size);
         int Write(char* data);
         int Write(const char* data);
-        int Write(std::string data);
+        int Write(const std::string& data);
         int Read();
         int Read(char* buffer, int size);
         int ReadUntil(char* buffer, int size);

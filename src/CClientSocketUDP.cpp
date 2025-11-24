@@ -59,6 +59,13 @@ CClientSocketUDP::~CClientSocketUDP() {
  * \return true if setup succeeded, false otherwise
  */
 bool CClientSocketUDP::Connect(const char* hostname, int port) {
+    // Validate port range
+    if (!IsValidPort(port)) {
+        this->error_code = ERR_NOSOCKET;
+        this->error_state = SOCK_CONNECT;
+        return false;
+    }
+
     this->remote_host = hostname;
     this->port = port;
     return this->Connect();

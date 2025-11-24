@@ -48,6 +48,13 @@ bool CServerSocketUDP::Listen(int port) {
         return false;
     }
 
+    // Validate port range
+    if (!IsValidPort(port)) {
+        this->error_code = ERR_NOSOCKET;
+        this->error_state = SOCK_BIND;
+        return false;
+    }
+
     // Set up server address structure
     std::memset(&this->serv_addr, 0, sizeof(this->serv_addr));
     this->serv_addr.sin_family = CSocket::DefaultFamilyType;
@@ -61,7 +68,13 @@ bool CServerSocketUDP::Listen(int port) {
     
     if (bind_result < 0) {
         this->error_code = GET_NET_SOCKET_ERROR();
-        this->error_state = SOCK_ACCEPT;
+        this->error_state = SOCK_BIND;
+        
+        // Close socket on error
+        CLOSE_SOCKET(this->sockfd);
+        this->sockfd = INVALID_SOCKET_T;
+        this->connected = false;
+        
         return false;
     }
 
