@@ -14,7 +14,86 @@
 namespace net {
 
 
+// Static helpers for socket option configuration
+static inline void SetSocketReusAddr(socket_t sock) {
+    int reuse = 1;
+    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuse, sizeof(reuse));
+}
 
+static inline void SetSocketTCPNodelay(socket_t sock) {
+    int nodelay = 1;
+    setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, (const char*)&nodelay, sizeof(nodelay));
+}
+
+static inline void SetSocketLinger(socket_t sock, u_short linger_sec) {
+    struct linger linger_opt = {0, 0};
+    linger_opt.l_onoff = (linger_sec > 0) ? 1 : 0;
+    linger_opt.l_linger = linger_sec;
+    setsockopt(sock, SOL_SOCKET, SO_LINGER, (const char*)&linger_opt, sizeof(linger_opt));
+}
+
+
+// Static WSAStartup initializer for Windows
+#ifdef PLATFORM_WINDOWS
+class WindowsSocketInit {
+public:
+    WindowsSocketInit() {
+        WSADATA wsadata;
+        WSAStartup(MAKEWORD(2, 2), &wsadata);
+    }
+};
+static WindowsSocketInit g_wsa_init;
+#endif
+
+// Helper: Convert mode parameter for ioctlsocket (handles MinGW/MSVC type differences)
+// Both MSVC and MinGW expect u_long* for the third parameter
+static inline int SetSocketNonblocking(socket_t sockfd, bool nonblocking) {
+#ifdef PLATFORM_WINDOWS
+    u_long mode = nonblocking ? 1 : 0;
+    return ioctlsocket(sockfd, FIONBIO, &mode);
+#else
+    int flags = fcntl(sockfd, F_GETFL, 0);
+    if (flags < 0) return -1;
+    
+    if (nonblocking) {
+        return fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
+    } else {
+        return fcntl(sockfd, F_SETFL, flags);
+    }
+#endif
+}
+
+// Helper: Check if socket is valid (platform-independent)
+static inline bool IsValidSocket(socket_t s) {
+#ifdef PLATFORM_WINDOWS
+    return s != INVALID_SOCKET;
+#else
+    return s >= 0;
+#endif
+}
+
+// Helper: Copy string safely to fixed-size buffer
+static inline bool SafeStringCopy(char* dest, const char* src, std::size_t dest_size) {
+    if (!dest || !src || dest_size == 0) {
+        return false;
+    }
+    std::size_t src_len = std::strlen(src);
+    if (src_len >= dest_size) {
+        // Source is too large for destination
+        std::strncpy(dest, src, dest_size - 1);
+        dest[dest_size - 1] = '\0';
+        return false;
+    }
+    std::strcpy(dest, src);
+    return true;
+}
+
+// Helper: Safe buffer clearing
+static inline void SafeClearBuffer(char* buffer, std::size_t size) {
+    if (buffer && size > 0) {
+        std::memset(buffer, 0, size);
+    }
+}
 
 /**
  * BlockingModeGuard implementation
@@ -42,106 +121,6 @@ BlockingModeGuard::~BlockingModeGuard() {
     if (valid_ && socket_) {
         // Ignore restoration errors - we tried our best
         socket_->SetBlocking(original_blocking_);
-    }
-}
-
-/**
- * Configure socket for optimal connection performance
- * Sets SO_REUSEADDR and TCP_NODELAY
- */
-void CSocket::ConfigureSocketForConnect() {
-    this->SetSocketReusAddr();
-    this->SetSocketTCPNodelay();
-}
-
-/**
- * Check if socket file descriptor is valid (static)
- */
-bool CSocket::IsValidSocket(socket_t s) {
-#ifdef PLATFORM_WINDOWS
-    return s != INVALID_SOCKET;
-#else
-    return s >= 0;
-#endif
-}
-
-/**
- * Set SO_REUSEADDR socket option
- */
-void CSocket::SetSocketReusAddr() {
-    int reuse = 1;
-    setsockopt(this->sockfd, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuse, sizeof(reuse));
-}
-
-/**
- * Set SO_REUSEADDR socket option (static version)
- */
-void CSocket::SetSocketReusAddr(socket_t sock) {
-    int reuse = 1;
-    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuse, sizeof(reuse));
-}
-
-/**
- * Disable Nagle's algorithm with TCP_NODELAY
- */
-void CSocket::SetSocketTCPNodelay() {
-    int nodelay = 1;
-    setsockopt(this->sockfd, IPPROTO_TCP, TCP_NODELAY, (const char*)&nodelay, sizeof(nodelay));
-}
-
-/**
- * Disable Nagle's algorithm with TCP_NODELAY (static version)
- */
-void CSocket::SetSocketTCPNodelay(socket_t sock) {
-    int nodelay = 1;
-    setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, (const char*)&nodelay, sizeof(nodelay));
-}
-
-/**
- * Set socket linger option
- */
-void CSocket::SetSocketLinger(u_short linger_sec) {
-    struct linger linger_opt = {0, 0};
-    linger_opt.l_onoff = (linger_sec > 0) ? 1 : 0;
-    linger_opt.l_linger = linger_sec;
-    setsockopt(this->sockfd, SOL_SOCKET, SO_LINGER, (const char*)&linger_opt, sizeof(linger_opt));
-}
-
-/**
- * Set socket linger option (static version)
- */
-void CSocket::SetSocketLinger(socket_t sock, u_short linger_sec) {
-    struct linger linger_opt = {0, 0};
-    linger_opt.l_onoff = (linger_sec > 0) ? 1 : 0;
-    linger_opt.l_linger = linger_sec;
-    setsockopt(sock, SOL_SOCKET, SO_LINGER, (const char*)&linger_opt, sizeof(linger_opt));
-}
-
-/**
- * Set socket to non-blocking mode
- */
-int CSocket::SetSocketNonblocking(bool nonblocking) {
-#ifdef PLATFORM_WINDOWS
-    u_long mode = nonblocking ? 1 : 0;
-    return ioctlsocket(this->sockfd, FIONBIO, &mode);
-#else
-    int flags = fcntl(this->sockfd, F_GETFL, 0);
-    if (flags < 0) return -1;
-    
-    if (nonblocking) {
-        return fcntl(this->sockfd, F_SETFL, flags | O_NONBLOCK);
-    } else {
-        return fcntl(this->sockfd, F_SETFL, flags);
-    }
-#endif
-}
-
-/**
- * Safely clear a buffer
- */
-void CSocket::SafeClearBuffer(char* buffer, std::size_t size) {
-    if (buffer && size > 0) {
-        std::memset(buffer, 0, size);
     }
 }
 
@@ -358,8 +337,8 @@ CSocket::CSocket() {
 #endif
 
     // Clear buffers
-    this->SafeClearBuffer(inbuffer, CSocket::MaxBufferSize);
-    this->SafeClearBuffer(outbuffer, CSocket::MaxBufferSize);
+    SafeClearBuffer(this->inbuffer, CSocket::MaxBufferSize);
+    SafeClearBuffer(this->outbuffer, CSocket::MaxBufferSize);
 }
 
 /**
@@ -396,8 +375,8 @@ CSocket::CSocket(int family_type) {
     }
 #endif
 
-    this->SafeClearBuffer(inbuffer, CSocket::MaxBufferSize);
-    this->SafeClearBuffer(outbuffer, CSocket::MaxBufferSize);
+    SafeClearBuffer(this->inbuffer, CSocket::MaxBufferSize);
+    SafeClearBuffer(this->outbuffer, CSocket::MaxBufferSize);
 }
 
 /**
@@ -434,8 +413,8 @@ CSocket::CSocket(socket_t existing_fd, bool is_existing_socket) {
     }
 #endif
 
-    this->SafeClearBuffer(inbuffer, CSocket::MaxBufferSize);
-    this->SafeClearBuffer(outbuffer, CSocket::MaxBufferSize);
+    SafeClearBuffer(this->inbuffer, CSocket::MaxBufferSize);
+    SafeClearBuffer(this->outbuffer, CSocket::MaxBufferSize);
 }
 
 /**
@@ -699,7 +678,7 @@ std::string CSocket::Read(int size) {
                   ? CSocket::MaxBufferSize - 1 
                   : size;
 
-    this->SafeClearBuffer(inbuffer, CSocket::MaxBufferSize);
+    SafeClearBuffer(this->inbuffer, CSocket::MaxBufferSize);
     int bytesRead = static_cast<int>(recv(this->sockfd, this->inbuffer, safe_size, 0));
     
     this->n = bytesRead;
@@ -721,8 +700,8 @@ std::string CSocket::Read(int size) {
  * \internal
  */
 void CSocket::ClearBuffers() {
-    this->SafeClearBuffer(inbuffer, CSocket::MaxBufferSize);
-    this->SafeClearBuffer(outbuffer, CSocket::MaxBufferSize);
+    SafeClearBuffer(this->inbuffer, CSocket::MaxBufferSize);
+    SafeClearBuffer(this->outbuffer, CSocket::MaxBufferSize);
 }
 
 /**
@@ -813,7 +792,7 @@ int CSocket::SetBlocking(bool flag) {
         return -1;
     }
 
-    int result = SetSocketNonblocking(!flag);
+    int result = this->SetSocketNonblocking(!flag);
     if (result != 0) {
         this->error_code = GET_NET_SOCKET_ERROR();
         this->error_state = SOCK_CREATE;
@@ -984,6 +963,112 @@ int CSocket::SetSOLinger(u_short linger_time_sec) {
     
     this->error_code = ERR_NONE;
     return 0;
+}
+
+/**
+ * Static helper: Check if socket is valid (platform-independent)
+ * \param s Socket to validate
+ * \return true if socket is valid, false otherwise
+ */
+bool CSocket::IsValidSocket(socket_t s) {
+#ifdef PLATFORM_WINDOWS
+    return s != INVALID_SOCKET;
+#else
+    return s >= 0;
+#endif
+}
+
+/**
+ * Set socket to non-blocking mode
+ * \param nonblocking true for non-blocking, false for blocking
+ * \return 0 on success, -1 on error
+ */
+int CSocket::SetSocketNonblocking(bool nonblocking) {
+    if (!IsValidSocket(this->sockfd)) {
+        this->error_code = ERR_NOSOCKET;
+        return -1;
+    }
+
+#ifdef PLATFORM_WINDOWS
+    u_long mode = nonblocking ? 1 : 0;
+    int result = ioctlsocket(this->sockfd, FIONBIO, &mode);
+#else
+    int flags = fcntl(this->sockfd, F_GETFL, 0);
+    if (flags < 0) return -1;
+    
+    int result = fcntl(this->sockfd, F_SETFL, nonblocking ? (flags | O_NONBLOCK) : flags);
+#endif
+
+    if (result != 0) {
+        this->error_code = GET_NET_SOCKET_ERROR();
+        return -1;
+    }
+
+    return 0;
+}
+
+/**
+ * Safe buffer clearing utility
+ * \param buffer Buffer to clear
+ * \param size Size of buffer
+ */
+void CSocket::SafeClearBuffer(char* buffer, std::size_t size) {
+    if (buffer && size > 0) {
+        std::memset(buffer, 0, size);
+    }
+}
+
+/**
+ * Configure socket for connection attempt
+ * Sets appropriate socket options before connecting
+ * \internal
+ */
+void CSocket::ConfigureSocketForConnect() {
+    if (!IsValidSocket(this->sockfd)) {
+        return;
+    }
+
+    // Could add more configuration here if needed
+    // For now, this is a placeholder that can be extended
+}
+
+/**
+ * Set socket SO_REUSEADDR option (public instance method)
+ * Allows rapid rebinding of the socket
+ */
+void CSocket::SetSocketReusAddr() {
+    if (!IsValidSocket(this->sockfd)) {
+        return;
+    }
+    int reuse = 1;
+    setsockopt(this->sockfd, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuse, sizeof(reuse));
+}
+
+/**
+ * Set socket TCP_NODELAY option (public instance method)
+ * Disables Nagle's algorithm for lower latency
+ */
+void CSocket::SetSocketTCPNodelay() {
+    if (!IsValidSocket(this->sockfd)) {
+        return;
+    }
+    int nodelay = 1;
+    setsockopt(this->sockfd, IPPROTO_TCP, TCP_NODELAY, (const char*)&nodelay, sizeof(nodelay));
+}
+
+/**
+ * Set socket SO_LINGER option (public instance method)
+ * Controls socket closing behavior
+ * \param linger_sec Linger time in seconds (0 = disable)
+ */
+void CSocket::SetSocketLinger(u_short linger_sec) {
+    if (!IsValidSocket(this->sockfd)) {
+        return;
+    }
+    struct linger linger_opt = {0, 0};
+    linger_opt.l_onoff = (linger_sec > 0) ? 1 : 0;
+    linger_opt.l_linger = linger_sec;
+    setsockopt(this->sockfd, SOL_SOCKET, SO_LINGER, (const char*)&linger_opt, sizeof(linger_opt));
 }
 } // namespace net
 

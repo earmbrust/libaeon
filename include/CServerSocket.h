@@ -24,6 +24,7 @@ namespace net {
         int SetAcceptTimeout(int timeout_ms);
         int accept_timeout_ms;
     protected:
+        socket_t server_socket;
         struct sockaddr_in serv_addr;
         struct hostent *server;
     };

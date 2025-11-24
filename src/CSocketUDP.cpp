@@ -39,8 +39,8 @@ CSocketUDP::CSocketUDP() {
     // Allows immediate port reuse after close (especially useful for UDP servers/clients)
     this->SetSocketReusAddr();
 
-    this->SafeClearBuffer(this->inbuffer, CSocket::MaxBufferSize);
-    this->SafeClearBuffer(this->outbuffer, CSocket::MaxBufferSize);
+    SafeClearBuffer(this->inbuffer, CSocket::MaxBufferSize);
+    SafeClearBuffer(this->outbuffer, CSocket::MaxBufferSize);
 }
 
 /**
@@ -183,7 +183,7 @@ std::string CSocketUDP::Read(int size) {
                   ? CSocket::MaxBufferSize - 1 
                   : size;
 
-    this->SafeClearBuffer(this->inbuffer, CSocket::MaxBufferSize);
+    SafeClearBuffer(this->inbuffer, CSocket::MaxBufferSize);
     socklen_t sockaddr_size = sizeof(struct sockaddr_storage);
     
     int bytesRead = static_cast<int>(recvfrom(this->sockfd, this->inbuffer, safe_size, CSocket::NULLFlag, 
