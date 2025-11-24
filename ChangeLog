@@ -1,3 +1,14 @@
+v1.19.1
+=======
+-fixed off-by-one buffer overflow in ReadLine() CRLF detection with bounds-safe null-termination
+-fixed memory leak in CEventSocketSet::Add() by replacing make_unique().release() with explicit new
+-fixed missing timeout validation in SetAcceptTimeout() to prevent INT_MAX overflow
+-added [[deprecated]] attribute to CSocketSet::Add() for compiler warnings
+-added [[deprecated]] attribute to CEventSocketSet::Add() for compiler warnings
+-added explicit destructor to CEventSocketSet to automatically cleanup sockets
+-removed redundant SafeClearBuffer() call in ReadLine() loop for performance
+-improved ownership semantics consistency between CSocketSet and CEventSocketSet
+
 v1.19.0
 =======
 -fixed critical socket leak in CClientSocket::Connect() retry loop when trying multiple addresses

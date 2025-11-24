@@ -12,7 +12,6 @@
  \brief The main libaeon include file.
  libaeon.h is the main include file for both libaeon as well as
  developers looking to develop against libaeon.
- \verbinclude documentation.h
  */
 
 // Platform detection - unified approach
@@ -94,6 +93,15 @@ namespace net {
 
     // Library-specific error constants
     #define NET_SOCKET_ERROR (-1)
+
+    // Platform-specific socket operation macros
+    #ifdef PLATFORM_WINDOWS
+        #define CLOSE_SOCKET(s) closesocket(s)
+        #define GET_NET_SOCKET_ERROR() WSAGetLastError()
+    #else
+        #define CLOSE_SOCKET(s) close(s)
+        #define GET_NET_SOCKET_ERROR() errno
+    #endif
 
     const char* GetLibraryVersion();
 
@@ -348,6 +356,8 @@ namespace net {
       */
     class CSocketSet {
     public:
+        CSocketSet() : error_code(ERR_NONE), error_state(0) {}
+        
         std::vector<CSocket*> Sockets;
         int error_code;
         int error_state;
@@ -369,7 +379,7 @@ namespace net {
       */
     class CEventSocketSet {
     public:
-        CEventSocketSet() {}
+        CEventSocketSet() : error_code(ERR_NONE), error_state(0) {}
         ~CEventSocketSet() { this->Cleanup(); }
         
         std::vector<CEventSocket*> Sockets;
