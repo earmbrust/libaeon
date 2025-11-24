@@ -272,6 +272,7 @@ namespace net {
         // Accessors for remote address information
         std::string GetRemoteIP() const;
         int GetRemotePort() const;
+        CAddress GetRemoteAddress() const;
         
         // Error accessors
         int GetError();
@@ -330,6 +331,7 @@ namespace net {
     public:
         bool Connect();
         bool Connect(const char* remote, int port);
+        bool Connect(const CAddress& addr);
         CClientSocket();
         CClientSocket(std::string *remote, int port);
         CClientSocket(const char* remote, int port);
@@ -511,6 +513,7 @@ namespace net {
         ~CClientSocketUDP();
         bool Connect();
         bool Connect(const char* hostname, int port);
+        bool Connect(const CAddress& addr);
     protected:
         struct sockaddr_storage serv_addr;  // Changed from sockaddr_in to support IPv6
         struct addrinfo* server;

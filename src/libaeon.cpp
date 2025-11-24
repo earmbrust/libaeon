@@ -6,6 +6,8 @@
 
 #include "libaeon.h"
 
+#include "CAddress.cpp"
+#include "CResolver.cpp"
 #include "CSocket.cpp"
 #include "CClientSocket.cpp"
 #include "CServerSocket.cpp"
