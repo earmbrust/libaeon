@@ -13,14 +13,25 @@
 
 namespace net {
 
-// Platform-specific helper macros
-#ifdef PLATFORM_WINDOWS
-    #define CLOSE_SOCKET(s) closesocket(s)
-    #define GET_NET_SOCKET_ERROR() WSAGetLastError()
-#else
-    #define CLOSE_SOCKET(s) close(s)
-    #define GET_NET_SOCKET_ERROR() errno
-#endif
+
+// Static helpers for socket option configuration
+static inline void SetSocketReusAddr(socket_t sock) {
+    int reuse = 1;
+    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuse, sizeof(reuse));
+}
+
+static inline void SetSocketTCPNodelay(socket_t sock) {
+    int nodelay = 1;
+    setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, (const char*)&nodelay, sizeof(nodelay));
+}
+
+static inline void SetSocketLinger(socket_t sock, u_short linger_sec) {
+    struct linger linger_opt = {0, 0};
+    linger_opt.l_onoff = (linger_sec > 0) ? 1 : 0;
+    linger_opt.l_linger = linger_sec;
+    setsockopt(sock, SOL_SOCKET, SO_LINGER, (const char*)&linger_opt, sizeof(linger_opt));
+}
+
 
 // Static WSAStartup initializer for Windows
 #ifdef PLATFORM_WINDOWS
@@ -227,6 +238,60 @@ int CSocket::GetError() {
  */
 void CSocket::SetError(int error) {
     this->error_code = error;
+}
+
+/**
+ * GetRemoteIP returns the remote address as a human-readable string
+ * \return IP address string (IPv4 or IPv6), or empty string if not set
+ */
+std::string CSocket::GetRemoteIP() const {
+    char ip_str[INET6_ADDRSTRLEN] = {0};
+    
+    if (remote_addr.ss_family == AF_INET) {
+        // Regular IPv4
+        struct sockaddr_in* addr4 = (struct sockaddr_in*)&remote_addr;
+        if (inet_ntop(AF_INET, &addr4->sin_addr, ip_str, sizeof(ip_str))) {
+            return std::string(ip_str);
+        }
+    } else if (remote_addr.ss_family == AF_INET6) {
+        struct sockaddr_in6* addr6 = (struct sockaddr_in6*)&remote_addr;
+        
+        // Check if this is an IPv4-mapped IPv6 address (::ffff:a.b.c.d)
+        // IPv4-mapped addresses have first 80 bits as 0, next 16 bits as 0xffff
+        if (IN6_IS_ADDR_V4MAPPED(&addr6->sin6_addr)) {
+            // Extract the IPv4 address from the last 32 bits
+            struct in_addr v4addr;
+            std::memcpy(&v4addr, addr6->sin6_addr.s6_addr + 12, sizeof(v4addr));
+            if (inet_ntop(AF_INET, &v4addr, ip_str, sizeof(ip_str))) {
+                return std::string(ip_str);
+            }
+        }
+        
+        // Regular IPv6
+        if (inet_ntop(AF_INET6, &addr6->sin6_addr, ip_str, sizeof(ip_str))) {
+            return std::string(ip_str);
+        }
+    }
+    
+    return std::string();
+}
+
+/**
+ * GetRemotePort returns the remote port number
+ * \return Port number (0-65535), or 0 if not set
+ */
+int CSocket::GetRemotePort() const {
+    if (remote_addr.ss_family == AF_INET) {
+        // IPv4
+        struct sockaddr_in* addr4 = (struct sockaddr_in*)&remote_addr;
+        return ntohs(addr4->sin_port);
+    } else if (remote_addr.ss_family == AF_INET6) {
+        // IPv6
+        struct sockaddr_in6* addr6 = (struct sockaddr_in6*)&remote_addr;
+        return ntohs(addr6->sin6_port);
+    }
+    
+    return 0;
 }
 
 /**
@@ -827,6 +892,68 @@ int CSocket::SetTCPNodelay(bool enabled) {
     }
     
     this->error_code = ERR_NONE;  // Clear previous errors on success
+    return 0;
+}
+
+/**
+ * Set SO_REUSEADDR (allow rapid socket rebinding)
+ * \param enabled true to enable SO_REUSEADDR, false to disable
+ * \return 0 on success, -1 on error
+ * 
+ * SO_REUSEADDR allows a socket to bind to a port in TIME_WAIT state,
+ * enabling rapid reconnection without waiting 30-120 seconds.
+ * Essential for servers and client connection pools.
+ */
+int CSocket::SetSOReusAddr(bool enabled) {
+    if (!IsValidSocket(this->sockfd)) {
+        this->error_code = ERR_NOSOCKET;
+        this->error_state = SOCK_CREATE;
+        return -1;
+    }
+
+    int flag = enabled ? 1 : 0;
+    if (setsockopt(this->sockfd, SOL_SOCKET, SO_REUSEADDR, 
+                   (const char*)&flag, sizeof(flag)) < 0) {
+        this->error_code = GET_NET_SOCKET_ERROR();
+        this->error_state = SOCK_CREATE;
+        return -1;
+    }
+    
+    this->error_code = ERR_NONE;
+    return 0;
+}
+
+/**
+ * Set SO_LINGER (control socket closing behavior)
+ * \param linger_time_sec Linger time in seconds (0 = disable, >0 = enable with timeout)
+ * \return 0 on success, -1 on error
+ * 
+ * SO_LINGER controls whether close() waits for pending data to be sent.
+ * - linger_time_sec = 0: Disable linger, close immediately (avoids TIME_WAIT)
+ * - linger_time_sec > 0: Wait up to N seconds for pending data before closing
+ * 
+ * Set to 0 on server-side accepted connections to avoid TIME_WAIT delays
+ * when restarting services.
+ */
+int CSocket::SetSOLinger(u_short linger_time_sec) {
+    if (!IsValidSocket(this->sockfd)) {
+        this->error_code = ERR_NOSOCKET;
+        this->error_state = SOCK_CREATE;
+        return -1;
+    }
+
+    struct linger linger_opt;
+    linger_opt.l_onoff = (linger_time_sec > 0) ? 1 : 0;
+    linger_opt.l_linger = linger_time_sec;
+    
+    if (setsockopt(this->sockfd, SOL_SOCKET, SO_LINGER, 
+                   (const char*)&linger_opt, sizeof(linger_opt)) < 0) {
+        this->error_code = GET_NET_SOCKET_ERROR();
+        this->error_state = SOCK_CREATE;
+        return -1;
+    }
+    
+    this->error_code = ERR_NONE;
     return 0;
 }
 } // namespace net

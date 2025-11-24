@@ -14,8 +14,7 @@
 #include <memory>
 #include <thread>
 #include <chrono>
-
-#define SERVER_PORT 2300
+#include <cstring>
 
 static std::atomic<bool> shutdown_requested(false);
 
@@ -26,9 +25,39 @@ void signal_handler(int sig) {
     }
 }
 
-int main(void) {
+void print_usage(const char* program) {
+    std::fprintf(stderr, "Usage: %s [address] [port]\n", program);
+    std::fprintf(stderr, "Default: %s 0.0.0.0 2300\n", program);
+    std::fprintf(stderr, "Examples:\n");
+    std::fprintf(stderr, "  %s 0.0.0.0 2300      (IPv4 any)\n", program);
+    std::fprintf(stderr, "  %s 127.0.0.1 2300    (IPv4 loopback)\n", program);
+    std::fprintf(stderr, "  %s :: 2300           (IPv6 any)\n", program);
+    std::fprintf(stderr, "  %s ::1 2300          (IPv6 loopback)\n", program);
+}
+
+int main(int argc, char** argv) {
+    const char* bind_address = "0.0.0.0";  // Default
+    int port = 2300;                        // Default
+
+    // Parse arguments
+    if (argc > 1) {
+        if (std::strcmp(argv[1], "-h") == 0 || std::strcmp(argv[1], "--help") == 0) {
+            print_usage(argv[0]);
+            return 0;
+        }
+        bind_address = argv[1];
+    }
+
+    if (argc > 2) {
+        port = std::atoi(argv[2]);
+        if (port <= 0 || port > 65535) {
+            std::fprintf(stderr, "Error: Invalid port %d\n", port);
+            return EXIT_FAILURE;
+        }
+    }
+
     std::cout << "Event-driven server using CEventSocket\n";
-    std::cout << "Listening on port " << SERVER_PORT << "\n";
+    std::cout << "Binding to " << bind_address << ":" << port << "\n";
     std::cout << "Press Ctrl-C to exit.\n";
 
     if (std::signal(SIGINT, signal_handler) == SIG_ERR) {
@@ -38,8 +67,9 @@ int main(void) {
 
     net::CServerSocket server;
 
-    if (!server.Listen(SERVER_PORT)) {
-        std::fprintf(stderr, "Error: Failed to listen on port %d\n", SERVER_PORT);
+    if (!server.Listen(bind_address, port)) {
+        std::fprintf(stderr, "Error: Failed to listen on %s:%d\n", bind_address, port);
+        std::fprintf(stderr, "Error code: %d\n", server.GetError());
         return EXIT_FAILURE;
     }
 
