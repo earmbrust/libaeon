@@ -1,3 +1,11 @@
+v1.19.2
+=======
+-fixed socket set error state initialization in constructors
+-centralized platform-specific macros to libaeon.h
+-corrected SetAcceptTimeout cap from 600s to 60s per audit
+-removed outdated documentation.h file
+-removed obsolete verbinclude reference from doxygen comments
+
 v1.19.1
 =======
 -fixed off-by-one buffer overflow in ReadLine() CRLF detection with bounds-safe null-termination
