@@ -13,12 +13,6 @@
 
 namespace net {
 
-// Platform-specific helper macros
-#ifdef PLATFORM_WINDOWS
-    #define CLOSE_SOCKET(s) closesocket(s)
-#else
-    #define CLOSE_SOCKET(s) close(s)
-#endif
 
 /**
  * CClientSocketUDP default constructor
@@ -99,16 +93,29 @@ bool CClientSocketUDP::Connect() {
         return false;
     }
 
-    // Use first valid address (UDP doesn't require actual connection)
+    // Use first available address (getaddrinfo returns in preferred order)
     for (connection = server_info; connection != nullptr; connection = connection->ai_next) {
-        // Copy the address into our remote_addr for sendto/recvfrom
-        if (connection->ai_family == AF_INET) {
-            std::memcpy(&this->remote_addr, connection->ai_addr, connection->ai_addrlen);
-            this->net_family = AF_INET;
-            this->connected = true;
-            freeaddrinfo(server_info);
-            return true;
+        // Check if we need to recreate socket for a different family
+        if (connection->ai_family != AF_INET) {
+            // Need IPv6 socket, but we have IPv4 - recreate it
+            if (IsValidSocket(this->sockfd)) {
+                CLOSE_SOCKET(this->sockfd);
+            }
+            this->sockfd = socket(connection->ai_family, connection->ai_socktype, connection->ai_protocol);
+            if (!IsValidSocket(this->sockfd)) {
+                this->error_code = ERR_NOSOCKET;
+                this->error_state = SOCK_CREATE;
+                freeaddrinfo(server_info);
+                return false;
+            }
         }
+        
+        // Copy the address into our remote_addr for sendto/recvfrom
+        std::memcpy(&this->remote_addr, connection->ai_addr, connection->ai_addrlen);
+        this->net_family = connection->ai_family;
+        this->connected = true;
+        freeaddrinfo(server_info);
+        return true;
     }
 
     // No valid address found
@@ -116,6 +123,7 @@ bool CClientSocketUDP::Connect() {
     this->connected = false;
     return false;
 }
+
 
 }  // namespace net
 

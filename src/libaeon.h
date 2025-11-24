@@ -82,6 +82,52 @@
  */
 namespace net {
 
+    /**
+     * \brief A portable address class that encapsulates IPv4/IPv6 addresses with ports
+     * Stores sockaddr_storage internally and provides convenient access methods
+     */
+    class CAddress {
+    public:
+        CAddress();
+        CAddress(const sockaddr_storage& addr);
+        CAddress(const sockaddr_in& addr);
+        CAddress(const sockaddr_in6& addr);
+        
+        bool IsIPv4() const;
+        bool IsIPv6() const;
+        
+        std::string GetString() const;
+        uint16_t GetPort() const;
+        void SetPort(uint16_t port);
+        
+        sockaddr_storage GetSockaddrStorage() const;
+        sockaddr_in GetSockaddrIPv4() const;    // Throws if not IPv4
+        sockaddr_in6 GetSockaddrIPv6() const;   // Throws if not IPv6
+        
+    private:
+        sockaddr_storage addr;
+        int family;  // AF_INET or AF_INET6
+    };
+
+    /**
+     * \brief DNS resolver for hostname to address resolution
+     * Forward lookup only (hostname -> IP address)
+     * Prefers IPv6 if available, otherwise returns IPv4
+     */
+    class CResolver {
+    public:
+        CResolver();
+        ~CResolver();
+        
+        // Template-based resolution - specializations for different return types
+        template<typename T>
+        T Resolve(const char* hostname);
+        
+    private:
+        // Helper to do the actual resolution
+        CAddress ResolveInternal(const char* hostname);
+    };
+
     // Platform-native socket type - libaeon abstraction
     #ifdef PLATFORM_WINDOWS
         typedef SOCKET socket_t;
@@ -102,6 +148,10 @@ namespace net {
         #define CLOSE_SOCKET(s) close(s)
         #define GET_NET_SOCKET_ERROR() errno
     #endif
+
+    // IPv4/IPv6 socket family constants
+    const int SOCKET_IPV4 = 0;
+    const int SOCKET_IPV6 = 1;
 
     const char* GetLibraryVersion();
 
@@ -199,6 +249,8 @@ namespace net {
         int SetWriteTimeout(int timeout_ms);
         int SetConnectTimeout(int timeout_ms);
         int SetTCPNodelay(bool enabled);
+        int SetSOReusAddr(bool enabled);
+        int SetSOLinger(u_short linger_time_sec);
         int Write(char* data, int size);
         int Write(const char* data, int size);
         int Write(char* data);
@@ -217,6 +269,14 @@ namespace net {
         
         bool Close();
         
+        // Accessors for remote address information
+        std::string GetRemoteIP() const;
+        int GetRemotePort() const;
+        
+        // Error accessors
+        int GetError();
+        int GetState();
+        
         int operator<<(char* data);
         int operator<<(const std::string& data);
         std::string operator>>(std::string);
@@ -224,7 +284,7 @@ namespace net {
         // Public members for API compatibility
         socket_t sockfd;
         int n;
-        struct sockaddr_in remote_addr;
+        struct sockaddr_storage remote_addr;  // Changed from sockaddr_in to support both IPv4 and IPv6
         bool connected;
 
     protected:
@@ -244,8 +304,6 @@ namespace net {
         int write_timeout_ms;
         int connect_timeout_ms;
 
-        int GetState();
-        int GetError();
         void SetError(int error);
         void ClearBuffers();
         void ClearBuffer(char* buffer, int size);
@@ -296,6 +354,7 @@ namespace net {
         ~CServerSocket();
         bool Listen();
         bool Listen(int port);
+        bool Listen(const char* address, int port);
         std::unique_ptr<CEventSocket> Accept();
         std::unique_ptr<CEventSocket> Accept(bool blocking);
         CEventSocket* Accept(CEventSocket* client_socket, bool blocking = false);
@@ -415,6 +474,9 @@ namespace net {
         int ReadUntil(char* buffer, int size);
         std::string Read(int size);
         static const int DefaultSocketType = SOCK_DGRAM;
+    protected:
+        // Helper: Get correct sockaddr size for both IPv4 and IPv6
+        socklen_t GetRemoteAddrLen() const;
     };
 
     /**
@@ -431,7 +493,7 @@ namespace net {
         bool Listen();
         bool Listen(int port);
     protected:
-        struct sockaddr_in serv_addr;
+        struct sockaddr_storage serv_addr;  // Changed from sockaddr_in to support IPv6
     };
 
     /**
@@ -450,7 +512,7 @@ namespace net {
         bool Connect();
         bool Connect(const char* hostname, int port);
     protected:
-        struct sockaddr_in serv_addr;
+        struct sockaddr_storage serv_addr;  // Changed from sockaddr_in to support IPv6
         struct addrinfo* server;
     };
 

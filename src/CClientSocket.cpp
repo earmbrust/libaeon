@@ -14,20 +14,25 @@
 
 namespace net {
 
-// Platform-specific helper macros
-#ifdef PLATFORM_WINDOWS
-    #define CLOSE_SOCKET(s) closesocket(s)
-    #define GET_NET_SOCKET_ERROR() WSAGetLastError()
-#else
-    #define CLOSE_SOCKET(s) close(s)
-    #define GET_NET_SOCKET_ERROR() errno
-#endif
 
 // Helper: Convert addrinfo.ai_addrlen (size_t on Windows, socklen_t on POSIX) to socklen_t
 // On Windows, ai_addrlen is size_t; on POSIX it's socklen_t. This handles both.
 static inline socklen_t GetAddrLen(size_t len) {
     // Safe: address lengths for IPv4/IPv6 are always < 256 bytes
     return static_cast<socklen_t>(len);
+}
+
+/**
+ * Helper: Configure socket for optimal connection performance
+ * Centralizes SO_REUSEADDR and TCP_NODELAY configuration
+ * 
+ * PERFORMANCE IMPACT:
+ * - SO_REUSEADDR: Prevents 30-120 second TIME_WAIT delays on reconnection
+ * - TCP_NODELAY: Eliminates 40ms+ latency per message from Nagle's algorithm
+ */
+static inline void ConfigureSocketForConnect(socket_t sock) {
+    SetSocketReusAddr(sock);
+    SetSocketTCPNodelay(sock);
 }
 
 /**
@@ -52,6 +57,16 @@ bool CClientSocket::Connect(const char* hostname, int remote_port) {
 /**
  * Connect to previously set remote host and port
  * \return true if connection succeeded, false otherwise
+ * 
+ * OPTIMIZED FOR MINIMAL LATENCY:
+ * - Sets SO_REUSEADDR immediately after socket creation to prevent TIME_WAIT blocks
+ * - Sets TCP_NODELAY immediately after socket creation to disable Nagle's algorithm
+ * - Reuses sockets when possible to avoid recreation overhead
+ * - Minimizes system calls during connection attempts
+ * 
+ * These optimizations can significantly reduce connection latency:
+ * - TIME_WAIT blocking can add 30-120 seconds of delay
+ * - Nagle's algorithm can add 40ms+ latency per message
  */
 bool CClientSocket::Connect() {
     struct addrinfo hints, *server_info, *connection;
@@ -77,22 +92,34 @@ bool CClientSocket::Connect() {
         return false;
     }
 
+    // Track address family of current socket to avoid unnecessary recreation
+    int current_family = this->net_family;
+
     // Try each address until we succeed
     for (connection = server_info; connection != nullptr; connection = connection->ai_next) {
-        // Create socket for this address family
-        socket_t sock = socket(connection->ai_family, connection->ai_socktype,
-                              connection->ai_protocol);
+        socket_t sock = INVALID_SOCKET_T;
         
-        if (!IsValidSocket(sock)) {
-            continue;  // Try next address
-        }
-
-        // Safe socket reassignment: keep reference to old socket, assign new one, then close old
-        // This prevents losing the old socket reference if something goes wrong
-        socket_t old_sock = this->sockfd;
-        this->sockfd = sock;
-        if (IsValidSocket(old_sock)) {
-            CLOSE_SOCKET(old_sock);
+        // Only create a new socket if we're changing address families
+        // This avoids unnecessary socket recreation overhead when retrying within same family
+        if (connection->ai_family != current_family) {
+            // Different family - need new socket
+            sock = socket(connection->ai_family, connection->ai_socktype,
+                         connection->ai_protocol);
+            
+            if (!IsValidSocket(sock)) {
+                continue;  // Try next address
+            }
+            
+            // CRITICAL: Apply socket configuration IMMEDIATELY after socket creation
+            // This prevents TIME_WAIT delays and disables Nagle's algorithm before any connect attempt
+            ConfigureSocketForConnect(sock);
+            
+            // Close old socket and replace it
+            if (IsValidSocket(this->sockfd)) {
+                CLOSE_SOCKET(this->sockfd);
+            }
+            this->sockfd = sock;
+            current_family = connection->ai_family;
         }
 
         // Handle connection with optional timeout
@@ -190,14 +217,15 @@ bool CClientSocket::Connect() {
             return true;
         }
 
-        // Connection failed, close socket and try next
-        CLOSE_SOCKET(this->sockfd);
-        this->sockfd = INVALID_SOCKET_T;
+        // Connection failed - socket remains for potential retry with different address
+        // This avoids recreation if next address is same family (performance optimization)
     }
 
     // Failed to connect with any address
     freeaddrinfo(server_info);
     this->connected = false;
+    CLOSE_SOCKET(this->sockfd);
+    this->sockfd = INVALID_SOCKET_T;
     return false;
 }
 

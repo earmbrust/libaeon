@@ -12,14 +12,6 @@
 
 namespace net {
 
-// Platform-specific helper macros
-#ifdef PLATFORM_WINDOWS
-    #define CLOSE_SOCKET(s) closesocket(s)
-    #define GET_NET_SOCKET_ERROR() WSAGetLastError()
-#else
-    #define CLOSE_SOCKET(s) close(s)
-    #define GET_NET_SOCKET_ERROR() errno
-#endif
 
 /**
  * CSocketUDP default constructor - creates UDP socket
@@ -43,6 +35,10 @@ CSocketUDP::CSocketUDP() {
         return;
     }
 
+    // PERFORMANCE: Set SO_REUSEADDR for rapid rebinding on UDP
+    // Allows immediate port reuse after close (especially useful for UDP servers/clients)
+    SetSocketReusAddr(this->sockfd);
+
     SafeClearBuffer(this->inbuffer, CSocket::MaxBufferSize);
     SafeClearBuffer(this->outbuffer, CSocket::MaxBufferSize);
 }
@@ -58,9 +54,13 @@ int CSocketUDP::Write(char* data, int size) {
         return NET_SOCKET_ERROR;
     }
 
+    socklen_t addr_len = (remote_addr.ss_family == AF_INET6) 
+                        ? sizeof(struct sockaddr_in6) 
+                        : sizeof(struct sockaddr_in);
+
     int bytesSent = static_cast<int>(sendto(this->sockfd, data, size, CSocket::NULLFlag, 
                           (struct sockaddr*)&this->remote_addr, 
-                          sizeof(struct sockaddr_in)));
+                          addr_len));
     return bytesSent;
 }
 
@@ -89,10 +89,14 @@ int CSocketUDP::Write(char* data) {
         return 0;
     }
 
+    socklen_t addr_len = (remote_addr.ss_family == AF_INET6) 
+                        ? sizeof(struct sockaddr_in6) 
+                        : sizeof(struct sockaddr_in);
+
     int bytesSent = static_cast<int>(sendto(this->sockfd, data, static_cast<int>(len), 
                           CSocket::NULLFlag,
                           (struct sockaddr*)&this->remote_addr, 
-                          sizeof(struct sockaddr_in)));
+                          addr_len));
     return bytesSent;
 }
 
@@ -115,10 +119,14 @@ int CSocketUDP::Write(const std::string& data) {
         return NET_SOCKET_ERROR;
     }
 
+    socklen_t addr_len = (remote_addr.ss_family == AF_INET6) 
+                        ? sizeof(struct sockaddr_in6) 
+                        : sizeof(struct sockaddr_in);
+
     int bytesSent = static_cast<int>(sendto(this->sockfd, data.c_str(), static_cast<int>(data.size()), 
                           CSocket::NULLFlag,
                           (struct sockaddr*)&this->remote_addr, 
-                          sizeof(struct sockaddr_in)));
+                          addr_len));
     return bytesSent;
 }
 
@@ -140,7 +148,7 @@ int CSocketUDP::Read(char* buffer, int size) {
                   : size;
 
     SafeClearBuffer(buffer, safe_size);
-    socklen_t sockaddr_size = sizeof(struct sockaddr_in);
+    socklen_t sockaddr_size = sizeof(struct sockaddr_storage);
     
     int bytesRead = static_cast<int>(recvfrom(this->sockfd, buffer, safe_size, CSocket::NULLFlag, 
                             (struct sockaddr*)&this->remote_addr, &sockaddr_size));
@@ -176,7 +184,7 @@ std::string CSocketUDP::Read(int size) {
                   : size;
 
     SafeClearBuffer(this->inbuffer, CSocket::MaxBufferSize);
-    socklen_t sockaddr_size = sizeof(struct sockaddr_in);
+    socklen_t sockaddr_size = sizeof(struct sockaddr_storage);
     
     int bytesRead = static_cast<int>(recvfrom(this->sockfd, this->inbuffer, safe_size, CSocket::NULLFlag, 
                             (struct sockaddr*)&this->remote_addr, &sockaddr_size));
