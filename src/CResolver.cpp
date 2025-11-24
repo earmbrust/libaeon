@@ -4,6 +4,7 @@
 #include "libaeon.h"
 #include <cstring>
 #include <cstdio>
+#include <stdexcept>
 
 namespace net {
 

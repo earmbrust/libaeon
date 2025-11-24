@@ -26,7 +26,7 @@ bool CEventSocket::Poll() {
         return false;
     }
 
-    SafeClearBuffer(this->inbuffer, CSocket::MaxBufferSize);
+    this->SafeClearBuffer(this->inbuffer, CSocket::MaxBufferSize);
     int bytesRead = recv(this->sockfd, this->inbuffer, CSocket::MaxBufferSize, 0);
     this->n = bytesRead;
 

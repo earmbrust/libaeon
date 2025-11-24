@@ -23,19 +23,6 @@ static inline socklen_t GetAddrLen(size_t len) {
 }
 
 /**
- * Helper: Configure socket for optimal connection performance
- * Centralizes SO_REUSEADDR and TCP_NODELAY configuration
- * 
- * PERFORMANCE IMPACT:
- * - SO_REUSEADDR: Prevents 30-120 second TIME_WAIT delays on reconnection
- * - TCP_NODELAY: Eliminates 40ms+ latency per message from Nagle's algorithm
- */
-static inline void ConfigureSocketForConnect(socket_t sock) {
-    SetSocketReusAddr(sock);
-    SetSocketTCPNodelay(sock);
-}
-
-/**
  * Connect with hostname and port parameters
  * \param hostname The remote host to connect to
  * \param remote_port The remote port to connect to
@@ -127,7 +114,7 @@ bool CClientSocket::Connect(const CAddress& addr) {
             return false;
         }
         
-        ConfigureSocketForConnect(this->sockfd);
+        this->ConfigureSocketForConnect();
         this->net_family = target_family;
     }
     

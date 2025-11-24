@@ -37,10 +37,10 @@ CSocketUDP::CSocketUDP() {
 
     // PERFORMANCE: Set SO_REUSEADDR for rapid rebinding on UDP
     // Allows immediate port reuse after close (especially useful for UDP servers/clients)
-    SetSocketReusAddr(this->sockfd);
+    this->SetSocketReusAddr();
 
-    SafeClearBuffer(this->inbuffer, CSocket::MaxBufferSize);
-    SafeClearBuffer(this->outbuffer, CSocket::MaxBufferSize);
+    this->SafeClearBuffer(this->inbuffer, CSocket::MaxBufferSize);
+    this->SafeClearBuffer(this->outbuffer, CSocket::MaxBufferSize);
 }
 
 /**
@@ -183,7 +183,7 @@ std::string CSocketUDP::Read(int size) {
                   ? CSocket::MaxBufferSize - 1 
                   : size;
 
-    SafeClearBuffer(this->inbuffer, CSocket::MaxBufferSize);
+    this->SafeClearBuffer(this->inbuffer, CSocket::MaxBufferSize);
     socklen_t sockaddr_size = sizeof(struct sockaddr_storage);
     
     int bytesRead = static_cast<int>(recvfrom(this->sockfd, this->inbuffer, safe_size, CSocket::NULLFlag, 
