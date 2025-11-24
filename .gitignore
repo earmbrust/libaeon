@@ -2,6 +2,11 @@
 **/*.so
 **/*.Po
 **/*.a
+**/config.log
+**/config.h
+**/hello-world
+**/simple-server
+**/http-client
 CMakeCache.txt
 CMakeFiles
 CMakeScripts
@@ -18,5 +23,6 @@ aeon.dir/
 *.opendb
 *.db
 *.sln
+Debug/
 build/
-docs/_build/
+Release/

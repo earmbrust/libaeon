@@ -1,6 +1,6 @@
 /*********************************************************************
  * libaeon - A simple, lightweight, cross platform networking library
- * Copyright 2006-2025 (c) Elden Armbrust
+ * Copyright 2006-2018 (c) Elden Armbrust
  * This software is licensed under the BSD software license.
 
  * libaeon documentation include
@@ -122,7 +122,7 @@
   \page license License
   \verbatim
 libaeon License (BSD License)
-Copyright (c) 2006-2025, Elden Armbrust
+Copyright (c) 2006-2007, Elden Armbrust
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without

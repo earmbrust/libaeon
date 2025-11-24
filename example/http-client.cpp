@@ -1,113 +1,88 @@
 /******************************************************************
- * http-client.cpp - A simple HTTP client using libaeon
- * Copyright 2006-2025 (c) Elden Armbrust
- * This software is licensed under the BSD software license.
- *********************************************************************/
-
+ * http-client.cpp - A simple binary/text http client using libaeon
+ * Copyright (c) 2006-2018 Elden Armbrust
+ ******************************************************************/
 #include <iostream>
-#include <cstdio>
-#include <cstring>
+#include <stdio.h>
+#include <string.h>
 #include <string>
 #include <libaeon.h>
 
-#define HTML_HEADER_BREAK "\r\n\r\n"  // Separator between HTTP header and content (RFC 7230)
+#define HTML_HEADER_BREAK "\r\n\r\n" //the separator between header and content as per RFC1945
 
-int main(int argc, char** argv) {
+
+
+int main (int argc, char** argv)
+{
     std::cout << "Checking arguments..." << std::endl;
-    
     if (argc != 2) {
-        std::fprintf(stderr, "Usage: %s URL\n", argv[0]);
+        fprintf(stderr, "Usage: %s URL\r\n", argv[0]);
         return EXIT_FAILURE;
     }
 
-    std::cout << "Parsing URL..." << std::endl;
-    
-    // Parse the command-line URL
-    std::string url_arg = argv[1];
-    std::string domain;
-    std::string page = "/";
-
-    // Remove "http://" prefix if present
-    if (url_arg.find("http://") != std::string::npos) {
-        url_arg = url_arg.substr(7);
-    }
-
-    // Split domain and path
-    std::size_t slash_pos = url_arg.find("/");
-    if (slash_pos != std::string::npos) {
-        page = url_arg.substr(slash_pos);
-        domain = url_arg.substr(0, slash_pos);
+    std::cout << "Checked arguments..." << std::endl;
+    char cBuffer[256];
+    //let's parse the command-line now
+    std::string sHostArg, sDomain, sPage;
+    sHostArg = argv[1];
+    if (sHostArg.find("http://") != std::string::npos) sHostArg = sHostArg.substr(7);
+    sPage = "/";
+    if (sHostArg.find("/") != std::string::npos) {
+        sPage = sHostArg.substr(sHostArg.find("/"));
+        sDomain = sHostArg.substr(0, sHostArg.find("/"));
     } else {
-        domain = url_arg;
+        sDomain = sHostArg;
     }
-
-    std::cout << "Domain: " << domain << ", Path: " << page << std::endl;
-
-    if (page.empty() || domain.empty()) {
-        std::fprintf(stderr, "Invalid URL\n");
+    std::cout << "Trimmed hostname..." << std::endl;
+    if (sPage.size() <= 0 || sDomain.size() <= 0) { //if for some reason the url was invalid, return without connecting
         return EXIT_FAILURE;
     }
 
-    // Create and connect socket
-    std::cout << "Creating socket and connecting..." << std::endl;
-    net::CClientSocket socket(domain.c_str(), 80);
 
-    if (!socket.connected) {
-        std::fprintf(stderr, "Connection failed!\n");
+    std::cout << "Creating socket..." << std::endl;
+    net::CClientSocket *sockClient = new net::CClientSocket(&sDomain, 80);
+
+    if (sockClient->Connect((char*)sDomain.c_str(), 80) != true) {
+        printf("Connection error!\r\n");
+        delete sockClient;
         return EXIT_FAILURE;
     }
 
-    std::cout << "Connected. Sending HTTP request..." << std::endl;
-
-    // Build HTTP request
-    std::string http_request = "GET " + page + " HTTP/1.0\r\n";
-    http_request += "Host: " + domain + "\r\n";
-    http_request += "Connection: close\r\n";
-    http_request += "\r\n";
-
-    // Send request
-    int bytes_sent = socket.Write(http_request.c_str());
-    if (bytes_sent <= 0) {
-        std::fprintf(stderr, "Failed to send request\n");
-        return EXIT_FAILURE;
+    std::string sReqPage = "GET " + sPage + " HTTP/1.0\r\n"; //generate the GET request
+    std::string sReqHost = "Host: " + sDomain + "\r\n"; //we append the host, to please certain servers
+    std::string sRequest = sReqPage + sReqHost + "\r\n";//combine it all into a cohesive request
+    int iBytesSent = 0;
+    iBytesSent = sockClient->Write(sRequest.c_str()); //send the request, returning the number of bytes
+    //to iBytesSent for checking
+    if (iBytesSent != sRequest.size()) {
+        printf("Size consistency error!\r\n");
     }
 
-    std::cout << "Request sent (" << bytes_sent << " bytes). Reading response..." << std::endl;
-
-    // Read and display response
-    char buffer[256];
-    int bytes_read = 0;
-    bool headers_done = false;
-
+    int iBytesRead = 0;
+    std::string sTemp; //a string to
+    int iOutputStart = 0; //define where the data starts
+    bool bOutput = false;
     do {
-        bytes_read = socket.Read(buffer, sizeof(buffer) - 1);
-        
-        if (bytes_read <= 0) {
-            break;
-        }
-
-        buffer[bytes_read] = '\0';
-        std::string response_chunk = buffer;
-
-        // Find end of headers
-        if (!headers_done) {
-            std::size_t header_end = response_chunk.find(HTML_HEADER_BREAK);
-            if (header_end != std::string::npos) {
-                headers_done = true;
-                // Print body content after headers
-                std::size_t body_start = header_end + std::strlen(HTML_HEADER_BREAK);
-                if (body_start < response_chunk.size()) {
-                    std::cout << response_chunk.substr(body_start);
-                }
-            }
+        iBytesRead = sockClient->ReadUntil(cBuffer, sizeof(cBuffer)-1);
+        if (iBytesRead < 0) break;
+        sTemp.clear();
+        sTemp = cBuffer;
+        if (sTemp.find("\r\n\r\n") != std::string::npos && bOutput == false) {
+            iOutputStart = sTemp.find("\r\n\r\n")+4;
+            bOutput = true;
         } else {
-            // Headers already processed, just print the content
-            std::cout << response_chunk;
+            iOutputStart = 0;
         }
-    } while (bytes_read > 0);
+        if (bOutput == true) {
+            for (int i = iOutputStart; i < iBytesRead; i++) { //start reading at the offset, to remove headers.
 
-    socket.Close();
-    std::cout << "\nRequest complete." << std::endl;
-    
-    return EXIT_SUCCESS;
+                fprintf(stdout, "%c", cBuffer[i]);
+            }
+        }
+    } while (iBytesRead > 0);
+
+
+    sockClient->Close();  //close the socket and clean up
+    delete sockClient;
+    return 0;
 }
