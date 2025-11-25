@@ -1032,56 +1032,6 @@ int socket::set_ipv6_v6only(bool enabled) {
 #endif
 }
 
-/**
- * Bind socket to address
- * \param addr Pointer to sockaddr structure
- * \param addrlen Size of address structure
- * \return 0 on success, -1 on error
- */
-int socket::bind(const sockaddr* addr, socklen_t addrlen) {
-    if (!this->is_valid_socket()) {
-        this->error_code = err_no_socket;
-        this->error_state = state_create;
-        return -1;
-    }
-
-    if (!addr) {
-        this->error_code = err_no_socket;
-        this->error_state = state_bind;
-        return -1;
-    }
-
-    if (::bind(this->sockfd, addr, addrlen) < 0) {
-        this->error_code = GET_NET_SOCKET_ERROR();
-        this->error_state = state_bind;
-        return -1;
-    }
-
-    this->error_code = err_none;
-    return 0;
-}
-
-/**
- * Listen for incoming connections
- * \param backlog Maximum number of pending connections
- * \return 0 on success, -1 on error
- */
-int socket::listen(int backlog) {
-    if (!this->is_valid_socket()) {
-        this->error_code = err_no_socket;
-        this->error_state = state_bind;
-        return -1;
-    }
-
-    if (::listen(this->sockfd, backlog) < 0) {
-        this->error_code = GET_NET_SOCKET_ERROR();
-        this->error_state = state_bind;
-        return -1;
-    }
-
-    this->error_code = err_none;
-    return 0;
-}
 
 
 /**

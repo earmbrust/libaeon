@@ -17,8 +17,8 @@
 #include "event_socket_set.h"
 #include "socket_set.h"
 #include "udp_socket.h"
-#include "udp_client.h"
-#include "udp_server.h"
+#include "udp_client_socket.h"
+#include "udp_server_socket.h"
 
 namespace net {
 

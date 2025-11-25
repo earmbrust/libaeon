@@ -116,8 +116,8 @@ set(LIBAEON_SOURCES
     src/socket_set.cpp
     src/event_socket_set.cpp
     src/udp_socket.cpp
-    src/udp_client.cpp
-    src/udp_server.cpp
+    src/udp_client_socket.cpp
+    src/udp_server_socket.cpp
 )
 
 # Shared library
@@ -168,21 +168,27 @@ endif()
 
 # Example executables
 add_executable(http-client example/http-client.cpp)
+target_include_directories(http-client PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(http-client aeon)
 
 add_executable(hello-world example/hello-world.cpp)
+target_include_directories(hello-world PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(hello-world aeon)
 
 add_executable(simple-server example/simple-server.cpp)
+target_include_directories(simple-server PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(simple-server aeon)
 
 add_executable(test-client example/test-client.cpp)
+target_include_directories(test-client PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(test-client aeon)
 
 add_executable(udp-server example/udp-server.cpp)
+target_include_directories(udp-server PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(udp-server aeon)
 
 add_executable(udp-client example/udp-client.cpp)
+target_include_directories(udp-client PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(udp-client aeon)
 
 # Build configuration summary

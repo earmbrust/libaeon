@@ -4,7 +4,7 @@
  * This software is licensed under the BSD software license.
  *********************************************************************/
 
-#include <libaeon.h>
+#include <net.h>
 #include <iostream>
 #include <csignal>
 #include <cstdlib>
@@ -30,10 +30,10 @@ int main(void) {
     }
 
     // Create server socket
-    net::CServerSocket server;
+    net::server_socket server;
 
     // Check if we can open the port
-    if (!server.Listen(PORT)) {
+    if (!server.listen(PORT)) {
         std::cout << "Error: Failed to listen on port " << PORT << ".\n";
         return EXIT_FAILURE;
     }
@@ -43,13 +43,13 @@ int main(void) {
     // Main server loop
     while (!shutdown_requested) {
         // Accept incoming connection - returns unique_ptr for automatic cleanup
-        auto client = server.Accept();
+        auto client = server.accept();
 
         if (client && client->connected) {
             std::cout << "Client accepted.\n";
             
             // Send hello world message
-            int bytes_sent = client->Write("Hello world!\n");
+            int bytes_sent = client->write("Hello world!\n");
             if (bytes_sent > 0) {
                 std::cout << "Sent greeting (" << bytes_sent << " bytes).\n";
             } else {
@@ -57,7 +57,7 @@ int main(void) {
             }
             
             // Close the connection
-            client->Close();
+            client->close();
             // No delete needed - unique_ptr handles cleanup automatically
             std::cout << "Client connection closed.\n";
         }

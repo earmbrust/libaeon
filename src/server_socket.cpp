@@ -47,7 +47,40 @@ bool server_socket::listen(int port) {
 }
 
 /**
+ * Bind socket to address
+ * \param addr Pointer to sockaddr structure
+ * \param addrlen Size of address structure
+ * \return 0 on success, -1 on error
+ */
+int server_socket::bind(const sockaddr* addr, socklen_t addrlen) {
+    if (!this->is_valid_socket()) {
+        this->error_code = err_no_socket;
+        this->error_state = state_create;
+        return -1;
+    }
+
+    if (!addr) {
+        this->error_code = err_no_socket;
+        this->error_state = state_bind;
+        return -1;
+    }
+
+    if (::bind(this->sockfd, addr, addrlen) < 0) {
+        this->error_code = GET_NET_SOCKET_ERROR();
+        this->error_state = state_bind;
+        return -1;
+    }
+
+    this->error_code = err_none;
+    return 0;
+}
+
+
+/**
  * Listen on a specific address and port
+ * Follows the pattern from client_socket::connect() - manages this->sockfd directly
+ * instead of creating temporary socket objects
+ * 
  * \param address Address to bind to (e.g., "0.0.0.0", "127.0.0.1", "::", "::1")
  * \param port Port number to listen on
  * \return true if successful, false otherwise
@@ -67,118 +100,96 @@ bool server_socket::listen(const char* address, int port) {
 
     this->port = port;
 
-    // Determine if this is an IPv6 or IPv4 address
-    bool is_ipv6 = (std::strchr(address, ':') != nullptr);
-    
-    sockaddr_storage serv_addr;
-    std::memset(&serv_addr, 0, sizeof(serv_addr));
+    // Determine address family by attempting to parse as IPv6 first, then IPv4
+    struct sockaddr_in6 addr6;
+    struct sockaddr_in addr4;
+    int target_family = AF_UNSPEC;
+    sockaddr* bind_addr = nullptr;
+    socklen_t bind_addr_len = 0;
 
-    if (is_ipv6) {
-        // IPv6 address
-        socket ipv6_sock(socket::family_ipv6, socket::default_type);
-        if (!ipv6_sock.is_valid_socket()) {
-            this->error_code = err_no_socket;
-            this->error_state = state_create;
-            return false;
-        }
+    std::memset(&addr6, 0, sizeof(addr6));
+    std::memset(&addr4, 0, sizeof(addr4));
 
-        // Set IPV6_V6ONLY = 1 for IPv6-only operation on all IPv6 addresses
-        ipv6_sock.set_ipv6_v6only(true);
-
-        // Set SO_REUSEADDR
-        ipv6_sock.set_so_reuseaddr(true);
-
-        // Set up IPv6 address structure
-        struct sockaddr_in6 addr6;
-        std::memset(&addr6, 0, sizeof(addr6));
-        addr6.sin6_family = socket::family_ipv6;
+    // Try IPv6 first
+    int inet_pton_result = inet_pton(AF_INET6, address, &addr6.sin6_addr);
+    if (inet_pton_result > 0) {
+        // Valid IPv6 address
+        target_family = AF_INET6;
+        addr6.sin6_family = AF_INET6;
         addr6.sin6_port = htons(static_cast<u_short>(port));
-
-        // Parse IPv6 address
-        int inet_pton_result = inet_pton(socket::family_ipv6, address, &addr6.sin6_addr);
-        if (inet_pton_result <= 0) {
-            std::fprintf(stderr, "Invalid IPv6 address: %s\n", address);
-            ipv6_sock.close();
+        bind_addr = (sockaddr*)&addr6;
+        bind_addr_len = sizeof(addr6);
+    } else {
+        // Try IPv4
+        inet_pton_result = inet_pton(AF_INET, address, &addr4.sin_addr);
+        if (inet_pton_result > 0) {
+            // Valid IPv4 address
+            target_family = AF_INET;
+            addr4.sin_family = AF_INET;
+            addr4.sin_port = htons(static_cast<u_short>(port));
+            bind_addr = (sockaddr*)&addr4;
+            bind_addr_len = sizeof(addr4);
+        } else {
+            // Invalid address
+            std::fprintf(stderr, "Invalid address: %s\n", address);
             this->error_code = err_no_socket;
             this->error_state = state_bind;
             return false;
         }
+    }
 
-        // Try to bind IPv6 socket
-        if (ipv6_sock.bind((struct sockaddr*)&addr6, sizeof(addr6)) == 0) {
-            // Bind succeeded, try to listen
-            if (ipv6_sock.listen(SOMAXCONN) == 0) {
-                // IPv6 listen succeeded - use it
-                std::fprintf(stderr, "Server listening on [%s]:%d (IPv6)\n", address, port);
-                this->sockfd = ipv6_sock.sockfd;
-                this->connected = true;
-                return true;
-            } else {
-                std::fprintf(stderr, "IPv6 listen failed: %d\n", GET_NET_SOCKET_ERROR());
-            }
-        } else {
-            std::fprintf(stderr, "IPv6 bind failed: %d\n", GET_NET_SOCKET_ERROR());
+    // Recreate socket if family doesn't match (similar to client_socket::connect pattern)
+    if (target_family != this->net_family) {
+        if (this->is_valid_socket()) {
+            NET_CLOSE_SOCKET(this->sockfd);
         }
-        
-        ipv6_sock.close();
-        this->error_code = err_no_socket;
-        this->error_state = state_bind;
-        return false;
-    } else {
-        // IPv4 address
-        socket ipv4_sock(socket::family_ipv4, socket::default_type);
-        
-        if (!ipv4_sock.is_valid_socket()) {
+
+        this->sockfd = ::socket(target_family, socket::default_type, 0);
+        if (!this->is_valid_socket()) {
             this->error_code = err_no_socket;
             this->error_state = state_create;
             return false;
         }
 
-        // Set SO_REUSEADDR
-        if (ipv4_sock.set_so_reuseaddr(true) < 0) {
-            this->error_code = ipv4_sock.get_error();
-            this->error_state = state_accept;
-            ipv4_sock.close();
-            return false;
-        }
-
-        // Set up IPv4 address structure
-        struct sockaddr_in addr4;
-        std::memset(&addr4, 0, sizeof(addr4));
-        addr4.sin_family = socket::family_ipv4;
-        addr4.sin_port = htons(static_cast<u_short>(port));
-
-        // Parse IPv4 address
-        int inet_pton_result = inet_pton(socket::family_ipv4, address, &addr4.sin_addr);
-        if (inet_pton_result <= 0) {
-            std::fprintf(stderr, "Invalid IPv4 address: %s\n", address);
-            ipv4_sock.close();
-            this->error_code = err_no_socket;
-            this->error_state = state_bind;
-            return false;
-        }
-
-        // Bind socket to port
-        if (ipv4_sock.bind((struct sockaddr*)&addr4, sizeof(addr4)) < 0) {
-            this->error_code = ipv4_sock.get_error();
-            this->error_state = state_bind;
-            ipv4_sock.close();
-            return false;
-        }
-
-        // Start listening
-        if (ipv4_sock.listen(SOMAXCONN) < 0) {
-            this->error_code = ipv4_sock.get_error();
-            this->error_state = state_accept;
-            ipv4_sock.close();
-            return false;
-        }
-
-        this->sockfd = ipv4_sock.sockfd;
-        this->connected = true;
-        std::fprintf(stderr, "Server listening on %s:%d (IPv4)\n", address, port);
-        return true;
+        this->net_family = target_family;
     }
+
+    // Set socket options
+    this->set_so_reuseaddr(true);
+
+    if (target_family == AF_INET6) {
+        // For IPv6, set IPV6_V6ONLY = 1 for IPv6-only operation
+        this->set_ipv6_v6only(true);
+    }
+
+    // Bind to address and port
+    int bind_result = this->bind(bind_addr, bind_addr_len);
+    if (bind_result < 0) {
+        this->error_code = GET_NET_SOCKET_ERROR();
+        this->error_state = state_bind;
+        NET_CLOSE_SOCKET(this->sockfd);
+        this->sockfd = invalid_socket;
+        return false;
+    }
+
+    // Start listening
+    int listen_result = ::listen(this->sockfd, SOMAXCONN);
+    if (listen_result < 0) {
+        this->error_code = GET_NET_SOCKET_ERROR();
+        this->error_state = state_accept;
+        NET_CLOSE_SOCKET(this->sockfd);
+        this->sockfd = invalid_socket;
+        return false;
+    }
+
+    this->connected = true;
+    const char* family_str = (target_family == AF_INET6) ? "IPv6" : "IPv4";
+    const char* bracket_open = (target_family == AF_INET6) ? "[" : "";
+    const char* bracket_close = (target_family == AF_INET6) ? "]" : "";
+    std::fprintf(stderr, "Server listening on %s%s%s:%d (%s)\n", 
+                 bracket_open, address, bracket_close, port, family_str);
+
+    return true;
 }
 
 std::unique_ptr<event_socket> server_socket::accept() {
@@ -273,7 +284,7 @@ event_socket* server_socket::accept(event_socket* client_socket, bool blocking) 
     
     // PERFORMANCE: Apply socket options for low-latency communication
     client_socket->set_socket_tcp_nodelay();          // Disable Nagle's algorithm
-    client_socket->set_socket_linger(0);           // Disable linger to avoid TIME_WAIT
+    client_socket->set_socket_linger(0);             // Disable linger to avoid TIME_WAIT
     
     client_socket->set_blocking(blocking);
 

@@ -68,10 +68,6 @@ namespace net {
         int set_so_linger(u_short linger_time_sec);
         int set_ipv6_v6only(bool enabled);
 
-        // Binding and listening
-        int bind(const sockaddr* addr, socklen_t addrlen);
-        int listen(int backlog);
-
         // I/O methods
         int write(char* data, int size);
         int write(const char* data, int size);
@@ -140,7 +136,6 @@ namespace net {
         void clear_buffer(char* buffer, int size);
 
         void configure_socket_for_connect();
-        static bool is_valid_socket(socket_t s);
         int set_socket_nonblocking(bool nonblocking);
         void safe_clear_buffer(char* buffer, std::size_t size);
 

@@ -4,7 +4,7 @@
  * This software is licensed under the BSD software license.
  *********************************************************************/
 
-#include <libaeon.h>
+#include <net.h>
 #include <iostream>
 #include <cstdio>
 #include <cstring>
@@ -24,7 +24,7 @@ int main(int argc, char** argv) {
     std::cout << "Connecting to " << hostname << ":" << port << std::endl;
 
     // Create UDP client socket
-    net::CClientSocketUDP client(hostname, port);
+    net::udp_client_socket client(hostname, port);
 
     if (!client.connected) {
         std::fprintf(stderr, "Error: Failed to set up connection to %s:%d\n", hostname, port);
@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
         }
 
         // Send datagram to server
-        int bytes_sent = client.Write(input_buffer);
+        int bytes_sent = client.write(input_buffer);
         if (bytes_sent > 0) {
             std::printf("Sent %d bytes to server\n", bytes_sent);
         } else {
@@ -72,7 +72,7 @@ int main(int argc, char** argv) {
         }
 
         // Read response from server
-        int bytes_read = client.Read(response_buffer, sizeof(response_buffer) - 1);
+        int bytes_read = client.read(response_buffer, sizeof(response_buffer) - 1);
         if (bytes_read > 0) {
             response_buffer[bytes_read] = '\0';
             std::printf("Server response: %s\n", response_buffer);
