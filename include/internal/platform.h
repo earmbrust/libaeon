@@ -20,9 +20,9 @@ namespace net {
 
         // Cross-platform socket close
         #ifdef NET_PLATFORM_WINDOWS
-            #define NET_CLOSE_SOCKET(s) closesocket(s)
+            #define NET_CLOSE_SOCKET(s) ::closesocket(s)
         #else
-            #define NET_CLOSE_SOCKET(s) close(s)
+            #define NET_CLOSE_SOCKET(s) ::close(s)
         #endif
 
         // Cross-platform get socket error
