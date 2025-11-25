@@ -8,7 +8,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
-#include <libaeon.h>
+#include <net.h>
 
 #define HTML_HEADER_BREAK "\r\n\r\n"  // Separator between HTTP header and content (RFC 7230)
 
@@ -50,7 +50,7 @@ int main(int argc, char** argv) {
 
     // Create and connect socket
     std::cout << "Creating socket and connecting..." << std::endl;
-    net::CClientSocket socket(domain.c_str(), 80);
+    net::client_socket socket(domain.c_str(), 80);
 
     if (!socket.connected) {
         std::fprintf(stderr, "Connection failed!\n");
@@ -66,7 +66,7 @@ int main(int argc, char** argv) {
     http_request += "\r\n";
 
     // Send request
-    int bytes_sent = socket.Write(http_request.c_str());
+    int bytes_sent = socket.write(http_request.c_str());
     if (bytes_sent <= 0) {
         std::fprintf(stderr, "Failed to send request\n");
         return EXIT_FAILURE;
@@ -80,7 +80,7 @@ int main(int argc, char** argv) {
     bool headers_done = false;
 
     do {
-        bytes_read = socket.Read(buffer, sizeof(buffer) - 1);
+        bytes_read = socket.read(buffer, sizeof(buffer) - 1);
         
         if (bytes_read <= 0) {
             break;
@@ -106,7 +106,7 @@ int main(int argc, char** argv) {
         }
     } while (bytes_read > 0);
 
-    socket.Close();
+    socket.close();
     std::cout << "\nRequest complete." << std::endl;
     
     return EXIT_SUCCESS;

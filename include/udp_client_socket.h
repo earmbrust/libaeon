@@ -10,17 +10,17 @@
 
 namespace net {
 
-    class udp_client : public udp_socket {
+    class udp_client_socket : public udp_socket {
     public:
-        udp_client();
-        udp_client(const char* hostname, int port);
-        explicit udp_client(const std::string* hostname, int port);
+        udp_client_socket();
+        udp_client_socket(const char* hostname, int port);
+        explicit udp_client_socket(const std::string* hostname, int port);
 
         bool connect(const char* hostname, int port);
         bool connect();
         bool connect(const address& addr);
 
-        virtual ~udp_client();
+        virtual ~udp_client_socket();
     };
 
 } // namespace net

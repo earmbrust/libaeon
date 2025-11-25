@@ -19,6 +19,7 @@ namespace net {
         virtual ~server_socket();
 
         int set_accept_timeout(int timeout_ms);
+        int bind(const sockaddr* addr, socklen_t addrlen);
         bool listen();
         bool listen(int port);
         bool listen(const char* address, int port);

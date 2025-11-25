@@ -4,9 +4,6 @@
  * This software is licensed under the BSD software license.
  *********************************************************************/
 
-#ifndef _CSOCKET_UDP
-#define _CSOCKET_UDP
-
 #include <net.h>
 #include <cstring>
 
@@ -22,14 +19,14 @@ udp_socket::udp_socket() {
     
     // Close the TCP socket created by parent constructor
     // udp_socket needs a UDP (datagram) socket instead
-    if (is_valid_socket(this->sockfd)) {
+    if (this->is_valid_socket()) {
         NET_CLOSE_SOCKET(this->sockfd);
     }
 
     // Create UDP (datagram) socket
     this->sockfd = ::socket(socket::default_family, socket::datagram_type, 0);
     
-    if (!socket::is_valid_socket(this->sockfd)) {
+    if (!this->is_valid_socket()) {
         this->error_code = err_no_socket;
         this->error_state = state_create;
         return;
@@ -50,7 +47,7 @@ udp_socket::udp_socket() {
  * \return Number of bytes sent
  */
 int udp_socket::write(char* data, int size) {
-    if (!data || !socket::is_valid_socket(this->sockfd) || size <= 0) {
+    if (!data || !this->is_valid_socket() || size <= 0) {
         return NET_SOCKET_ERROR;
     }
 
@@ -80,7 +77,7 @@ int udp_socket::write(const char* data, int size) {
  * \return Number of bytes sent
  */
 int udp_socket::write(char* data) {
-    if (!data || !socket::is_valid_socket(this->sockfd)) {
+    if (!data || !this->is_valid_socket()) {
         return NET_SOCKET_ERROR;
     }
 
@@ -115,7 +112,7 @@ int udp_socket::write(const char* data) {
  * \return Number of bytes sent
  */
 int udp_socket::write(const std::string& data) {
-    if (!socket::is_valid_socket(this->sockfd) || data.empty()) {
+    if (!this->is_valid_socket() || data.empty()) {
         return NET_SOCKET_ERROR;
     }
 
@@ -137,7 +134,7 @@ int udp_socket::write(const std::string& data) {
  * \return Number of bytes read
  */
 int udp_socket::read(char* buffer, int size) {
-    if (!buffer || !socket::is_valid_socket(this->sockfd) || size <= 0) {
+    if (!buffer || !this->is_valid_socket() || size <= 0) {
         return NET_SOCKET_ERROR;
     }
 
@@ -173,7 +170,7 @@ int udp_socket::read(char* buffer, int size) {
 std::string udp_socket::read(int size) {
     std::string retVal;
     
-    if (!socket::is_valid_socket(this->sockfd) || size <= 0) {
+    if (!this->is_valid_socket() || size <= 0) {
         return retVal;
     }
 
@@ -213,5 +210,3 @@ int udp_socket::read() {
 }
 
 }  // namespace net
-
-#endif  // _CSOCKET_UDP

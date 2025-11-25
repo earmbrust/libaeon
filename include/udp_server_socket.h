@@ -10,13 +10,15 @@
 
 namespace net {
 
-    class udp_server : public udp_socket {
+    class udp_server_socket : public udp_socket {
     public:
-        udp_server();
-        virtual ~udp_server();
+        udp_server_socket();
+        virtual ~udp_server_socket();
 
         bool listen(int port);
         bool listen();
+    private:
+        bool listening;
     };
 
 } // namespace net

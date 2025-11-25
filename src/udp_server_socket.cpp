@@ -12,13 +12,13 @@ namespace net {
 /**
  * udp_server default constructor
  */
-udp_server::udp_server() {
+udp_server_socket::udp_server_socket() {
 }
 
 /**
  * udp_server destructor
  */
-udp_server::~udp_server() {
+udp_server_socket::~udp_server_socket() {
 }
 
 /**
@@ -26,7 +26,7 @@ udp_server::~udp_server() {
  * \param port Port number to bind to
  * \return true if successful, false otherwise
  */
-bool udp_server::listen(int port) {
+bool udp_server_socket::listen(int port) {
     this->port = port;
 
     // UDP socket already created in udp_socket constructor (as IPv4)
@@ -79,7 +79,7 @@ bool udp_server::listen(int port) {
             // IPv6 bind succeeded - close old IPv4 socket and use IPv6
             NET_CLOSE_SOCKET(this->sockfd);
             this->sockfd = ipv6_sock;
-            this->connected = true;
+            this->listening = true;
             return true;
         } else {
             // IPv6 bind failed, close it and try IPv4
@@ -108,12 +108,12 @@ bool udp_server::listen(int port) {
         // Close socket on error
         NET_CLOSE_SOCKET(this->sockfd);
         this->sockfd = invalid_socket;
-        this->connected = false;
+        this->listening = false;
         
         return false;
     }
 
-    this->connected = true;
+    this->listening = true;
     return true;
 }
 
@@ -121,7 +121,7 @@ bool udp_server::listen(int port) {
  * Bind to previously set port
  * \return true if successful, false otherwise
  */
-bool udp_server::listen() {
+bool udp_server_socket::listen() {
     return this->listen(this->port);
 }
 

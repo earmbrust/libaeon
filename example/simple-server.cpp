@@ -6,7 +6,7 @@
  * This software is licensed under the BSD software license.
  *********************************************************************/
 
-#include <libaeon.h>
+#include <net.h>
 #include <iostream>
 #include <cstdio>
 #include <csignal>
@@ -65,11 +65,11 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
 
-    net::CServerSocket server;
+    net::server_socket server;
 
-    if (!server.Listen(bind_address, port)) {
+    if (!server.listen(bind_address, port)) {
         std::fprintf(stderr, "Error: Failed to listen on %s:%d\n", bind_address, port);
-        std::fprintf(stderr, "Error code: %d\n", server.GetError());
+        std::fprintf(stderr, "Error code: %d\n", server.get_error());
         return EXIT_FAILURE;
     }
 
@@ -77,27 +77,27 @@ int main(int argc, char** argv) {
 
     // Make Accept() non-blocking - returns immediately if no pending connections
     // This allows the main loop to check shutdown_requested without artificial timeouts
-    server.SetBlocking(false);
+    server.set_blocking(false);
     
-    net::CEventSocketSet client_sockets;
+    net::event_socket_set client_sockets;
     int connection_count = 0;
 
     // Main server loop - event-driven
     while (!shutdown_requested) {
         // Accept new connections - returns unique_ptr, transfer ownership to set
-        auto client = server.Accept();
+        auto client = server.accept();
         
         if (client && client->connected) {
             ++connection_count;
             std::printf("Client %d accepted\n", connection_count);
             
             // Configure socket
-            client->SetTCPNodelay(true);
+            client->set_socket_tcp_nodelay();
             
             std::printf("About to send greeting - client->connected=%d, sockfd=%d\n", client->connected, (int)client->sockfd);
 
             // Send greeting
-            int bytes_sent = client->Write("Hello, world!\r\n");
+            int bytes_sent = client->write("Hello, world!\r\n");
             if (bytes_sent > 0) {
                 std::printf("Sent greeting to client %d (%d bytes)\n", 
                            connection_count, bytes_sent);
@@ -105,19 +105,19 @@ int main(int argc, char** argv) {
             
             // Transfer ownership to managed set via release()
             // The set will clean up the pointer in Cleanup()
-            client_sockets.Add(client.release());
+            client_sockets.add(client.release());
             
         }
         
         // Poll all connected clients
-        client_sockets.Poll();
+        client_sockets.poll();
         
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
     // Cleanup
-    client_sockets.Cleanup();
-    server.Close();
+    client_sockets.cleanup();
+    server.close();
     
     std::cout << "Server shutdown complete.\n";
     return EXIT_SUCCESS;
