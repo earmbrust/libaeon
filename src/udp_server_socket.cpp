@@ -10,18 +10,6 @@
 namespace net {
 
 /**
- * udp_server default constructor
- */
-udp_server_socket::udp_server_socket() {
-}
-
-/**
- * udp_server destructor
- */
-udp_server_socket::~udp_server_socket() {
-}
-
-/**
  * Bind to specified port for receiving UDP datagrams
  * \param port Port number to bind to
  * \return true if successful, false otherwise

@@ -450,7 +450,7 @@ socket::socket(socket_t existing_fd, bool is_existing_socket) {
 socket::~socket() {
 #if defined(NET_PLATFORM_LINUX) || defined(NET_PLATFORM_MACOS)
     if (this->connected) {
-        close(this->sockfd);
+        ::close(this->sockfd);
     }
 #endif
 
@@ -481,7 +481,7 @@ bool socket::close() {
     // WSACleanup() removed - global resource, not per-socket
 #else
     if (this->connected) {
-        close(this->sockfd);
+        ::close(this->sockfd);
         this->sockfd = -1;
     }
 #endif
