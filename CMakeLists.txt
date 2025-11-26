@@ -72,6 +72,17 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_definitions(-DVERSION=${PROJECT_VERSION})
 
+# SSL/TLS support option
+option(ENABLE_SSL "Enable SSL/TLS support with OpenSSL" OFF)
+
+if(ENABLE_SSL)
+    find_package(OpenSSL REQUIRED)
+    message(STATUS "SSL/TLS support enabled with OpenSSL ${OPENSSL_VERSION}")
+    add_definitions(-DENABLE_SSL)
+else()
+    message(STATUS "SSL/TLS support disabled")
+endif()
+
 # Platform detection
 if(WIN32)
     message(STATUS "Detected platform: Windows")
@@ -113,6 +124,8 @@ set(LIBAEON_SOURCES
     src/client_socket.cpp
     src/server_socket.cpp
     src/event_socket.cpp
+    src/client_event_socket.cpp
+    src/server_event_socket.cpp
     src/socket_set.cpp
     src/event_socket_set.cpp
     src/udp_socket.cpp
@@ -120,17 +133,32 @@ set(LIBAEON_SOURCES
     src/udp_server_socket.cpp
 )
 
+# Add SSL sources if enabled
+if(ENABLE_SSL)
+    list(APPEND LIBAEON_SOURCES
+        src/ssl_socket.cpp
+        src/ssl_client_socket.cpp
+    )
+endif()
+
 # Shared library
 add_library(aeon SHARED ${LIBAEON_SOURCES})
+target_compile_definitions(aeon PRIVATE LIBAEON_EXPORTS)
 
 # Static library
 add_library(aeon-static STATIC ${LIBAEON_SOURCES})
-set_target_properties(aeon-static PROPERTIES OUTPUT_NAME aeon)
+set_target_properties(aeon-static PROPERTIES OUTPUT_NAME aeon_static)
 
 # Platform-specific linking
 if(WIN32)
     target_link_libraries(aeon PUBLIC ws2_32)
     target_link_libraries(aeon-static PUBLIC ws2_32)
+endif()
+
+# SSL/TLS linking
+if(ENABLE_SSL)
+    target_link_libraries(aeon PUBLIC OpenSSL::SSL OpenSSL::Crypto)
+    target_link_libraries(aeon-static PUBLIC OpenSSL::SSL OpenSSL::Crypto)
 endif()
 
 # Compiler warnings and optimizations

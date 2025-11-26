@@ -10,7 +10,7 @@
 
 namespace net {
 
-    class client_socket : public socket {
+    class LIBAEON_API client_socket : public socket {
     public:
         client_socket();
         explicit client_socket(const char* hostname, int port);

@@ -10,8 +10,10 @@
 
 namespace net {
 
-    class udp_server_socket : public udp_socket {
+    class LIBAEON_API udp_server_socket : public udp_socket {
     public:
+        udp_server_socket();
+        virtual ~udp_server_socket();
         bool listen(int port);
         bool listen();
     private:

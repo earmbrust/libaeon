@@ -7,12 +7,13 @@
 #pragma once
 
 #include "internal/config.h"
+#include "internal/export.h"
 #include <string>
 #include <cstdint>
 
 namespace net {
 
-    class address {
+    class LIBAEON_API address {
     public:
         address();
         explicit address(const sockaddr_storage& src_addr);

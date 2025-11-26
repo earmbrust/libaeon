@@ -13,7 +13,7 @@ namespace net {
 
     class event_socket;
 
-    class server_socket : public socket {
+    class LIBAEON_API server_socket : public socket {
     public:
         server_socket();
         virtual ~server_socket();

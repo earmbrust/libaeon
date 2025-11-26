@@ -1,7 +1,7 @@
 /******************************************************************
- * simple-server.cpp - Event-driven server using CEventSocket
+ * simple-server.cpp - Event-driven server using server_event_socket
  * Demonstrates the proper way to use libaeon for medical-grade resilience
- * No timeouts, no polling loops, just event-driven I/O with callbacks
+ * No timeouts, no manual polling - just event-driven I/O with callbacks
  * Copyright 2006-2025 (c) Elden Armbrust
  * This software is licensed under the BSD software license.
  *********************************************************************/
@@ -56,7 +56,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    std::cout << "Event-driven server using CEventSocket\n";
+    std::cout << "Event-driven server using server_event_socket\n";
     std::cout << "Binding to " << bind_address << ":" << port << "\n";
     std::cout << "Press Ctrl-C to exit.\n";
 
@@ -65,36 +65,52 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
 
-    net::server_socket server;
+    net::server_event_socket server;
 
     if (!server.listen(bind_address, port)) {
         std::fprintf(stderr, "Error: Failed to listen on %s:%d\n", bind_address, port);
-        std::fprintf(stderr, "Error code: %d\n", server.get_error());
+        std::fprintf(stderr, "Error code: %d\n", server.server_socket::get_error());
         return EXIT_FAILURE;
     }
 
     std::cout << "Server listening...\n";
 
-    // Make Accept() non-blocking - returns immediately if no pending connections
-    // This allows the main loop to check shutdown_requested without artificial timeouts
-    server.set_blocking(false);
+    // Make accept non-blocking
+    server.server_socket::set_blocking(false);
     
     net::event_socket_set client_sockets;
     int connection_count = 0;
 
+    // Set callbacks for client events
+    client_sockets.on_socket_data = [](net::event_socket* client, const char* buffer, int size) {
+        std::printf("Received %d bytes from client\n", size);
+        // Echo back to client
+        client->write(buffer);
+    };
+
+    client_sockets.on_socket_connect = [](net::event_socket* client) {
+        std::printf("Client connected\n");
+    };
+
+    client_sockets.on_socket_close = [](net::event_socket* client) {
+        std::printf("Client closed connection\n");
+    };
+
+    client_sockets.on_socket_error = [](net::event_socket* client, int error_code) {
+        std::printf("Client error: %d\n", error_code);
+    };
+
     // Main server loop - event-driven
     while (!shutdown_requested) {
-        // Accept new connections - returns unique_ptr, transfer ownership to set
+        // Accept new connections
         auto client = server.accept();
         
-        if (client && client->connected) {
+        if (client) {
             ++connection_count;
             std::printf("Client %d accepted\n", connection_count);
             
             // Configure socket
             client->set_socket_tcp_nodelay();
-            
-            std::printf("About to send greeting - client->connected=%d, sockfd=%d\n", client->connected, (int)client->sockfd);
 
             // Send greeting
             int bytes_sent = client->write("Hello, world!\r\n");
@@ -103,20 +119,14 @@ int main(int argc, char** argv) {
                            connection_count, bytes_sent);
             }
             
-            // Transfer ownership to managed set via release()
-            // The set will clean up the pointer in Cleanup()
+            // Add to set - event socket will auto-poll in background thread
             client_sockets.add(client.release());
-            
         }
-        
-        // Poll all connected clients
-        client_sockets.poll();
         
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
     // Cleanup
-    client_sockets.cleanup();
     server.close();
     
     std::cout << "Server shutdown complete.\n";

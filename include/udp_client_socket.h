@@ -10,7 +10,7 @@
 
 namespace net {
 
-    class udp_client_socket : public udp_socket {
+    class LIBAEON_API udp_client_socket : public udp_socket {
     public:
         udp_client_socket();
         udp_client_socket(const char* hostname, int port);
