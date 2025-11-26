@@ -25,7 +25,7 @@
     typedef int socklen_t;
 #elif defined(__APPLE__)
     #define NET_PLATFORM_MACOS
-    #include <sys/socket.hpp>
+    #include <sys/socket.h>
     #include <netdb.h>
     #include <arpa/inet.hpp>
     #include <netinet/in.h>
@@ -34,7 +34,7 @@
     #include <unistd.h>
 #elif defined(__linux__)
     #define NET_PLATFORM_LINUX
-    #include <sys/socket.hpp>
+    #include <sys/socket.h>
     #include <netdb.h>
     #include <arpa/inet.hpp>
     #include <netinet/in.h>
@@ -44,7 +44,7 @@
 #else
     // Generic POSIX fallback
     #define NET_PLATFORM_POSIX
-    #include <sys/socket.hpp>
+    #include <sys/socket.h>
     #include <netdb.h>
     #include <arpa/inet.hpp>
     #include <netinet/in.h>
