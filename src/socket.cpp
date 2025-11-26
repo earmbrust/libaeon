@@ -472,20 +472,17 @@ bool socket::close() {
     if (!this->is_valid_socket()) {
         return false;
     }
-
 #ifdef NET_PLATFORM_WINDOWS
     if (this->sockfd != INVALID_SOCKET) {
         closesocket(this->sockfd);
         this->sockfd = INVALID_SOCKET;
     }
-    // WSACleanup() removed - global resource, not per-socket
 #else
-    if (this->connected) {
+    if (this->sockfd != -1) {
         ::close(this->sockfd);
         this->sockfd = -1;
     }
 #endif
-
     this->connected = false;
     return true;
 }
