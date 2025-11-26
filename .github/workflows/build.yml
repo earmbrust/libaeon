@@ -133,13 +133,11 @@ jobs:
       
       - name: Check test executable
         run: |
-          echo "Contents of build directory:"
-          ls -la build/ || true
           echo "Checking for test executable:"
           find build -name "*test*" -o -name "*aeon*" | head -20
       
       - name: Run Tests
-        run: cd build && ctest --output-on-failure
+        run: cd build && timeout 60 ctest --output-on-failure -VV
 
   # Linux builds - multi-architecture
   build-linux:
