@@ -14,19 +14,20 @@
 #include "client_socket.h"
 #include "server_socket.h"
 #include "event_socket.h"
+#include "client_event_socket.h"
+#include "server_event_socket.h"
 #include "event_socket_set.h"
 #include "socket_set.h"
 #include "udp_socket.h"
 #include "udp_client_socket.h"
 #include "udp_server_socket.h"
 
+#ifdef ENABLE_SSL
+#include "ssl_socket.h"
+#include "ssl_client_socket.h"
+#endif
+
 namespace net {
-
-    class event_client_socket : public client_socket {
-    };
-
-    class event_server_socket : public server_socket, public event_socket {
-    };
 
     const char* get_library_version();
 

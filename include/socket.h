@@ -9,11 +9,9 @@
 #include "address.h"
 #include "internal/config.h"
 #include "internal/platform.h"
+#include "internal/export.h"
 
 namespace net {
-
-    // Forward declaration
-    class blocking_mode_guard;
 
     /**
      * \brief RAII guard for temporary non-blocking socket mode
@@ -21,7 +19,7 @@ namespace net {
      * Automatically restores original blocking mode when destroyed,
      * even if an error occurs.
      */
-    class blocking_mode_guard {
+    class LIBAEON_API blocking_mode_guard {
     private:
         class socket* socket_;
         bool original_blocking_;
@@ -45,7 +43,7 @@ namespace net {
      * 
      * Base socket class that can be inherited to extend functionality.
      */
-    class socket {
+    class LIBAEON_API socket {
     public:
         friend class blocking_mode_guard;
 
@@ -69,17 +67,17 @@ namespace net {
         int set_ipv6_v6only(bool enabled);
 
         // I/O methods
-        int write(char* data, int size);
-        int write(const char* data, int size);
-        int write(char* data);
-        int write(const char* data);
-        int write(const std::string& data);
+        virtual int write(char* data, int size);
+        virtual int write(const char* data, int size);
+        virtual int write(char* data);
+        virtual int write(const char* data);
+        virtual int write(const std::string& data);
 
-        int read();
-        int read(char* buffer, int size);
-        int read_line(char* buffer, int size);
-        int read_until(char* buffer, int size);
-        std::string read(int size);
+        virtual int read();
+        virtual int read(char* buffer, int size);
+        virtual int read_line(char* buffer, int size);
+        virtual int read_until(char* buffer, int size);
+        virtual std::string read(int size);
 
         // Socket configuration shortcuts
         void set_socket_reuseaddr();

@@ -11,7 +11,7 @@
 
 namespace net {
 
-    class resolver {
+    class LIBAEON_API resolver {
     public:
         resolver();
         ~resolver();

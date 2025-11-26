@@ -10,7 +10,7 @@
 
 namespace net {
 
-    class udp_socket : public socket {
+    class LIBAEON_API udp_socket : public socket {
     public:
         udp_socket();
 
