@@ -6,6 +6,14 @@
 
 #pragma once
 
+#ifdef _MSC_VER
+// C4251: STL member needs dll-interface
+// This is a known MSVC artifact when exporting classes with STL containers.
+// The vectors and functions are explicitly instantiated in .cpp files with dllexport,
+// so the warning about missing interface is spurious. Safe to suppress globally.
+#pragma warning(disable:4251)
+#endif
+
 #include "internal/config.h"
 
 #include "socket.h"

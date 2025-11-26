@@ -1,5 +1,28 @@
 cmake_minimum_required(VERSION 3.15)
 
+# Set policy for FetchContent timestamp handling (CMake 3.24+)
+if(POLICY CMP0135)
+  cmake_policy(SET CMP0135 NEW)
+endif()
+
+# Fix Python3 detection for Windows + pyenv
+# Google Test doesn't need Python to build, but its CMake tries to find it
+# On Windows, pyenv shims don't work with CMake's FindPython, so detect real path
+if(WIN32 AND NOT Python3_EXECUTABLE)
+  find_program(PYENV_EXE NAMES pyenv.bat pyenv)
+  if(PYENV_EXE)
+    execute_process(
+      COMMAND "${PYENV_EXE}" which python3
+      OUTPUT_VARIABLE PYENV_PYTHON
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      ERROR_QUIET
+    )
+    if(PYENV_PYTHON)
+      set(Python3_EXECUTABLE "${PYENV_PYTHON}" CACHE FILEPATH "Python 3 executable" FORCE)
+    endif()
+  endif()
+endif()
+
 # Get version from git tags, fall back to branch name
 execute_process(
     COMMAND git describe --tags --always
@@ -148,6 +171,7 @@ target_compile_definitions(aeon PRIVATE LIBAEON_EXPORTS)
 # Static library
 add_library(aeon-static STATIC ${LIBAEON_SOURCES})
 set_target_properties(aeon-static PROPERTIES OUTPUT_NAME aeon_static)
+target_compile_definitions(aeon-static PRIVATE LIBAEON_STATIC)
 
 # Platform-specific linking
 if(WIN32)
@@ -193,6 +217,35 @@ else()
         endif()
     endif()
 endif()
+
+# Testing with Google Test
+include(FetchContent)
+
+FetchContent_Declare(googletest
+  URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
+  DOWNLOAD_EXTRACT_TIMESTAMP ON
+)
+
+# For Windows: Prevent overriding the parent project's compiler/linker settings
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+
+FetchContent_MakeAvailable(googletest)
+
+enable_testing()
+
+# Test executable
+add_executable(aeon_tests
+    tests/test_address.cpp
+    tests/test_socket_basics.cpp
+    tests/test_udp.cpp
+    tests/test_resolver.cpp
+)
+
+target_include_directories(aeon_tests PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(aeon_tests PRIVATE aeon gtest_main)
+
+# Register tests with ctest
+add_test(NAME AeonTests COMMAND aeon_tests)
 
 # Example executables
 add_executable(http-client example/http-client.cpp)

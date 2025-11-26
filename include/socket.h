@@ -6,6 +6,10 @@
 
 #pragma once
 
+#ifdef _MSC_VER
+#pragma warning(disable:4251)
+#endif
+
 #include "address.h"
 #include "internal/config.h"
 #include "internal/platform.h"

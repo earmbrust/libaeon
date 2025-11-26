@@ -3,6 +3,11 @@
  * Copyright 2006-2025 (c) Elden Armbrust
  * This software is licensed under the BSD software license.
  *********************************************************************/
+
+#ifdef _MSC_VER
+#pragma warning(disable:4251)
+#endif
+
 #include <net.h>
 #include <iostream>
 
