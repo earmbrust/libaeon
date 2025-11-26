@@ -27,7 +27,7 @@
     #define NET_PLATFORM_MACOS
     #include <sys/socket.h>
     #include <netdb.h>
-    #include <arpa/inet.hpp>
+    #include <arpa/inet.h>
     #include <netinet/in.h>
     #include <netinet/tcp.h>
     #include <sys/types.h>
@@ -36,7 +36,7 @@
     #define NET_PLATFORM_LINUX
     #include <sys/socket.h>
     #include <netdb.h>
-    #include <arpa/inet.hpp>
+    #include <arpa/inet.h>
     #include <netinet/in.h>
     #include <netinet/tcp.h>
     #include <sys/types.h>
@@ -46,7 +46,7 @@
     #define NET_PLATFORM_POSIX
     #include <sys/socket.h>
     #include <netdb.h>
-    #include <arpa/inet.hpp>
+    #include <arpa/inet.h>
     #include <netinet/in.h>
     #include <netinet/tcp.h>
     #include <sys/types.h>
