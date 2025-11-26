@@ -4,6 +4,10 @@
  * This software is licensed under the BSD software license.
  *********************************************************************/
 
+#ifdef _MSC_VER
+#pragma warning(disable:4251)
+#endif
+
 #include <net.h>
 #include <iostream>
 #include <cstdio>

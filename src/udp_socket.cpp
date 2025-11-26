@@ -46,7 +46,7 @@ udp_socket::udp_socket() {
  * \param size Number of bytes to write
  * \return Number of bytes sent
  */
-int udp_socket::write(char* data, int size) {
+LIBAEON_API int udp_socket::write(char* data, int size) {
     if (!data || !this->is_valid_socket() || size <= 0) {
         return NET_SOCKET_ERROR;
     }
@@ -67,7 +67,7 @@ int udp_socket::write(char* data, int size) {
  * \param size Number of bytes to write
  * \return Number of bytes sent
  */
-int udp_socket::write(const char* data, int size) {
+LIBAEON_API int udp_socket::write(const char* data, int size) {
     return this->write(const_cast<char*>(data), size);
 }
 
@@ -76,7 +76,7 @@ int udp_socket::write(const char* data, int size) {
  * \param data Pointer to null-terminated string
  * \return Number of bytes sent
  */
-int udp_socket::write(char* data) {
+LIBAEON_API int udp_socket::write(char* data) {
     if (!data || !this->is_valid_socket()) {
         return NET_SOCKET_ERROR;
     }
@@ -102,7 +102,7 @@ int udp_socket::write(char* data) {
  * \param data Pointer to null-terminated string
  * \return Number of bytes sent
  */
-int udp_socket::write(const char* data) {
+LIBAEON_API int udp_socket::write(const char* data) {
     return this->write(const_cast<char*>(data));
 }
 
@@ -111,7 +111,7 @@ int udp_socket::write(const char* data) {
  * \param data std::string to write
  * \return Number of bytes sent
  */
-int udp_socket::write(const std::string& data) {
+LIBAEON_API int udp_socket::write(const std::string& data) {
     if (!this->is_valid_socket() || data.empty()) {
         return NET_SOCKET_ERROR;
     }
@@ -133,7 +133,7 @@ int udp_socket::write(const std::string& data) {
  * \param size Maximum number of bytes to read
  * \return Number of bytes read
  */
-int udp_socket::read(char* buffer, int size) {
+LIBAEON_API int udp_socket::read(char* buffer, int size) {
     if (!buffer || !this->is_valid_socket() || size <= 0) {
         return NET_SOCKET_ERROR;
     }
@@ -167,7 +167,7 @@ int udp_socket::read(char* buffer, int size) {
  * \param size Maximum number of bytes to read
  * \return std::string containing read data
  */
-std::string udp_socket::read(int size) {
+LIBAEON_API std::string udp_socket::read(int size) {
     std::string retVal;
     
     if (!this->is_valid_socket() || size <= 0) {
@@ -205,7 +205,7 @@ std::string udp_socket::read(int size) {
  * Read data from UDP socket into internal buffer
  * \return Number of bytes read
  */
-int udp_socket::read() {
+LIBAEON_API int udp_socket::read() {
     return this->read(this->inbuffer, socket::max_buffer_size - 1);
 }
 

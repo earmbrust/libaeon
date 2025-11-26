@@ -6,6 +6,14 @@
 
 #pragma once
 
+#ifdef _MSC_VER
+// C4251: STL member needs dll-interface
+// This is a known MSVC artifact when exporting classes with STL containers.
+// The vector is explicitly instantiated in event_socket_set.cpp with dllexport,
+// so the warning about missing interface is spurious. Safe to suppress.
+#pragma warning(disable:4251)
+#endif
+
 #include "event_socket.h"
 #include <vector>
 #include <functional>
@@ -30,11 +38,11 @@ namespace net {
 
     protected:
         // Virtual methods - derived classes can override these
-        virtual void on_socket_data_impl(event_socket* socket, const char* buffer, int size) {}
-        virtual void on_socket_connect_impl(event_socket* socket) {}
-        virtual void on_socket_close_impl(event_socket* socket) {}
-        virtual void on_socket_listen_impl(event_socket* socket) {}
-        virtual void on_socket_error_impl(event_socket* socket, int error_code) {}
+        virtual void on_socket_data_impl([[maybe_unused]] event_socket* socket, [[maybe_unused]] const char* buffer, [[maybe_unused]] int size) {}
+        virtual void on_socket_connect_impl([[maybe_unused]] event_socket* socket) {}
+        virtual void on_socket_close_impl([[maybe_unused]] event_socket* socket) {}
+        virtual void on_socket_listen_impl([[maybe_unused]] event_socket* socket) {}
+        virtual void on_socket_error_impl([[maybe_unused]] event_socket* socket, [[maybe_unused]] int error_code) {}
 
         void fire_on_socket_data(event_socket* socket, const char* buffer, int size);
         void fire_on_socket_connect(event_socket* socket);
