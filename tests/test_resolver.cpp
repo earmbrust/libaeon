@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
-#include "resolver.h"
+#include "resolver.hpp"
 
-using namespace net;
+using namespace aeon;
 
 class ResolverTest : public ::testing::Test {
 };

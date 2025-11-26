@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
-#include "address.h"
+#include "address.hpp"
 #include <cstring>
 
-using namespace net;
+using namespace aeon;
 
 class AddressTest : public ::testing::Test {
 protected:

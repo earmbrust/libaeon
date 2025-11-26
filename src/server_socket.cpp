@@ -1,16 +1,16 @@
 #ifndef _CSERVER_SOCKET_CPP
 #define _CSERVER_SOCKET_CPP
 
-#include <net.h>
+#include <aeon.hpp>
 #include <cstring>
 #include <cerrno>
 #include <cstdio>
 
 #ifdef HAVE_CONFIG_H
-#include "../config.h"
+#include "../config.hpp"
 #endif
 
-namespace net {
+namespace aeon {
 
 /**
  * server_socket default constructor
@@ -291,6 +291,6 @@ event_socket* server_socket::accept(event_socket* client_socket, bool blocking) 
     return client_socket;
 }
 
-}  // namespace net
+}  // aeon
 
 #endif

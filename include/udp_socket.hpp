@@ -6,9 +6,9 @@
 
 #pragma once
 
-#include "socket.h"
+#include "socket.hpp"
 
-namespace net {
+namespace aeon {
 
     class LIBAEON_API udp_socket : public socket {
     public:
@@ -25,4 +25,4 @@ namespace net {
         int read();
     };
 
-} // namespace net
+} // aeon

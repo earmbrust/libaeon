@@ -4,14 +4,20 @@
  * This software is licensed under the BSD software license.
  *********************************************************************/
 
-#include <net.h>
+#pragma once
 
-// Stringification macros to convert version numbers to string
-#define STR_(x) #x
-#define STR(x) STR_(x)
+#include "udp_socket.hpp"
 
-namespace net {
-    const char* GetLibraryVersion() {
-        return STR(VERSION);
+namespace aeon {
+
+    class LIBAEON_API udp_server_socket : public udp_socket {
+    public:
+        udp_server_socket();
+        virtual ~udp_server_socket();
+        bool listen(int port);
+        bool listen();
+    private:
+        bool listening;
     };
-}
+
+} // aeon

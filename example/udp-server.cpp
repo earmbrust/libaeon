@@ -8,7 +8,7 @@
 #pragma warning(disable:4251)
 #endif
 
-#include <net.h>
+#include <aeon.hpp>
 #include <iostream>
 #include <cstdio>
 
@@ -18,7 +18,7 @@ int main(void) {
     std::cout << "Starting UDP server on port " << SERVER_PORT << std::endl;
 
     // Create UDP server socket
-    net::udp_server_socket server;
+    aeon::udp_server_socket server;
 
     // Bind to the specified port
     if (!server.listen(SERVER_PORT)) {

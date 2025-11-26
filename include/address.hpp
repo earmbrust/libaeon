@@ -6,12 +6,12 @@
 
 #pragma once
 
-#include "internal/config.h"
-#include "internal/export.h"
+#include "internal/config.hpp"
+#include "internal/export.hpp"
 #include <string>
 #include <cstdint>
 
-namespace net {
+namespace aeon {
 
     class LIBAEON_API address {
     public:
@@ -36,5 +36,5 @@ namespace net {
         int family;
     };
 
-} // namespace net
+} // aeon
 

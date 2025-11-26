@@ -6,10 +6,10 @@
 
 #pragma once
 
-#include "socket.h"
+#include "socket.hpp"
 #include <memory>
 
-namespace net {
+namespace aeon {
 
     class event_socket;
 
@@ -33,4 +33,4 @@ namespace net {
         int accept_timeout_ms;
     };
 
-} // namespace net
+} // aeon

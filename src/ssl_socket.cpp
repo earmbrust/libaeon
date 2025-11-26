@@ -6,10 +6,10 @@
 
 #ifdef ENABLE_SSL
 
-#include "ssl_socket.h"
+#include "ssl_socket.hpp"
 #include <cstring>
 
-namespace net {
+namespace aeon {
 
     ssl_socket::ssl_socket(SSL_CTX* shared_ctx)
         : socket(socket::stream_type),
@@ -408,6 +408,6 @@ namespace net {
         return result;
     }
 
-} // namespace net
+} // aeon
 
 #endif // ENABLE_SSL

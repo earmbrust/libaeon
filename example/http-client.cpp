@@ -12,10 +12,10 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
-#include <net.h>
+#include <aeon.hpp>
 
 #ifdef ENABLE_SSL
-#include <ssl_client_socket.h>
+#include <ssl_client_socket.hpp>
 #endif
 
 #define HTML_HEADER_BREAK "\r\n\r\n"
@@ -75,7 +75,7 @@ std::string extract_redirect_url(const std::string& headers) {
     return "";
 }
 
-bool send_request(net::socket* socket, const std::string& domain, const std::string& path) {
+bool send_request(aeon::socket* socket, const std::string& domain, const std::string& path) {
     std::string http_request = "GET " + path + " HTTP/1.1\r\n";
     http_request += "Host: " + domain + "\r\n";
     http_request += "Connection: close\r\n";
@@ -85,7 +85,7 @@ bool send_request(net::socket* socket, const std::string& domain, const std::str
     return bytes_sent > 0;
 }
 
-std::string read_response(net::socket* socket) {
+std::string read_response(aeon::socket* socket) {
     std::string response;
     char buffer[512];
     int bytes_read = 0;
@@ -141,16 +141,16 @@ int main(int argc, char** argv) {
         }
 
         // Create appropriate socket
-        net::socket* socket = nullptr;
+        aeon::socket* socket = nullptr;
         bool connected = false;
 
         if (parts.is_https) {
 #ifdef ENABLE_SSL
-            auto* ssl_sock = new net::ssl_client_socket();
+            auto* ssl_sock = new aeon::ssl_client_socket();
             
             // Set verification mode
             if (verify_peer) {
-                ssl_sock->set_peer_verification(net::ssl_verify_mode::strict);
+                ssl_sock->set_peer_verification(aeon::ssl_verify_mode::strict);
                 if (!ca_cert_file.empty()) {
                     int ca_result = ssl_sock->set_ca_file(ca_cert_file.c_str());
                     if (ca_result != 0) {
@@ -160,7 +160,7 @@ int main(int argc, char** argv) {
                     }
                 }
             } else {
-                ssl_sock->set_peer_verification(net::ssl_verify_mode::off);
+                ssl_sock->set_peer_verification(aeon::ssl_verify_mode::off);
             }
             
             if (!ssl_sock->connect(parts.domain.c_str(), parts.port)) {
@@ -177,7 +177,7 @@ int main(int argc, char** argv) {
             return EXIT_FAILURE;
 #endif
         } else {
-            auto* client_sock = new net::client_socket(parts.domain.c_str(), parts.port);
+            auto* client_sock = new aeon::client_socket(parts.domain.c_str(), parts.port);
             socket = client_sock;
             connected = client_sock->connected;
             if (!connected) {

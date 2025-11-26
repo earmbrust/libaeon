@@ -4,10 +4,10 @@
  * This software is licensed under the BSD software license.
  *********************************************************************/
 
-#include <net.h>
+#include <aeon.hpp>
 #include <cstring>
 
-namespace net {
+namespace aeon {
 
 
 /**
@@ -209,4 +209,4 @@ LIBAEON_API int udp_socket::read() {
     return this->read(this->inbuffer, socket::max_buffer_size - 1);
 }
 
-}  // namespace net
+}  // aeon

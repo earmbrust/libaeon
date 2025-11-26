@@ -4,13 +4,13 @@
  * This software is licensed under the BSD software license.
  *********************************************************************/
 
-#include <net.h>
-#include "resolver.h"
+#include <aeon.hpp>
+#include "resolver.hpp"
 #include <cstring>
 #include <chrono>
 #include <stdexcept>
 
-namespace net {
+namespace aeon {
 
     event_socket::event_socket()
         : socket(), poll_thread_(nullptr), polling_(false) {
@@ -158,7 +158,7 @@ namespace net {
         return bytesSent;
     }
 
-}  // namespace net
+}  // aeon
 
 
 

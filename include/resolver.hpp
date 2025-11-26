@@ -6,10 +6,10 @@
 
 #pragma once
 
-#include "address.h"
+#include "address.hpp"
 #include <string>
 
-namespace net {
+namespace aeon {
 
     class LIBAEON_API resolver {
     public:
@@ -26,4 +26,4 @@ namespace net {
         address resolve_internal(const char* hostname);
     };
 
-} // namespace net
+} // aeon

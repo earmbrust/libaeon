@@ -12,9 +12,9 @@
 
 #ifdef ENABLE_SSL
 
-#include "ssl_socket.h"
+#include "ssl_socket.hpp"
 
-namespace net {
+namespace aeon {
 
     /**
      * \class ssl_client_socket
@@ -79,6 +79,6 @@ namespace net {
         int port_num;
     };
 
-} // namespace net
+} // aeon
 
 #endif // ENABLE_SSL

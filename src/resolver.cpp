@@ -1,10 +1,10 @@
 
-#include <net.h>
+#include <aeon.hpp>
 #include <cstring>
 #include <cstdio>
 #include <stdexcept>
 
-namespace net {
+namespace aeon {
 
 /**
  * resolver constructor
@@ -104,5 +104,5 @@ template sockaddr_storage resolver::resolve<sockaddr_storage>(const char*);
 template sockaddr_in resolver::resolve<sockaddr_in>(const char*);
 template sockaddr_in6 resolver::resolve<sockaddr_in6>(const char*);
 
-} // namespace net
+} // aeon
 

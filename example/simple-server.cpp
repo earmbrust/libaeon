@@ -10,7 +10,7 @@
 #pragma warning(disable:4251)
 #endif
 
-#include <net.h>
+#include <aeon.hpp>
 #include <iostream>
 #include <cstdio>
 #include <csignal>
@@ -69,7 +69,7 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
 
-    net::server_event_socket server;
+    aeon::server_event_socket server;
 
     if (!server.listen(bind_address, port)) {
         std::fprintf(stderr, "Error: Failed to listen on %s:%d\n", bind_address, port);
@@ -82,25 +82,25 @@ int main(int argc, char** argv) {
     // Make accept non-blocking
     server.server_socket::set_blocking(false);
     
-    net::event_socket_set client_sockets;
+    aeon::event_socket_set client_sockets;
     int connection_count = 0;
 
     // Set callbacks for client events
-    client_sockets.on_socket_data = [](net::event_socket* client, const char* buffer, int size) {
+    client_sockets.on_socket_data = [](aeon::event_socket* client, const char* buffer, int size) {
         std::printf("Received %d bytes from client\n", size);
         // Echo back to client
         client->write(buffer);
     };
 
-    client_sockets.on_socket_connect = [](net::event_socket* client) {
+    client_sockets.on_socket_connect = [](aeon::event_socket* client) {
         std::printf("Client connected\n");
     };
 
-    client_sockets.on_socket_close = [](net::event_socket* client) {
+    client_sockets.on_socket_close = [](aeon::event_socket* client) {
         std::printf("Client closed connection\n");
     };
 
-    client_sockets.on_socket_error = [](net::event_socket* client, int error_code) {
+    client_sockets.on_socket_error = [](aeon::event_socket* client, int error_code) {
         std::printf("Client error: %d\n", error_code);
     };
 

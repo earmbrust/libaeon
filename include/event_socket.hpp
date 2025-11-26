@@ -6,11 +6,11 @@
 
 #pragma once
 
-#include "socket.h"
+#include "socket.hpp"
 #include <thread>
 #include <functional>
 
-namespace net {
+namespace aeon {
 
     class LIBAEON_API event_socket : public socket {
     public:
@@ -52,7 +52,7 @@ namespace net {
         void polling_loop();
     };
 
-} // namespace net
+} // aeon
 
 #ifdef _MSC_VER
 template class __declspec(dllexport) std::function<void(const char*, int)>;
