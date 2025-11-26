@@ -20,3 +20,4 @@ aeon.dir/
 *.sln
 build/
 docs/_build/
+CMakeUserPresets.json
