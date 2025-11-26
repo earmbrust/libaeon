@@ -106,9 +106,44 @@ jobs:
           
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
+  # Unit tests - single platform (fail fast)
+  test:
+    needs: build-context
+    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    env:
+      CC: gcc
+      CXX: g++
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref }}
+      
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake
+      
+      - name: Create build directory
+        run: mkdir -p build
+      
+      - name: Configure CMake
+        run: cd build && cmake .. -DCMAKE_BUILD_TYPE=Release
+      
+      - name: Build
+        run: cd build && cmake --build . --config Release --verbose
+      
+      - name: Check test executable
+        run: |
+          echo "Contents of build directory:"
+          ls -la build/ || true
+          echo "Checking for test executable:"
+          find build -name "*test*" -o -name "*aeon*" | head -20
+      
+      - name: Run Tests
+        run: cd build && ctest --output-on-failure
+
   # Linux builds - multi-architecture
   build-linux:
-    needs: build-context
+    needs: [build-context, test]
     if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     strategy:
@@ -161,9 +196,6 @@ jobs:
       - name: Configure CMake
         run: cd build && cmake .. -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake_args }}
       
-      - name: Run Tests
-        run: cd build && ctest --output-on-failure
-      
       - name: Build
         if: needs.build-context.outputs.is-work-branch != 'true'
         run: cd build && cmake --build . --config Release
@@ -185,7 +217,7 @@ jobs:
 
   # Windows builds - multi-architecture
   build-windows:
-    needs: build-context
+    needs: [build-context, test]
     if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
     runs-on: windows-latest
     strategy:
@@ -207,9 +239,6 @@ jobs:
       
       - name: Configure CMake (MSVC)
         run: cd build && cmake .. -G "Visual Studio 17 2022" -A ${{ matrix.cmake_arch }} -DCMAKE_BUILD_TYPE=Release
-      
-      - name: Run Tests
-        run: cd build && ctest --output-on-failure --config Release
       
       - name: Build
         if: needs.build-context.outputs.is-work-branch != 'true'
@@ -238,7 +267,7 @@ jobs:
 
   # macOS builds - multi-architecture
   build-macos:
-    needs: build-context
+    needs: [build-context, test]
     if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
     strategy:
       matrix:
@@ -262,9 +291,6 @@ jobs:
       - name: Configure CMake
         run: cd build && cmake .. -DCMAKE_BUILD_TYPE=Release
       
-      - name: Run Tests
-        run: cd build && ctest --output-on-failure
-      
       - name: Build
         if: needs.build-context.outputs.is-work-branch != 'true'
         run: cd build && cmake --build . --config Release
@@ -286,7 +312,7 @@ jobs:
 
   # MinGW build (legacy, can be expanded if needed)
   build-mingw:
-    needs: build-context
+    needs: [build-context, test]
     if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
     runs-on: windows-latest
     steps:
@@ -307,10 +333,6 @@ jobs:
       - name: Configure CMake
         shell: msys2 {0}
         run: cd build && cmake .. -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
-      
-      - name: Run Tests
-        shell: msys2 {0}
-        run: cd build && ctest --output-on-failure
       
       - name: Build
         if: needs.build-context.outputs.is-work-branch != 'true'
