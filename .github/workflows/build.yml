@@ -161,11 +161,15 @@ jobs:
       - name: Configure CMake
         run: cd build && cmake .. -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake_args }}
       
+      - name: Run Tests
+        run: cd build && ctest --output-on-failure
+      
       - name: Build
+        if: needs.build-context.outputs.is-work-branch != 'true'
         run: cd build && cmake --build . --config Release
       
       - name: Package artifacts (develop/master only)
-        if: needs.build-context.outputs.package-artifacts == 'true'
+        if: needs.build-context.outputs.is-work-branch != 'true' && needs.build-context.outputs.package-artifacts == 'true'
         run: |
           cd build
           tar -czf ${{ env.PROJECT_NAME }}-linux-${{ matrix.arch }}.tar.gz \
@@ -204,11 +208,15 @@ jobs:
       - name: Configure CMake (MSVC)
         run: cd build && cmake .. -G "Visual Studio 17 2022" -A ${{ matrix.cmake_arch }} -DCMAKE_BUILD_TYPE=Release
       
+      - name: Run Tests
+        run: cd build && ctest --output-on-failure --config Release
+      
       - name: Build
+        if: needs.build-context.outputs.is-work-branch != 'true'
         run: cd build && cmake --build . --config Release
       
       - name: Package artifacts (develop/master only)
-        if: needs.build-context.outputs.package-artifacts == 'true'
+        if: needs.build-context.outputs.is-work-branch != 'true' && needs.build-context.outputs.package-artifacts == 'true'
         shell: pwsh
         run: |
           cd build
@@ -254,11 +262,15 @@ jobs:
       - name: Configure CMake
         run: cd build && cmake .. -DCMAKE_BUILD_TYPE=Release
       
+      - name: Run Tests
+        run: cd build && ctest --output-on-failure
+      
       - name: Build
+        if: needs.build-context.outputs.is-work-branch != 'true'
         run: cd build && cmake --build . --config Release
       
       - name: Package artifacts (develop/master only)
-        if: needs.build-context.outputs.package-artifacts == 'true'
+        if: needs.build-context.outputs.is-work-branch != 'true' && needs.build-context.outputs.package-artifacts == 'true'
         run: |
           cd build
           tar -czf ${{ env.PROJECT_NAME }}-macos-${{ matrix.arch }}.tar.gz \
@@ -296,12 +308,17 @@ jobs:
         shell: msys2 {0}
         run: cd build && cmake .. -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
       
+      - name: Run Tests
+        shell: msys2 {0}
+        run: cd build && ctest --output-on-failure
+      
       - name: Build
+        if: needs.build-context.outputs.is-work-branch != 'true'
         shell: msys2 {0}
         run: cd build && cmake --build .
       
       - name: Package artifacts (develop/master only)
-        if: needs.build-context.outputs.package-artifacts == 'true'
+        if: needs.build-context.outputs.is-work-branch != 'true' && needs.build-context.outputs.package-artifacts == 'true'
         shell: msys2 {0}
         run: |
           cd build
