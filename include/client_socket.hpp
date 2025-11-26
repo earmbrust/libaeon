@@ -6,9 +6,9 @@
 
 #pragma once
 
-#include "socket.h"
+#include "socket.hpp"
 
-namespace net {
+namespace aeon {
 
     class LIBAEON_API client_socket : public socket {
     public:
@@ -23,4 +23,4 @@ namespace net {
         virtual ~client_socket();
     };
 
-} // namespace net
+} // aeon

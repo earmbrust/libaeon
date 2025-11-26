@@ -1,11 +1,11 @@
 #include <gtest/gtest.h>
-#include "udp_socket.h"
-#include "udp_client_socket.h"
-#include "udp_server_socket.h"
+#include "udp_socket.hpp"
+#include "udp_client_socket.hpp"
+#include "udp_server_socket.hpp"
 #include <thread>
 #include <chrono>
 
-using namespace net;
+using namespace aeon;
 
 class UDPSocketTest : public ::testing::Test {
 protected:

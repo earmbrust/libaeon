@@ -6,11 +6,11 @@
 
 #ifdef ENABLE_SSL
 
-#include "ssl_client_socket.h"
-#include "resolver.h"
+#include "ssl_client_socket.hpp"
+#include "resolver.hpp"
 #include <stdexcept>
 
-namespace net {
+namespace aeon {
 
     ssl_client_socket::ssl_client_socket()
         : ssl_socket(nullptr),
@@ -121,6 +121,6 @@ namespace net {
         return false;
     }
 
-} // namespace net
+} // aeon
 
 #endif // ENABLE_SSL

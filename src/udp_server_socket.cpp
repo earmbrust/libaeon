@@ -4,10 +4,10 @@
  * This software is licensed under the BSD software license.
  *********************************************************************/
 
-#include <net.h>
+#include <aeon.hpp>
 #include <cstring>
 
-namespace net {
+namespace aeon {
 
 /**
  * udp_server_socket default constructor
@@ -126,4 +126,4 @@ bool udp_server_socket::listen() {
     return this->listen(this->port);
 }
 
-}  // namespace net
+}  // aeon

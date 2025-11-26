@@ -7,7 +7,7 @@
 #pragma once
 
 /**
- * \file config.h
+ * \file config.hpp
  * \brief Platform detection and configuration
  * \internal This file is part of the internal implementation.
  *           Users should not include this directly.
@@ -25,18 +25,18 @@
     typedef int socklen_t;
 #elif defined(__APPLE__)
     #define NET_PLATFORM_MACOS
-    #include <sys/socket.h>
+    #include <sys/socket.hpp>
     #include <netdb.h>
-    #include <arpa/inet.h>
+    #include <arpa/inet.hpp>
     #include <netinet/in.h>
     #include <netinet/tcp.h>
     #include <sys/types.h>
     #include <unistd.h>
 #elif defined(__linux__)
     #define NET_PLATFORM_LINUX
-    #include <sys/socket.h>
+    #include <sys/socket.hpp>
     #include <netdb.h>
-    #include <arpa/inet.h>
+    #include <arpa/inet.hpp>
     #include <netinet/in.h>
     #include <netinet/tcp.h>
     #include <sys/types.h>
@@ -44,9 +44,9 @@
 #else
     // Generic POSIX fallback
     #define NET_PLATFORM_POSIX
-    #include <sys/socket.h>
+    #include <sys/socket.hpp>
     #include <netdb.h>
-    #include <arpa/inet.h>
+    #include <arpa/inet.hpp>
     #include <netinet/in.h>
     #include <netinet/tcp.h>
     #include <sys/types.h>
@@ -61,7 +61,7 @@
 #include <cstring>
 #include <cstdlib>
 
-namespace net {
+namespace aeon {
     namespace internal {
         // Platform-native socket type abstraction
         #ifdef NET_PLATFORM_WINDOWS
@@ -136,4 +136,4 @@ namespace net {
         return internal::is_valid_port(port);
     }
 
-} // namespace net
+} // aeon

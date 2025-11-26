@@ -14,11 +14,11 @@
 #pragma warning(disable:4251)
 #endif
 
-#include "event_socket.h"
+#include "event_socket.hpp"
 #include <vector>
 #include <functional>
 
-namespace net {
+namespace aeon {
 
     class LIBAEON_API event_socket_set {
     public:
@@ -57,11 +57,11 @@ namespace net {
         int error_state_;
     };
 
-} // namespace net
+} // aeon
 
 #ifdef _MSC_VER
-template class __declspec(dllexport) std::vector<net::event_socket*>;
-template class __declspec(dllexport) std::function<void(net::event_socket*, const char*, int)>;
-template class __declspec(dllexport) std::function<void(net::event_socket*)>;
-template class __declspec(dllexport) std::function<void(net::event_socket*, int)>;
+template class __declspec(dllexport) std::vector<aeon::event_socket*>;
+template class __declspec(dllexport) std::function<void(aeon::event_socket*, const char*, int)>;
+template class __declspec(dllexport) std::function<void(aeon::event_socket*)>;
+template class __declspec(dllexport) std::function<void(aeon::event_socket*, int)>;
 #endif

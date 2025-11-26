@@ -6,10 +6,10 @@
 
 #pragma once
 
-#include "socket.h"
+#include "socket.hpp"
 #include <vector>
 
-namespace net {
+namespace aeon {
 
     class socket_set {
     public:
@@ -25,4 +25,4 @@ namespace net {
         int error_state_;
     };
 
-} // namespace net
+} // aeon

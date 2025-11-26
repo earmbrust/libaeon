@@ -4,9 +4,9 @@
  * This software is licensed under the BSD software license.
  *********************************************************************/
 
-#include "server_event_socket.h"
+#include "server_event_socket.hpp"
 
-namespace net {
+namespace aeon {
 
     server_event_socket::server_event_socket()
         : server_socket(), event_socket() {
@@ -62,4 +62,4 @@ namespace net {
         (void)error_code;
     }
 
-}  // namespace net
+}  // aeon

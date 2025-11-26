@@ -14,29 +14,29 @@
 #pragma warning(disable:4251)
 #endif
 
-#include "internal/config.h"
+#include "internal/config.hpp"
 
-#include "socket.h"
-#include "address.h"
-#include "resolver.h"
-#include "client_socket.h"
-#include "server_socket.h"
-#include "event_socket.h"
-#include "client_event_socket.h"
-#include "server_event_socket.h"
-#include "event_socket_set.h"
-#include "socket_set.h"
-#include "udp_socket.h"
-#include "udp_client_socket.h"
-#include "udp_server_socket.h"
+#include "socket.hpp"
+#include "address.hpp"
+#include "resolver.hpp"
+#include "client_socket.hpp"
+#include "server_socket.hpp"
+#include "event_socket.hpp"
+#include "client_event_socket.hpp"
+#include "server_event_socket.hpp"
+#include "event_socket_set.hpp"
+#include "socket_set.hpp"
+#include "udp_socket.hpp"
+#include "udp_client_socket.hpp"
+#include "udp_server_socket.hpp"
 
 #ifdef ENABLE_SSL
-#include "ssl_socket.h"
-#include "ssl_client_socket.h"
+#include "ssl_socket.hpp"
+#include "ssl_client_socket.hpp"
 #endif
 
-namespace net {
+namespace aeon {
 
     const char* get_library_version();
 
-} // namespace net
+} // aeon

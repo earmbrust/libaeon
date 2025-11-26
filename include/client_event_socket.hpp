@@ -6,10 +6,10 @@
 
 #pragma once
 
-#include "client_socket.h"
-#include "event_socket.h"
+#include "client_socket.hpp"
+#include "event_socket.hpp"
 
-namespace net {
+namespace aeon {
 
     class LIBAEON_API client_event_socket : public client_socket, public event_socket {
     public:
@@ -28,4 +28,4 @@ namespace net {
         virtual void on_error_impl(int error_code) override;
     };
 
-} // namespace net
+} // aeon

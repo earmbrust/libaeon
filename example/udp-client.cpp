@@ -8,7 +8,7 @@
 #pragma warning(disable:4251)
 #endif
 
-#include <net.h>
+#include <aeon.hpp>
 #include <iostream>
 #include <cstdio>
 #include <cstring>
@@ -28,7 +28,7 @@ int main(int argc, char** argv) {
     std::cout << "Connecting to " << hostname << ":" << port << std::endl;
 
     // Create UDP client socket
-    net::udp_client_socket client(hostname, port);
+    aeon::udp_client_socket client(hostname, port);
 
     if (!client.connected) {
         std::fprintf(stderr, "Error: Failed to set up connection to %s:%d\n", hostname, port);

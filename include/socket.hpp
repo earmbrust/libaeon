@@ -10,12 +10,12 @@
 #pragma warning(disable:4251)
 #endif
 
-#include "address.h"
-#include "internal/config.h"
-#include "internal/platform.h"
-#include "internal/export.h"
+#include "address.hpp"
+#include "internal/config.hpp"
+#include "internal/platform.hpp"
+#include "internal/export.hpp"
 
-namespace net {
+namespace aeon {
 
     /**
      * \brief RAII guard for temporary non-blocking socket mode
@@ -150,4 +150,4 @@ namespace net {
 #endif
     };
 
-} // namespace net
+} // aeon

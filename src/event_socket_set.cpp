@@ -3,8 +3,8 @@
  * Copyright 2006-2025 (c) Elden Armbrust
  * This software is licensed under the BSD software license.
  *********************************************************************/
-#include <net.h>
-namespace net {
+#include <aeon.hpp>
+namespace aeon {
     event_socket_set::event_socket_set()
         : error_code_(err_none), error_state_(0) {
     }
@@ -76,12 +76,12 @@ namespace net {
             on_socket_error_impl(socket, error_code);
         }
     }
-}  // namespace net
+}  // aeon
 
 // Explicit template instantiation for Windows DLL export
 #ifdef _MSC_VER
-template class __declspec(dllexport) std::vector<net::event_socket*>;
-template class __declspec(dllexport) std::function<void(net::event_socket*, const char*, int)>;
-template class __declspec(dllexport) std::function<void(net::event_socket*)>;
-template class __declspec(dllexport) std::function<void(net::event_socket*, int)>;
+template class __declspec(dllexport) std::vector<aeon::event_socket*>;
+template class __declspec(dllexport) std::function<void(aeon::event_socket*, const char*, int)>;
+template class __declspec(dllexport) std::function<void(aeon::event_socket*)>;
+template class __declspec(dllexport) std::function<void(aeon::event_socket*, int)>;
 #endif

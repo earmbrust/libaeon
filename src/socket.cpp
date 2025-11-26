@@ -5,11 +5,11 @@
  *********************************************************************/
 
 
-#include <net.h>
+#include <aeon.hpp>
 #include <cstring>
 #include <algorithm>
 
-namespace net {
+namespace aeon {
 
 
 // Static helpers for socket option configuration
@@ -1126,4 +1126,4 @@ void socket::set_socket_linger(u_short linger_sec) {
     linger_opt.l_linger = linger_sec;
     setsockopt(this->sockfd, SOL_SOCKET, SO_LINGER, (const char*)&linger_opt, sizeof(linger_opt));
 }
-} // namespace net
+} // aeon

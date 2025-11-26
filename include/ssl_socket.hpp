@@ -12,11 +12,11 @@
 
 #ifdef ENABLE_SSL
 
-#include "socket.h"
+#include "socket.hpp"
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
-namespace net {
+namespace aeon {
 
     // SSL/TLS error codes (negative to distinguish from socket errors)
     constexpr int ssl_error = -1;          // Generic SSL error
@@ -92,6 +92,6 @@ namespace net {
         std::string read(int size) override;
     };
 
-} // namespace net
+} // aeon
 
 #endif // ENABLE_SSL

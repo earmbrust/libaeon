@@ -8,11 +8,11 @@
 #pragma warning(disable:4251)
 #endif
 
-#include <net.h>
+#include <aeon.hpp>
 #include <iostream>
 
 int main() {
-    net::client_socket client;
+    aeon::client_socket client;
     client.set_connect_timeout(2000);  // 2 second timeout
     
     // Test with direct IPv4 address to bypass IPv6 resolution

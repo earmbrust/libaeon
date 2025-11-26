@@ -4,9 +4,9 @@
  * This software is licensed under the BSD software license.
  *********************************************************************/
 
-#include <net.h>
+#include <aeon.hpp>
 
-namespace net {
+namespace aeon {
 
 /**
  * Add an existing socket to the socket set
@@ -91,4 +91,4 @@ int socket_set::size() const {
     return static_cast<int>(this->sockets_.size());
 }
 
-}  // namespace net
+}  // aeon

@@ -140,7 +140,7 @@ include_directories(include)
 
 # Main library sources - list all implementation files
 set(LIBAEON_SOURCES
-    src/libaeon.cpp
+    src/aeon.cpp
     src/address.cpp
     src/resolver.cpp
     src/socket.cpp

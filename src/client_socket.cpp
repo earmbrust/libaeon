@@ -7,12 +7,12 @@
 #ifndef _CCLIENT_SOCKET_CPP
 #define _CCLIENT_SOCKET_CPP
 
-#include <net.h>
+#include <aeon.hpp>
 #include <cstdio>
 #include <cstdlib>
 #include <cerrno>
 
-namespace net {
+namespace aeon {
 
 
 // Helper: Convert addrinfo.ai_addrlen (size_t on Windows, socklen_t on POSIX) to socklen_t
@@ -236,6 +236,6 @@ client_socket::client_socket(const std::string* hostname, int port) {
 client_socket::~client_socket() {
 }
 
-}  // namespace net
+}  // aeon
 
 #endif  // _CCLIENT_SOCKET_CPP

@@ -1,9 +1,9 @@
 
-#include <net.h>
+#include <aeon.hpp>
 #include <cstring>
 #include <stdexcept>
 
-namespace net {
+namespace aeon {
 
 /**
  * Default constructor - creates empty address
@@ -122,5 +122,5 @@ sockaddr_in6 address::get_sockaddr_ipv6() const {
     return *(sockaddr_in6*)&addr;
 }
 
-} // namespace net
+} // aeon
 

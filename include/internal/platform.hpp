@@ -6,16 +6,16 @@
 
 #pragma once
 
-#include "config.h"
+#include "config.hpp"
 
 /**
- * \file platform.h
+ * \file platform.hpp
  * \brief Platform-specific abstractions and macros
  * \internal This file is part of the internal implementation.
  *           Users should not include this directly.
  */
 
-namespace net {
+namespace aeon {
     namespace internal {
 
         // Cross-platform socket close
@@ -34,4 +34,4 @@ namespace net {
         #endif
 
     } // namespace internal
-} // namespace net
+} // aeon

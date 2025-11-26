@@ -8,7 +8,7 @@
 #pragma warning(disable:4251)
 #endif
 
-#include <net.h>
+#include <aeon.hpp>
 #include <iostream>
 #include <csignal>
 #include <cstdlib>
@@ -34,7 +34,7 @@ int main(void) {
     }
 
     // Create server socket
-    net::server_socket server;
+    aeon::server_socket server;
 
     // Check if we can open the port
     if (!server.listen(PORT)) {
