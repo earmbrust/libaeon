@@ -13,8 +13,9 @@ protected:
 
 TEST_F(AddressTest, DefaultConstructor) {
     address addr;
-    // Default address should be initialized
-    EXPECT_FALSE(addr.get_string().empty());
+    // Default constructor creates an empty address object
+    EXPECT_FALSE(addr.is_ipv4());
+    EXPECT_FALSE(addr.is_ipv6());
 }
 
 TEST_F(AddressTest, IPv4AddressFromSockaddr) {
