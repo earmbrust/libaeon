@@ -95,6 +95,13 @@ namespace aeon {
         socket(socket_t existing_fd, bool is_existing_socket);
         virtual ~socket();
 
+        // Native socket descriptors have exclusive ownership. Moving can be
+        // introduced later only with a complete cross-platform transfer policy.
+        socket(const socket&) = delete;
+        socket& operator=(const socket&) = delete;
+        socket(socket&&) = delete;
+        socket& operator=(socket&&) = delete;
+
         bool close();
         bool is_valid_socket() const;
 
@@ -111,27 +118,27 @@ namespace aeon {
         std::string operator>>(std::string);
 
         // Public members for API compatibility
-        socket_t sockfd;
-        int n;
-        struct sockaddr_storage remote_addr;
-        bool connected;
+        socket_t sockfd = invalid_socket;
+        int n = 0;
+        struct sockaddr_storage remote_addr{};
+        bool connected = false;
 
     protected:
-        int flags;
-        int net_family;
-        int token_size;
-        bool blocking;
-        char inbuffer[socket::max_buffer_size];
-        char outbuffer[socket::max_buffer_size];
+        int flags = 0;
+        int net_family = default_family;
+        int token_size = 0;
+        bool blocking = true;
+        char inbuffer[socket::max_buffer_size]{};
+        char outbuffer[socket::max_buffer_size]{};
         std::string remote_host;
         std::string remote_ip;
-        int connect_code;
-        int error_code;
-        int error_state;
-        int port;
-        int read_timeout_ms;
-        int write_timeout_ms;
-        int connect_timeout_ms;
+        int connect_code = 0;
+        int error_code = err_none;
+        int error_state = 0;
+        int port = 0;
+        int read_timeout_ms = 0;
+        int write_timeout_ms = 0;
+        int connect_timeout_ms = 0;
 
         void set_error(int error);
         void clear_buffers();
@@ -145,8 +152,8 @@ namespace aeon {
         static int wait_for_writable(socket_t sockfd, int timeout_ms);
 
 #ifdef NET_PLATFORM_WINDOWS
-        int wsaret;
-        WSADATA wsadata;
+        int wsaret = 0;
+        WSADATA wsadata{};
 #endif
     };
 

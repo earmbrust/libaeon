@@ -13,31 +13,12 @@ namespace aeon {
 /**
  * udp_socket default constructor - creates UDP socket
  */
-udp_socket::udp_socket() {
-    // Parent socket constructor already initialized:
-    // net_family, connected, blocking, n, port, error_code, error_state, token_size
-    
-    // Close the TCP socket created by parent constructor
-    // udp_socket needs a UDP (datagram) socket instead
-    if (this->is_valid_socket()) {
-        NET_CLOSE_SOCKET(this->sockfd);
-    }
-
-    // Create UDP (datagram) socket
-    this->sockfd = ::socket(socket::default_family, socket::datagram_type, 0);
-    
+udp_socket::udp_socket()
+    : socket(socket::default_family, socket::datagram_type) {
     if (!this->is_valid_socket()) {
-        this->error_code = err_no_socket;
-        this->error_state = state_create;
         return;
     }
-
-    // PERFORMANCE: Set SO_REUSEADDR for rapid rebinding on UDP
-    // Allows immediate port reuse after close (especially useful for UDP servers/clients)
     this->set_socket_reuseaddr();
-
-    this->safe_clear_buffer(this->inbuffer, socket::max_buffer_size);
-    this->safe_clear_buffer(this->outbuffer, socket::max_buffer_size);
 }
 
 /**

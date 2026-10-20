@@ -29,8 +29,7 @@ namespace aeon {
         event_socket* accept(event_socket* client_socket, bool blocking);
 
     private:
-        socket_t server_socket_;
-        int accept_timeout_ms;
+        int accept_timeout_ms = 0;
     };
 
 } // aeon

@@ -1,404 +1,220 @@
-name: Build libaeon
+name: Build and Test libAeon
 
+# All active/legacy branch names are covered. Only version tags produce releases.
 on:
-  workflow_dispatch:
   push:
-    branches:
-      - 'master'
-      - 'develop'
-      - '*-devel'
-    tags:
-      - 'v*'
-      - '[0-9]+.[0-9]+.[0-9]+*'
+    branches: [master, development, develop, main, '*-devel']
+    tags: ['v*', '[0-9]*']
   pull_request:
-    types: [closed]
-    branches: 
-      - master
-      - development
+    branches: [master, development, develop, main, '*-devel']
+  workflow_dispatch:
 
-env:
-  PROJECT_NAME: libaeon
-  VERSION: ${{ github.ref_name }}
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
-  # Determine build context
-  build-context:
-    runs-on: ubuntu-latest
-    outputs:
-      is-work-branch: ${{ steps.context.outputs.is-work-branch }}
-      is-develop: ${{ steps.context.outputs.is-develop }}
-      is-master: ${{ steps.context.outputs.is-master }}
-      is-tag: ${{ steps.context.outputs.is-tag }}
-      version: ${{ steps.context.outputs.version }}
-      package-artifacts: ${{ steps.context.outputs.package-artifacts }}
-      create-release: ${{ steps.context.outputs.create-release }}
-    steps:
-      - name: Debug - Print GitHub context
-        run: |
-          echo "GitHub Ref: ${{ github.ref }}"
-          echo "GitHub Ref Name: ${{ github.ref_name }}"
-          echo "GitHub Event Name: ${{ github.event_name }}"
-          echo "GitHub Base Ref: ${{ github.base_ref }}"
-          echo "PR Merged: ${{ github.event.pull_request.merged }}"
-      
-      - name: Determine build context
-        id: context
-        run: |
-          GITHUB_REF="${{ github.ref }}"
-          GITHUB_REF_NAME="${{ github.ref_name }}"
-          EVENT_NAME="${{ github.event_name }}"
-          
-          # Handle PR merge events - use base_ref (target branch) instead of ref
-          if [[ "$EVENT_NAME" == "pull_request" && "${{ github.event.pull_request.merged }}" == "true" ]]; then
-            echo "Detected PR merge to: ${{ github.base_ref }}"
-            GITHUB_REF="refs/heads/${{ github.base_ref }}"
-            GITHUB_REF_NAME="${{ github.base_ref }}"
-          fi
-          
-          echo "Processing: $GITHUB_REF"
-          
-          # Check if this is a tag push
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            echo "is-tag=true" >> $GITHUB_OUTPUT
-            VERSION="$GITHUB_REF_NAME"
-            echo "Detected TAG: $VERSION"
-          else
-            echo "is-tag=false" >> $GITHUB_OUTPUT
-            VERSION="$GITHUB_REF_NAME"
-            echo "Detected BRANCH: $VERSION"
-          fi
-          
-          # Check branch type
-          if [[ "$GITHUB_REF" == refs/heads/*-devel ]]; then
-            echo "TYPE: Work branch (*-devel)"
-            echo "is-work-branch=true" >> $GITHUB_OUTPUT
-            echo "is-develop=false" >> $GITHUB_OUTPUT
-            echo "is-master=false" >> $GITHUB_OUTPUT
-            echo "package-artifacts=false" >> $GITHUB_OUTPUT
-            echo "create-release=false" >> $GITHUB_OUTPUT
-          elif [[ "$GITHUB_REF" == refs/heads/develop ]]; then
-            echo "TYPE: Develop branch"
-            echo "is-work-branch=false" >> $GITHUB_OUTPUT
-            echo "is-develop=true" >> $GITHUB_OUTPUT
-            echo "is-master=false" >> $GITHUB_OUTPUT
-            echo "package-artifacts=true" >> $GITHUB_OUTPUT
-            echo "create-release=false" >> $GITHUB_OUTPUT
-          elif [[ "$GITHUB_REF" == refs/heads/master ]]; then
-            echo "TYPE: Master branch"
-            echo "is-work-branch=false" >> $GITHUB_OUTPUT
-            echo "is-develop=false" >> $GITHUB_OUTPUT
-            echo "is-master=true" >> $GITHUB_OUTPUT
-            echo "package-artifacts=true" >> $GITHUB_OUTPUT
-            # Only create release if this is a tag push to master
-            if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-              echo "create-release=true" >> $GITHUB_OUTPUT
-            else
-              echo "create-release=false" >> $GITHUB_OUTPUT
-            fi
-          else
-            echo "TYPE: Other/PR"
-            echo "is-work-branch=false" >> $GITHUB_OUTPUT
-            echo "is-develop=false" >> $GITHUB_OUTPUT
-            echo "is-master=false" >> $GITHUB_OUTPUT
-            echo "package-artifacts=false" >> $GITHUB_OUTPUT
-            echo "create-release=false" >> $GITHUB_OUTPUT
-          fi
-          
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-  # Unit tests - single platform (fail fast)
-  test:
-    needs: build-context
-    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
-    runs-on: ubuntu-latest
-    env:
-      CC: gcc
-      CXX: g++
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref }}
-      
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y build-essential cmake
-      
-      - name: Create build directory
-        run: mkdir -p build
-      
-      - name: Configure CMake
-        run: cd build && cmake .. -DCMAKE_BUILD_TYPE=Release
-      
-      - name: Build
-        run: cd build && cmake --build . --config Release --verbose
-      
-      - name: Check test executable
-        run: |
-          echo "Checking for test executable:"
-          find build -name "*test*" -o -name "*aeon*" | head -20
-      
-      - name: Run Tests
-        run: cd build && timeout 60 ctest --output-on-failure -VV
-
-  # Linux builds - multi-architecture
-  build-linux:
-    needs: [build-context, test]
-    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
-    runs-on: ubuntu-latest
+  # Every row builds and runs the test suite independently. A failing Linux job
+  # must not prevent Windows, macOS or other CPU architectures from being checked.
+  build-test:
+    name: ${{ matrix.id }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
     strategy:
+      fail-fast: false
       matrix:
         include:
-          # x64 GCC
-          - arch: x64
-            cc: gcc
-            cxx: g++
-            cmake_args: ""
-            toolchain_install: "build-essential cmake"
-          # x64 Clang
-          - arch: x64
-            cc: clang
-            cxx: clang++
-            cmake_args: ""
-            toolchain_install: "build-essential cmake clang"
-          # x86 (32-bit)
-          - arch: x86
-            cc: gcc
-            cxx: g++
-            cmake_args: "-DCMAKE_CXX_FLAGS=-m32 -DCMAKE_C_FLAGS=-m32"
-            toolchain_install: "build-essential cmake gcc-multilib g++-multilib"
-          # ARM (ARMv7)
-          - arch: arm
-            cc: arm-linux-gnueabihf-gcc
-            cxx: arm-linux-gnueabihf-g++
-            cmake_args: "-DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=armv7l -DCMAKE_CXX_COMPILER=arm-linux-gnueabihf-g++ -DCMAKE_C_COMPILER=arm-linux-gnueabihf-gcc"
-            toolchain_install: "build-essential cmake gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf"
-          # ARM64 (aarch64)
-          - arch: arm64
-            cc: aarch64-linux-gnu-gcc
-            cxx: aarch64-linux-gnu-g++
-            cmake_args: "-DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64 -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc"
-            toolchain_install: "build-essential cmake gcc-aarch64-linux-gnu g++-aarch64-linux-gnu"
-    env:
-      CC: ${{ matrix.cc }}
-      CXX: ${{ matrix.cxx }}
+          - { id: linux-x64-gcc-debug,       runner: ubuntu-24.04,         compiler: gcc,   arch: x64,   config: Debug }
+          - { id: linux-x64-gcc-release,     runner: ubuntu-24.04,         compiler: gcc,   arch: x64,   config: Release }
+          - { id: linux-x64-clang-release,   runner: ubuntu-24.04,         compiler: clang, arch: x64,   config: Release }
+          - { id: linux-x86-gcc-release,     runner: ubuntu-24.04,         compiler: gcc,   arch: x86,   config: Release }
+          - { id: linux-armv7-qemu-release,  runner: ubuntu-24.04,         compiler: gcc,   arch: armv7, config: Release }
+          - { id: linux-arm64-gcc-release,   runner: ubuntu-24.04-arm,     compiler: gcc,   arch: arm64, config: Release }
+          - { id: windows-x86-msvc2022,      runner: windows-2022,         compiler: msvc,  arch: Win32, config: Release, generator: 'Visual Studio 17 2022' }
+          - { id: windows-x64-msvc2022,      runner: windows-2022,         compiler: msvc,  arch: x64,   config: Release, generator: 'Visual Studio 17 2022' }
+          - { id: windows-x64-msvc2026-debug,runner: windows-2025-vs2026,  compiler: msvc,  arch: x64,   config: Debug,   generator: 'Visual Studio 18 2026' }
+          - { id: windows-x64-msvc2026,      runner: windows-2025-vs2026,  compiler: msvc,  arch: x64,   config: Release, generator: 'Visual Studio 18 2026' }
+          - { id: windows-arm64-msvc2026,    runner: windows-11-vs2026-arm,compiler: msvc,  arch: ARM64, config: Release, generator: 'Visual Studio 18 2026' }
+          - { id: windows-x64-mingw,         runner: windows-2025,         compiler: mingw, arch: x64,   config: Release }
+          - { id: macos-intel-clang,         runner: macos-15-intel,       compiler: clang, arch: x64,   config: Release }
+          - { id: macos-arm64-clang,         runner: macos-15,             compiler: clang, arch: arm64, config: Release }
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref }}
-      
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y ${{ matrix.toolchain_install }}
-      
-      - name: Create build directory
-        run: mkdir -p build
-      
-      - name: Configure CMake
-        run: cd build && cmake .. -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake_args }}
-      
-      - name: Build
-        if: needs.build-context.outputs.is-work-branch != 'true'
-        run: cd build && cmake --build . --config Release
-      
-      - name: Package artifacts (develop/master only)
-        if: needs.build-context.outputs.is-work-branch != 'true' && needs.build-context.outputs.package-artifacts == 'true'
-        run: |
-          cd build
-          tar -czf ${{ env.PROJECT_NAME }}-linux-${{ matrix.arch }}.tar.gz \
-            lib* src/ example/ CMakeLists.txt README* LICENSE* || true
-      
-      - name: Upload artifacts
-        if: needs.build-context.outputs.package-artifacts == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-${{ matrix.arch }}-build
-          path: build/${{ env.PROJECT_NAME }}-linux-${{ matrix.arch }}.tar.gz
-          retention-days: 30
 
-  # Windows builds - multi-architecture
-  build-windows:
-    needs: [build-context, test]
-    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
-    runs-on: windows-latest
-    strategy:
-      matrix:
-        include:
-          - arch: x86
-            cmake_arch: Win32
-          - arch: x64
-            cmake_arch: x64
-          - arch: arm64
-            cmake_arch: ARM64
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref }}
-      
-      - name: Create build directory
-        run: mkdir -p build
-      
-      - name: Configure CMake (MSVC)
-        run: cd build && cmake .. -G "Visual Studio 17 2022" -A ${{ matrix.cmake_arch }} -DCMAKE_BUILD_TYPE=Release
-      
-      - name: Build
-        if: needs.build-context.outputs.is-work-branch != 'true'
-        run: cd build && cmake --build . --config Release
-      
-      - name: Package artifacts (develop/master only)
-        if: needs.build-context.outputs.is-work-branch != 'true' && needs.build-context.outputs.package-artifacts == 'true'
+      - name: Print environment
         shell: pwsh
         run: |
-          cd build
-          if (Test-Path "Release") {
-            Compress-Archive -Path "Release\*", "..\src\", "..\example\", "..\CMakeLists.txt", "..\README*", "..\LICENSE*" `
-              -DestinationPath "${{ env.PROJECT_NAME }}-windows-${{ matrix.arch }}.zip" -Force
-          } else {
-            Compress-Archive -Path "*", "..\src\", "..\example\", "..\CMakeLists.txt", "..\README*", "..\LICENSE*" `
-              -DestinationPath "${{ env.PROJECT_NAME }}-windows-${{ matrix.arch }}.zip" -Force
-          }
-      
-      - name: Upload artifacts
-        if: needs.build-context.outputs.package-artifacts == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-${{ matrix.arch }}-build
-          path: build/${{ env.PROJECT_NAME }}-windows-${{ matrix.arch }}.zip
-          retention-days: 30
+          cmake --version
+          Write-Host "Runner OS: ${{ runner.os }}"
+          Write-Host "Target: ${{ matrix.id }}"
 
-  # macOS builds - multi-architecture
-  build-macos:
-    needs: [build-context, test]
-    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
-    strategy:
-      matrix:
-        include:
-          - arch: intel
-            runner: macos-14
-          - arch: apple-silicon
-            runner: macos-latest
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref }}
-      
-      - name: Install dependencies
-        run: brew install cmake
-      
-      - name: Create build directory
-        run: mkdir -p build
-      
-      - name: Configure CMake
-        run: cd build && cmake .. -DCMAKE_BUILD_TYPE=Release
-      
-      - name: Build
-        if: needs.build-context.outputs.is-work-branch != 'true'
-        run: cd build && cmake --build . --config Release
-      
-      - name: Package artifacts (develop/master only)
-        if: needs.build-context.outputs.is-work-branch != 'true' && needs.build-context.outputs.package-artifacts == 'true'
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        shell: bash
         run: |
-          cd build
-          tar -czf ${{ env.PROJECT_NAME }}-macos-${{ matrix.arch }}.tar.gz \
-            lib* src/ example/ CMakeLists.txt README* LICENSE* || true
-      
-      - name: Upload artifacts
-        if: needs.build-context.outputs.package-artifacts == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-${{ matrix.arch }}-build
-          path: build/${{ env.PROJECT_NAME }}-macos-${{ matrix.arch }}.tar.gz
-          retention-days: 30
+          sudo apt-get update
+          packages=(build-essential cmake ninja-build)
+          if [[ '${{ matrix.compiler }}' == 'clang' ]]; then packages+=(clang); fi
+          if [[ '${{ matrix.arch }}' == 'x86' ]]; then packages+=(gcc-multilib g++-multilib); fi
+          if [[ '${{ matrix.arch }}' == 'armv7' ]]; then
+            packages+=(gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf qemu-user file)
+          fi
+          sudo apt-get install -y "${packages[@]}"
 
-  # MinGW build (legacy, can be expanded if needed)
-  build-mingw:
-    needs: [build-context, test]
-    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref }}
-      
-      - name: Install MinGW
+      - name: Ensure macOS Ninja is available
+        if: runner.os == 'macOS'
+        shell: bash
+        run: command -v ninja >/dev/null || brew install ninja
+
+      - name: Setup MinGW-w64
+        if: matrix.compiler == 'mingw'
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
-          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-make
-      
-      - name: Create build directory
-        shell: msys2 {0}
-        run: mkdir -p build
-      
-      - name: Configure CMake
-        shell: msys2 {0}
-        run: cd build && cmake .. -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
-      
-      - name: Build
-        if: needs.build-context.outputs.is-work-branch != 'true'
-        shell: msys2 {0}
-        run: cd build && cmake --build .
-      
-      - name: Package artifacts (develop/master only)
-        if: needs.build-context.outputs.is-work-branch != 'true' && needs.build-context.outputs.package-artifacts == 'true'
-        shell: msys2 {0}
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+
+      - name: Configure (native Unix, including Linux x86)
+        if: (runner.os == 'Linux' || runner.os == 'macOS') && matrix.arch != 'armv7'
+        shell: bash
         run: |
-          cd build
-          tar -czf ${{ env.PROJECT_NAME }}-mingw64.tar.gz \
-            lib* src/ example/ CMakeLists.txt README* LICENSE* || true
-      
-      - name: Upload artifacts
-        if: needs.build-context.outputs.package-artifacts == 'true'
+          if [[ '${{ matrix.compiler }}' == 'gcc' ]]; then
+            export CC=gcc CXX=g++
+          else
+            export CC=clang CXX=clang++
+          fi
+          flags=()
+          if [[ '${{ matrix.arch }}' == 'x86' ]]; then
+            flags+=('-DCMAKE_CXX_FLAGS=-m32' '-DCMAKE_C_FLAGS=-m32')
+          fi
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.config }} "${flags[@]}"
+
+      - name: Configure (Linux ARMv7 cross-compiler)
+        if: matrix.arch == 'armv7'
+        shell: bash
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=armv7l \
+            -DCMAKE_C_COMPILER=arm-linux-gnueabihf-gcc \
+            -DCMAKE_CXX_COMPILER=arm-linux-gnueabihf-g++
+
+      - name: Configure (Visual Studio/MSVC)
+        if: matrix.compiler == 'msvc'
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G '${{ matrix.generator }}' -A '${{ matrix.arch }}'
+
+      - name: Configure (MinGW-w64)
+        if: matrix.compiler == 'mingw'
+        shell: msys2 {0}
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        if: matrix.compiler != 'mingw'
+        shell: pwsh
+        run: cmake --build build --config '${{ matrix.config }}' --parallel 2
+
+      - name: Build (MinGW-w64)
+        if: matrix.compiler == 'mingw'
+        shell: msys2 {0}
+        run: cmake --build build --parallel 2
+
+      - name: Run native tests (including 32-bit Linux and Windows)
+        if: matrix.arch != 'armv7' && matrix.compiler != 'mingw'
+        shell: pwsh
+        timeout-minutes: 8
+        run: ctest --test-dir build -C '${{ matrix.config }}' --output-on-failure --timeout 90
+
+      - name: Run MinGW-w64 tests
+        if: matrix.compiler == 'mingw'
+        shell: msys2 {0}
+        timeout-minutes: 8
+        run: ctest --test-dir build --output-on-failure --timeout 90
+
+      - name: Run Linux ARMv7 tests under QEMU user emulation
+        if: matrix.arch == 'armv7'
+        shell: bash
+        timeout-minutes: 8
+        run: |
+          file build/aeon_tests
+          # Use the ARMhf system libraries and the freshly built libaeon.so.
+          timeout 120s qemu-arm -L /usr/arm-linux-gnueabihf \
+            -E LD_LIBRARY_PATH="$GITHUB_WORKSPACE/build" \
+            "$GITHUB_WORKSPACE/build/aeon_tests"
+
+      # Release/development artifacts are created only after the corresponding
+      # build AND tests succeed. Work branches and PRs never publish binaries.
+      - name: Package Release libraries and headers
+        if: >-
+          matrix.config == 'Release' && github.event_name != 'pull_request' &&
+          (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/development' ||
+           github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main' ||
+           startsWith(github.ref, 'refs/tags/'))
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = Join-Path $PWD 'dist/stage'
+          New-Item -ItemType Directory -Force -Path "$stage/include", "$stage/lib" | Out-Null
+          Copy-Item -Path 'include/*' -Destination "$stage/include" -Recurse -Force
+          Copy-Item -Path 'README.md' -Destination $stage -Force
+          Get-ChildItem -Path . -File -Filter 'LICENSE*' | ForEach-Object { Copy-Item $_.FullName $stage -Force }
+          $libs = @(Get-ChildItem -Path build -File -Recurse | Where-Object {
+            $_.Extension -in @('.dll', '.lib', '.so', '.dylib', '.a') -and
+            $_.BaseName -match '^(lib)?aeon($|_)'
+          })
+          if ($libs.Count -eq 0) { throw 'No libAeon library binaries found to package.' }
+          foreach ($lib in $libs) { Copy-Item $lib.FullName (Join-Path "$stage/lib" $lib.Name) -Force }
+          Compress-Archive -Path "$stage/*" -DestinationPath 'dist/libaeon-${{ matrix.id }}.zip' -Force
+
+      - name: Upload packaged binary
+        if: >-
+          matrix.config == 'Release' && github.event_name != 'pull_request' &&
+          (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/development' ||
+           github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main' ||
+           startsWith(github.ref, 'refs/tags/'))
         uses: actions/upload-artifact@v4
         with:
-          name: mingw64-build
-          path: build/${{ env.PROJECT_NAME }}-mingw64.tar.gz
-          retention-days: 30
+          name: libaeon-${{ matrix.id }}
+          path: dist/libaeon-${{ matrix.id }}.zip
+          if-no-files-found: error
+          retention-days: 14
 
-  # Release job - runs only on master with a tag
-  create-release:
-    needs: [build-context, build-linux, build-windows, build-macos, build-mingw]
-    if: needs.build-context.outputs.create-release == 'true'
-    runs-on: ubuntu-latest
+  # SSL/sanitizers/static analysis: reusable workflow, no duplicate CI triggers.
+  quality:
+    uses: ./.github/workflows/test.yml
+
+  # Tag pushes only. Never publishes release binaries from 2.0-devel or PRs.
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [build-test, quality]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref }}
-      
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts/
-      
-      - name: Prepare release notes
-        id: release-notes
+          fetch-depth: 0
+      - name: Verify tag commit is reachable from master
+        shell: bash
         run: |
-          VERSION="${{ needs.build-context.outputs.version }}"
-          echo "Release: $VERSION" > release_notes.md
-          echo "" >> release_notes.md
-          echo "## Build Artifacts" >> release_notes.md
-          echo "" >> release_notes.md
-          echo "This release includes compiled binaries for:" >> release_notes.md
-          echo "### Linux" >> release_notes.md
-          echo "- x86 (32-bit)" >> release_notes.md
-          echo "- x64 (64-bit, GCC and Clang)" >> release_notes.md
-          echo "- ARM (ARMv7)" >> release_notes.md
-          echo "- ARM64 (aarch64)" >> release_notes.md
-          echo "### Windows" >> release_notes.md
-          echo "- x86 (32-bit MSVC)" >> release_notes.md
-          echo "- x64 (64-bit MSVC)" >> release_notes.md
-          echo "- ARM64 (MSVC)" >> release_notes.md
-          echo "- MinGW64" >> release_notes.md
-          echo "### macOS" >> release_notes.md
-          echo "- Intel" >> release_notes.md
-          echo "- Apple Silicon" >> release_notes.md
-      
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+          git fetch origin master
+          git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/master || {
+            echo 'Refusing release: tag commit is not on master.' >&2
+            exit 1
+          }
+      - uses: actions/download-artifact@v4
         with:
-          files: |
-            artifacts/*/*.tar.gz
-            artifacts/*/*.zip
-          body_path: release_notes.md
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          pattern: libaeon-*
+          path: release-files
+          merge-multiple: true
+      - name: Publish version release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-files/*.zip
+          fail_on_unmatched_files: true
+          generate_release_notes: true

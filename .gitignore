@@ -21,3 +21,5 @@ aeon.dir/
 build/
 docs/_build/
 CMakeUserPresets.json
+patch/
+build-vs2026/

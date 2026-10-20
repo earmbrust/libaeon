@@ -5,9 +5,19 @@ on:
     branches:
       - master
       - development
+      - develop
+      - main
+      - '*-devel'
     tags:
       - 'v*'
-      - '[0-9]+.[0-9]+.[0-9]+*'
+      - '[0-9]*'
+  pull_request:
+    branches:
+      - master
+      - development
+      - develop
+      - main
+      - '*-devel'
   workflow_dispatch:
 
 permissions:
@@ -16,7 +26,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: "pages"
+  group: "pages-${{ github.ref }}"
   cancel-in-progress: false
 
 jobs:
@@ -51,48 +61,28 @@ jobs:
           mkdir -p docs/_static
           mkdir -p docs/_templates
           mkdir -p docs/api
-          echo "✓ Created all required directories"
+          echo "Created all required directories"
           ls -la docs/
 
       - name: Build Doxygen XML
         run: |
-          echo "Running Doxygen from root directory..."
-          echo "Doxygen version:"
           doxygen --version
-          echo ""
-          echo "Output directory will be: ./docs/_build/doxygen"
-          ls -la docs/_build/
           doxygen Doxyfile
-          
-          # Critical check for index.xml
           if [ ! -f docs/_build/doxygen/xml/index.xml ]; then
-            echo "✗ ERROR: index.xml not found!"
-            echo "Contents of xml directory:"
-            ls -la docs/_build/doxygen/xml/ || echo "No xml directory"
+            echo 'ERROR: Doxygen index.xml not found.' >&2
             exit 1
           fi
-          
-          echo "✓ Doxygen XML generated successfully"
-          ls -la docs/_build/doxygen/xml/ | head -20
 
       - name: Build Sphinx HTML
+        shell: bash
         run: |
+          set -euo pipefail
           cd docs
-          
-          # Clear Breathe and Sphinx caches to prevent stale data
-          rm -rf .doctrees 2>/dev/null || true
-          rm -rf _build/.doctrees 2>/dev/null || true
-          
-          echo "Building Sphinx from docs directory..."
+          rm -rf .doctrees _build/.doctrees
           sphinx-build -b html -W . _build/html 2>&1 | tee build.log
-          
-          if grep -i "error\|failed" build.log; then
-            echo "Build completed with errors"
-            exit 1
-          fi
-          echo "✓ Sphinx HTML build successful"
 
-      - name: Upload artifact
+      - name: Upload documentation for GitHub Pages
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/'))
         uses: actions/upload-pages-artifact@v3
         with:
           path: 'docs/_build/html'
@@ -108,4 +98,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v3
+        uses: actions/deploy-pages@v4

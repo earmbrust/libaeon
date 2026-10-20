@@ -418,7 +418,7 @@ socket::socket(socket_t existing_fd, bool is_existing_socket) {
     (void)is_existing_socket;  // Parameter just disambiguates from socket(int family_type)
     
     this->net_family = socket::default_family;
-    this->connected = true;  // Assumed valid since it came from accept()
+    this->connected = (existing_fd != invalid_socket);
     this->blocking = true;
     this->n = 0;
     this->port = 0;
@@ -448,20 +448,11 @@ socket::socket(socket_t existing_fd, bool is_existing_socket) {
  * socket destructor - cleans up socket resources
  */
 socket::~socket() {
-#if defined(NET_PLATFORM_LINUX) || defined(NET_PLATFORM_MACOS)
-    if (this->connected) {
-        ::close(this->sockfd);
+    // Valid descriptors are owned regardless of the TCP connected flag:
+    // unconnected TCP sockets and unbound UDP sockets need cleanup too.
+    if (this->is_valid_socket()) {
+        (void)this->close();
     }
-#endif
-
-#ifdef NET_PLATFORM_WINDOWS
-    if (this->sockfd != INVALID_SOCKET) {
-        closesocket(this->sockfd);
-    }
-    // WSACleanup() removed - global resource, not per-socket
-#endif
-
-    this->sockfd = invalid_socket;
 }
 
 /**
@@ -472,18 +463,16 @@ bool socket::close() {
     if (!this->is_valid_socket()) {
         return false;
     }
-#ifdef NET_PLATFORM_WINDOWS
-    if (this->sockfd != INVALID_SOCKET) {
-        closesocket(this->sockfd);
-        this->sockfd = INVALID_SOCKET;
-    }
-#else
-    if (this->sockfd != -1) {
-        ::close(this->sockfd);
-        this->sockfd = -1;
-    }
-#endif
+
+    // Relinquish ownership before calling the OS, so neither this object nor
+    // its derived/base destructors can attempt a second close.
+    socket_t owned = this->sockfd;
+    this->sockfd = invalid_socket;
     this->connected = false;
+    if (NET_CLOSE_SOCKET(owned) != 0) {
+        this->error_code = GET_NET_SOCKET_ERROR();
+        return false;
+    }
     return true;
 }
 

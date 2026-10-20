@@ -22,11 +22,7 @@ server_socket::server_socket() {
 /**
  * server_socket destructor
  */
-server_socket::~server_socket() {
-    if (this->is_valid_socket()) {
-        NET_CLOSE_SOCKET(this->sockfd);
-    }
-}
+server_socket::~server_socket() = default;
 
 int server_socket::set_accept_timeout(int timeout_ms) {
     if (timeout_ms < 0 || timeout_ms > 60000) {
@@ -139,10 +135,11 @@ bool server_socket::listen(const char* address, int port) {
     }
 
     // Recreate socket if family doesn't match (similar to client_socket::connect pattern)
-    if (target_family != this->net_family) {
+    if (target_family != this->net_family || !this->is_valid_socket()) {
         if (this->is_valid_socket()) {
             NET_CLOSE_SOCKET(this->sockfd);
         }
+        this->sockfd = invalid_socket;
 
         this->sockfd = ::socket(target_family, socket::default_type, 0);
         if (!this->is_valid_socket()) {
@@ -271,7 +268,7 @@ event_socket* server_socket::accept(event_socket* client_socket, bool blocking) 
         client_socket->connected = false;
         this->error_code = err;
         this->error_state = state_accept;
-        return client_socket;
+        return nullptr;
     }
 
     if (client_socket->is_valid_socket()) {

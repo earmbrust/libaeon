@@ -1,211 +1,176 @@
-name: libaeon Unit Tests
+name: libAeon Quality and SSL Tests
 
-# Trigger on push and pull requests
+# Invoked by build.yml to gate releases and check every development branch.
+# Also supports manual runs without duplicating push-triggered jobs.
 on:
-  push:
-    branches: [ main, develop ]
-  pull_request:
-    branches: [ main, develop ]
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  # Test on Linux with GCC and Clang
-  test-linux:
-    runs-on: ubuntu-latest
+  # Compiling with ENABLE_SSL=ON on every major OS matters: OpenSSL discovery,
+  # MSVC import libraries, MinGW headers, and ARM64 linkers differ by platform.
+  # These run the full existing test suite; dedicated TLS handshake/certificate
+  # regression tests must be added separately (none exist yet).
+  ssl:
+    name: SSL / ${{ matrix.id }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
     strategy:
+      fail-fast: false
       matrix:
-        compiler: [gcc, clang]
-        build_type: [Debug, Release]
         include:
-          - compiler: gcc
-            cc: gcc
-            cxx: g++
-          - compiler: clang
-            cc: clang
-            cxx: clang++
-    
+          - { id: linux-x64-gcc,       runner: ubuntu-24.04,          compiler: gcc,  arch: x64,   config: Release }
+          - { id: linux-x64-clang,     runner: ubuntu-24.04,          compiler: clang,arch: x64,   config: Release }
+          - { id: linux-arm64-gcc,     runner: ubuntu-24.04-arm,      compiler: gcc,  arch: arm64, config: Release }
+          - { id: windows-x86-msvc22,  runner: windows-2022,          compiler: msvc, arch: Win32, config: Release, generator: 'Visual Studio 17 2022', triplet: x86-windows }
+          - { id: windows-x64-msvc22,  runner: windows-2022,          compiler: msvc, arch: x64,   config: Release, generator: 'Visual Studio 17 2022', triplet: x64-windows }
+          - { id: windows-x64-msvc26,  runner: windows-2025-vs2026,   compiler: msvc, arch: x64,   config: Release, generator: 'Visual Studio 18 2026', triplet: x64-windows }
+          - { id: windows-arm64-msvc26,runner: windows-11-vs2026-arm, compiler: msvc, arch: ARM64, config: Release, generator: 'Visual Studio 18 2026', triplet: arm64-windows }
+          - { id: windows-x64-mingw,   runner: windows-2025,          compiler: mingw,arch: x64,   config: Release }
+          - { id: macos-intel-clang,   runner: macos-15-intel,        compiler: clang,arch: x64,   config: Release }
+          - { id: macos-arm64-clang,   runner: macos-15,              compiler: clang,arch: arm64, config: Release }
     steps:
-    - uses: actions/checkout@v3
-    
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y ${{ matrix.cxx }} cmake build-essential
-    
-    - name: Create build directory
-      run: mkdir build
-    
-    - name: Configure CMake
-      working-directory: build
-      env:
-        CC: ${{ matrix.cc }}
-        CXX: ${{ matrix.cxx }}
-      run: cmake -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} ..
-    
-    - name: Build
-      working-directory: build
-      run: cmake --build . --config ${{ matrix.build_type }}
-    
-    - name: Run Tests
-      working-directory: build
-      run: ctest --output-on-failure -V
-  
-  # Test on macOS
-  test-macos:
-    runs-on: macos-latest
-    strategy:
-      matrix:
-        build_type: [Debug, Release]
-    
-    steps:
-    - uses: actions/checkout@v3
-    
-    - name: Create build directory
-      run: mkdir build
-    
-    - name: Configure CMake
-      working-directory: build
-      run: cmake -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} ..
-    
-    - name: Build
-      working-directory: build
-      run: cmake --build . --config ${{ matrix.build_type }}
-    
-    - name: Run Tests
-      working-directory: build
-      run: ctest --output-on-failure -V
-  
-  # Test on Windows with MSVC
-  test-windows:
-    runs-on: windows-latest
-    strategy:
-      matrix:
-        build_type: [Debug, Release]
-    
-    steps:
-    - uses: actions/checkout@v3
-    
-    - name: Create build directory
-      run: mkdir build
-    
-    - name: Configure CMake
-      working-directory: build
-      run: cmake -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} ..
-    
-    - name: Build
-      working-directory: build
-      run: cmake --build . --config ${{ matrix.build_type }}
-    
-    - name: Run Tests
-      working-directory: build
-      run: ctest --output-on-failure -V -C ${{ matrix.build_type }}
-  
-  # Test with SSL/TLS enabled
-  test-ssl:
-    runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v3
-    
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y gcc cmake build-essential libssl-dev
-    
-    - name: Create build directory
-      run: mkdir build
-    
-    - name: Configure CMake with SSL
-      working-directory: build
-      run: cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_SSL=ON ..
-    
-    - name: Build
-      working-directory: build
-      run: cmake --build .
-    
-    - name: Run Tests
-      working-directory: build
-      run: ctest --output-on-failure -V
-  
-  # Test on ARM64 (Linux)
-  test-arm64:
-    runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v3
-    
-    - name: Set up QEMU for ARM64 emulation
-      uses: docker/setup-qemu-action@v2
-      with:
-        platforms: arm64
-    
-    - name: Install cross-compilation tools
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu cmake
-    
-    - name: Create build directory
-      run: mkdir build
-    
-    - name: Configure CMake for ARM64
-      working-directory: build
-      env:
-        CC: aarch64-linux-gnu-gcc
-        CXX: aarch64-linux-gnu-g++
-      run: cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_SYSTEM_PROCESSOR=aarch64 ..
-    
-    - name: Build
-      working-directory: build
-      run: cmake --build .
-    
-    # Note: Can't run ARM64 tests on x86-64 without full emulation
-    - name: Verify build artifacts
-      working-directory: build
-      run: file aeon_tests
-  
-  # Code quality checks
-  code-quality:
-    runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v3
-    
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y gcc cmake build-essential cppcheck
-    
-    - name: Run static analysis
-      run: |
-        cppcheck --enable=all --error-exitcode=1 \
-                  --suppressions-list=.cppcheckrc \
-                  src/ include/ tests/
-      continue-on-error: true
-    
-    - name: Create build directory
-      run: mkdir build
-    
-    - name: Configure CMake
-      working-directory: build
-      run: cmake -DCMAKE_BUILD_TYPE=Release ..
-    
-    - name: Check compilation warnings
-      working-directory: build
-      run: cmake --build . 2>&1 | grep -i warning || true
-      continue-on-error: true
+      - uses: actions/checkout@v4
 
-# Job to report test results
-  report-results:
-    runs-on: ubuntu-latest
-    needs: [test-linux, test-macos, test-windows, test-ssl]
-    if: always()
-    
+      - name: Install OpenSSL and build tools (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang ninja-build cmake libssl-dev
+
+      - name: Install OpenSSL and build tools (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          brew install openssl@3 ninja
+          echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+
+      - name: Install MinGW-w64 OpenSSL and toolchain
+        if: matrix.compiler == 'mingw'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-openssl
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+
+      - name: Install matching Windows MSVC OpenSSL via vcpkg
+        if: matrix.compiler == 'msvc'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = $env:VCPKG_INSTALLATION_ROOT
+          if (-not $root) { throw 'Runner does not provide VCPKG_INSTALLATION_ROOT' }
+          $vcpkg = Join-Path $root 'vcpkg.exe'
+          if (-not (Test-Path $vcpkg)) { throw "vcpkg executable missing: $vcpkg" }
+          $triplet = '${{ matrix.triplet }}'
+          & $vcpkg install "openssl:$triplet" --clean-after-build
+          if ($LASTEXITCODE -ne 0) { throw "Failed to install openssl:$triplet" }
+          $toolchain = Join-Path $root 'scripts/buildsystems/vcpkg.cmake'
+          if (-not (Test-Path $toolchain)) { throw "vcpkg toolchain file missing: $toolchain" }
+          # Dynamic OpenSSL DLLs must be accessible when the tests execute.
+          $runtime = Join-Path $root "installed/$triplet/bin"
+          if (Test-Path $runtime) { $runtime | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8 }
+
+      - name: Configure SSL build (Linux/macOS)
+        if: runner.os == 'Linux' || runner.os == 'macOS'
+        shell: bash
+        run: |
+          if [[ '${{ matrix.compiler }}' == 'gcc' ]]; then
+            export CC=gcc CXX=g++
+          else
+            export CC=clang CXX=clang++
+          fi
+          args=()
+          if [[ -n "${OPENSSL_ROOT_DIR:-}" ]]; then args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_ROOT_DIR"); fi
+          cmake -S . -B build-ssl -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_SSL=ON "${args[@]}"
+
+      - name: Configure SSL build (MSVC)
+        if: matrix.compiler == 'msvc'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = $env:VCPKG_INSTALLATION_ROOT
+          $toolchain = Join-Path $root 'scripts/buildsystems/vcpkg.cmake'
+          cmake -S . -B build-ssl -G '${{ matrix.generator }}' -A '${{ matrix.arch }}' `
+            '-DENABLE_SSL=ON' "-DCMAKE_TOOLCHAIN_FILE=$toolchain" `
+            '-DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}'
+          if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed' }
+
+      - name: Configure SSL build (MinGW-w64)
+        if: matrix.compiler == 'mingw'
+        shell: msys2 {0}
+        run: cmake -S . -B build-ssl -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_SSL=ON
+
+      - name: Build with SSL enabled
+        if: matrix.compiler != 'mingw'
+        shell: pwsh
+        run: cmake --build build-ssl --config Release --parallel 2
+
+      - name: Build with SSL enabled (MinGW-w64)
+        if: matrix.compiler == 'mingw'
+        shell: msys2 {0}
+        run: cmake --build build-ssl --parallel 2
+
+      - name: Execute full test suite with SSL enabled
+        if: matrix.compiler != 'mingw'
+        shell: pwsh
+        timeout-minutes: 8
+        run: ctest --test-dir build-ssl -C Release --output-on-failure --timeout 90
+
+      - name: Execute full test suite with SSL enabled (MinGW-w64)
+        if: matrix.compiler == 'mingw'
+        shell: msys2 {0}
+        timeout-minutes: 8
+        run: ctest --test-dir build-ssl --output-on-failure --timeout 90
+
+  sanitizers:
+    name: Linux x64 / ASan + UBSan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-    - name: Test Results Summary
-      run: |
-        echo "Test runs completed on:"
-        echo "✓ Linux (GCC/Clang)"
-        echo "✓ macOS"
-        echo "✓ Windows (MSVC)"
-        echo "✓ SSL/TLS enabled"
-        echo ""
-        echo "All tests passed successfully!"
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ninja-build cmake
+      - name: Configure with AddressSanitizer and UndefinedBehaviorSanitizer
+        env:
+          CC: gcc
+          CXX: g++
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+            '-DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -fno-omit-frame-pointer' \
+            '-DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=address,undefined' \
+            '-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined'
+      - name: Build
+        run: cmake --build build --parallel 2
+      - name: Run tests with sanitizers
+        timeout-minutes: 8
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ctest --test-dir build --output-on-failure --timeout 90
+
+  static-analysis:
+    name: Static analysis (advisory)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cppcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cppcheck
+      - name: Report cppcheck findings (non-blocking until baseline is clean)
+        continue-on-error: true
+        run: |
+          cppcheck --enable=warning,performance,portability \
+            --inline-suppr --suppress=missingIncludeSystem \
+            --error-exitcode=1 src include tests

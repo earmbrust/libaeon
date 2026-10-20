@@ -29,7 +29,7 @@ static inline socklen_t GetAddrLen(size_t len) {
  * \return true if connection succeeded, false otherwise
  */
 bool client_socket::connect(const char* hostname, int remote_port) {
-    if (!is_valid_port(remote_port)) {
+    if (!hostname || !*hostname || !is_valid_port(remote_port)) {
         this->error_code = err_no_socket;
         this->error_state = state_connect;
         return false;
@@ -50,9 +50,9 @@ bool client_socket::connect() {
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
 
-    if (!this->is_valid_socket()) {
-        this->error_code = err_no_socket;
-        this->error_state = state_create;
+    if (this->remote_host.empty()) {
+        this->error_code = err_no_host;
+        this->error_state = state_resolve;
         return false;
     }
 
@@ -83,8 +83,7 @@ bool client_socket::connect() {
 
     freeaddrinfo(server_info);
     this->connected = false;
-    NET_CLOSE_SOCKET(this->sockfd);
-    this->sockfd = invalid_socket;
+    // connect(address) already closes the failed descriptor.
     return false;
 }
 
@@ -101,22 +100,21 @@ bool client_socket::connect(const address& addr) {
     int target_family = addr.is_ipv6() ? AF_INET6 : AF_INET;
     socklen_t addr_len = addr.is_ipv6() ? sizeof(sockaddr_in6) : sizeof(sockaddr_in);
     
-    // Create new socket if family doesn't match
-    if (target_family != this->net_family) {
-        if (this->is_valid_socket()) {
-            NET_CLOSE_SOCKET(this->sockfd);
-        }
-        this->sockfd = ::socket(target_family, socket::stream_type, 0);
-        
-        if (!this->is_valid_socket()) {
-            this->error_code = err_no_socket;
-            this->error_state = state_create;
-            return false;
-        }
-        
-        this->configure_socket_for_connect();
-        this->net_family = target_family;
+    // Each TCP connection attempt owns a fresh descriptor. This also makes
+    // retries after failure and multi-address resolution safe.
+    if (this->is_valid_socket()) {
+        NET_CLOSE_SOCKET(this->sockfd);
     }
+    this->sockfd = invalid_socket;
+    this->connected = false;
+    this->sockfd = ::socket(target_family, socket::stream_type, 0);
+    if (!this->is_valid_socket()) {
+        this->error_code = err_no_socket;
+        this->error_state = state_create;
+        return false;
+    }
+    this->net_family = target_family;
+    this->configure_socket_for_connect();
     
     // Handle connection with optional timeout
     bool connect_succeeded = false;
@@ -204,8 +202,8 @@ bool client_socket::connect(const address& addr) {
 /**
  * client_socket default constructor
  */
-client_socket::client_socket() {
-    this->sockfd = ::socket(socket::default_family, socket::stream_type, 0);
+client_socket::client_socket()
+    : socket(socket::default_family, socket::stream_type) {
 }
 
 /**
@@ -213,8 +211,8 @@ client_socket::client_socket() {
  * \param hostname Remote hostname to connect to
  * \param port Remote port to connect to
  */
-client_socket::client_socket(const char* hostname, int port) {
-    this->sockfd = ::socket(socket::default_family, socket::stream_type, 0);
+client_socket::client_socket(const char* hostname, int port)
+    : client_socket() {
     this->connect(hostname, port);
 }
 
@@ -223,8 +221,8 @@ client_socket::client_socket(const char* hostname, int port) {
  * \param hostname Remote hostname to connect to (as std::string pointer)
  * \param port Remote port to connect to
  */
-client_socket::client_socket(const std::string* hostname, int port) {
-    this->sockfd = ::socket(socket::default_family, socket::stream_type, 0);
+client_socket::client_socket(const std::string* hostname, int port)
+    : client_socket() {
     if (hostname) {
         this->connect(hostname->c_str(), port);
     }
