@@ -54,11 +54,7 @@ namespace aeon {
 
 } // aeon
 
-#ifdef _MSC_VER
-template class __declspec(dllexport) std::function<void(const char*, int)>;
-template class __declspec(dllexport) std::function<void()>;
-template class __declspec(dllexport) std::function<void(int)>;
-#endif
+
 
 
 

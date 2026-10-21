@@ -1,99 +1,89 @@
 API Reference
 =============
 
-Socket Classes
-~~~~~~~~~~~~~~
+Aeon 2.0 uses the ``aeon`` namespace and lowercase ``snake_case`` names for
+classes and functions, following the C++ Core Guidelines' preferred style.
+Include ``<aeon.hpp>`` to use the complete public API.
 
-The libaeon library provides several socket classes for different use cases:
+Core sockets
+------------
 
-CSocket
-^^^^^^^
+``aeon::socket`` is the extensible base abstraction shared by the TCP and UDP
+socket families. It owns its native socket handle; it cannot be copied.
 
-Base socket class for both TCP and UDP connections.
-
-.. doxygenclass:: net::CSocket
+.. doxygenclass:: aeon::socket
    :members:
-   :undoc-members:
 
-CClientSocket
-^^^^^^^^^^^^^
-
-TCP client socket for connecting to remote servers.
-
-.. doxygenclass:: net::CClientSocket
+.. doxygenclass:: aeon::blocking_mode_guard
    :members:
-   :undoc-members:
 
-CServerSocket
-^^^^^^^^^^^^^
+TCP sockets
+-----------
 
-TCP server socket for accepting client connections.
-
-.. doxygenclass:: net::CServerSocket
+.. doxygenclass:: aeon::client_socket
    :members:
-   :undoc-members:
 
-CEventSocket
-^^^^^^^^^^^^
-
-Event-driven socket for polling-based I/O.
-
-.. doxygenclass:: net::CEventSocket
+.. doxygenclass:: aeon::server_socket
    :members:
-   :undoc-members:
 
-UDP Socket Classes
-~~~~~~~~~~~~~~~~~~
+UDP sockets
+-----------
 
-CSocketUDP
-^^^^^^^^^^
-
-Base UDP datagram socket.
-
-.. doxygenclass:: net::CSocketUDP
+.. doxygenclass:: aeon::udp_socket
    :members:
-   :undoc-members:
 
-CClientSocketUDP
-^^^^^^^^^^^^^^^^
-
-UDP client socket for sending datagrams.
-
-.. doxygenclass:: net::CClientSocketUDP
+.. doxygenclass:: aeon::udp_client_socket
    :members:
-   :undoc-members:
 
-CServerSocketUDP
-^^^^^^^^^^^^^^^^
-
-UDP server socket for receiving datagrams.
-
-.. doxygenclass:: net::CServerSocketUDP
+.. doxygenclass:: aeon::udp_server_socket
    :members:
-   :undoc-members:
 
-Socket Set Classes
-~~~~~~~~~~~~~~~~~~~
+Event-driven sockets
+--------------------
 
-CSocketSet
-^^^^^^^^^^
-
-Container for managing multiple CSocket objects.
-
-.. doxygenclass:: net::CSocketSet
+.. doxygenclass:: aeon::event_socket
    :members:
-   :undoc-members:
 
-CEventSocketSet
-^^^^^^^^^^^^^^^
-
-Container for managing multiple CEventSocket objects.
-
-.. doxygenclass:: net::CEventSocketSet
+.. doxygenclass:: aeon::client_event_socket
    :members:
-   :undoc-members:
 
-Library Functions
-~~~~~~~~~~~~~~~~~
+.. doxygenclass:: aeon::server_event_socket
+   :members:
 
-.. doxygenfunction:: net::GetLibraryVersion
+Socket sets
+-----------
+
+.. doxygenclass:: aeon::socket_set
+   :members:
+
+.. doxygenclass:: aeon::event_socket_set
+   :members:
+
+Addresses and resolution
+------------------------
+
+.. doxygenclass:: aeon::address
+   :members:
+
+.. doxygenclass:: aeon::resolver
+   :members:
+
+Optional SSL/TLS support
+------------------------
+
+These classes are available when the project is built with
+``-DENABLE_SSL=ON`` and OpenSSL is available. The documentation includes the
+optional API even when the documentation build itself does not link OpenSSL.
+
+.. doxygenclass:: aeon::ssl_socket
+   :members:
+
+.. doxygenclass:: aeon::ssl_client_socket
+   :members:
+
+.. doxygenenum:: aeon::ssl_verify_mode
+
+Library version
+---------------
+
+.. doxygenfunction:: aeon::get_library_version

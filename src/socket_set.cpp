@@ -8,6 +8,10 @@
 
 namespace aeon {
 
+// Keep construction and destruction of the STL-backed object inside Aeon.
+socket_set::socket_set() = default;
+socket_set::~socket_set() = default;
+
 /**
  * Add an existing socket to the socket set
  * \param socket_ref Pointer to a socket object to add

@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "socket.hpp"
+#include "aeon.hpp"
 #include "client_socket.hpp"
 #include "server_socket.hpp"
 #include "udp_socket.hpp"
@@ -7,6 +8,12 @@
 
 class SocketBasicsTest : public ::testing::Test {
 };
+
+TEST_F(SocketBasicsTest, ExportedLibraryVersion) {
+    const char* version = aeon::get_library_version();
+    ASSERT_NE(version, nullptr);
+    EXPECT_NE(version[0], '\0');
+}
 
 TEST_F(SocketBasicsTest, DefaultConstructor) {
     aeon::socket sock;

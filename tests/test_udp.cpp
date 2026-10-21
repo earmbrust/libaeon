@@ -109,6 +109,33 @@ TEST_F(UDPSocketTest, UDPSocketReadString) {
     // May be empty, that's OK
 }
 
+// A bound UDP socket normally waits indefinitely for an incoming datagram.
+// Both read overloads must honor the configured timeout on all platforms.
+TEST_F(UDPSocketTest, UDPBoundBufferReadHonorsTimeout) {
+    udp_server_socket server;
+    ASSERT_TRUE(server.listen(0));
+    ASSERT_EQ(server.set_read_timeout(50), 0);
+
+    char buffer[32]{};
+    const auto start = std::chrono::steady_clock::now();
+    EXPECT_EQ(server.read(buffer, static_cast<int>(sizeof(buffer))), 0);
+    EXPECT_LT(std::chrono::steady_clock::now() - start,
+              std::chrono::seconds(5));
+    EXPECT_EQ(server.n, 0);
+}
+
+TEST_F(UDPSocketTest, UDPBoundStringReadHonorsTimeout) {
+    udp_server_socket server;
+    ASSERT_TRUE(server.listen(0));
+    ASSERT_EQ(server.set_read_timeout(50), 0);
+
+    const auto start = std::chrono::steady_clock::now();
+    EXPECT_TRUE(server.read(32).empty());
+    EXPECT_LT(std::chrono::steady_clock::now() - start,
+              std::chrono::seconds(5));
+    EXPECT_EQ(server.n, 0);
+}
+
 TEST_F(UDPSocketTest, UDPServerClose) {
     udp_server_socket server;
     EXPECT_TRUE(server.is_valid_socket());

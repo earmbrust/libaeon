@@ -78,10 +78,3 @@ namespace aeon {
     }
 }  // aeon
 
-// Explicit template instantiation for Windows DLL export
-#ifdef _MSC_VER
-template class __declspec(dllexport) std::vector<aeon::event_socket*>;
-template class __declspec(dllexport) std::function<void(aeon::event_socket*, const char*, int)>;
-template class __declspec(dllexport) std::function<void(aeon::event_socket*)>;
-template class __declspec(dllexport) std::function<void(aeon::event_socket*, int)>;
-#endif

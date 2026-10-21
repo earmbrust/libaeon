@@ -11,8 +11,11 @@
 
 namespace aeon {
 
-    class socket_set {
+    class LIBAEON_API socket_set {
     public:
+        socket_set();
+        ~socket_set();
+
         bool add(socket* sock_ref);
         bool remove(unsigned int index);
         bool remove(unsigned int index, unsigned int count);

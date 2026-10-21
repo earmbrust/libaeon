@@ -6,14 +6,6 @@
 
 #pragma once
 
-#ifdef _MSC_VER
-// C4251: STL member needs dll-interface
-// This is a known MSVC artifact when exporting classes with STL containers.
-// The vector is explicitly instantiated in event_socket_set.cpp with dllexport,
-// so the warning about missing interface is spurious. Safe to suppress.
-#pragma warning(disable:4251)
-#endif
-
 #include "event_socket.hpp"
 #include <vector>
 #include <functional>
@@ -59,9 +51,3 @@ namespace aeon {
 
 } // aeon
 
-#ifdef _MSC_VER
-template class __declspec(dllexport) std::vector<aeon::event_socket*>;
-template class __declspec(dllexport) std::function<void(aeon::event_socket*, const char*, int)>;
-template class __declspec(dllexport) std::function<void(aeon::event_socket*)>;
-template class __declspec(dllexport) std::function<void(aeon::event_socket*, int)>;
-#endif

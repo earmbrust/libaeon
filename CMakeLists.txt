@@ -88,10 +88,70 @@ message(STATUS "Git version string: ${GIT_VERSION_STRING}")
 # Now create project with version from git
 project(libaeon VERSION ${PROJECT_VERSION} LANGUAGES CXX)
 
-# C++17 standard required
-set(CMAKE_CXX_STANDARD 17)
+# C++20 is the public API and consumer baseline. C++23 is an explicitly
+# selected implementation profile, never a requirement of installed headers.
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+option(LIBAEON_ENABLE_CXX23 "Build Aeon internals in C++23 mode when supported (public API remains C++20)" OFF)
+option(LIBAEON_ENABLE_NATIVE_ARCH "Use -march=native for local benchmarks only (not redistributable builds)" OFF)
+
+set(LIBAEON_IMPLEMENTATION_CXX_STANDARD 20)
+if(LIBAEON_ENABLE_CXX23)
+    if(CMAKE_VERSION VERSION_LESS 3.20)
+        message(FATAL_ERROR "LIBAEON_ENABLE_CXX23 requires CMake >= 3.20")
+    endif()
+
+    include(CheckCXXSourceCompiles)
+    # Check the actual selected C++23 compiler mode, not just the compiler version.
+    # Some toolchains provide only a preview dialect, and MSVC has _MSVC_LANG.
+    set(CMAKE_CXX_STANDARD 23)
+    check_cxx_source_compiles("
+#if defined(_MSVC_LANG)
+#  if _MSVC_LANG <= 202002L
+#    error C++23 mode was not selected
+#  endif
+#elif __cplusplus <= 202002L
+#  error C++23 mode was not selected
+#endif
+int main() { return 0; }
+" LIBAEON_CXX23_MODE_WORKS)
+    if(NOT LIBAEON_CXX23_MODE_WORKS)
+        message(FATAL_ERROR "C++23 was requested, but the current compiler cannot build in C++23 mode. Set LIBAEON_ENABLE_CXX23=OFF to use the supported C++20 baseline.")
+    endif()
+
+    # Probe individual library features with real compile/link tests. Do not
+    # infer feature support from -std=c++23 or change public ABI per feature.
+    check_cxx_source_compiles("
+#include <version>
+#include <expected>
+#if !defined(__cpp_lib_expected) || __cpp_lib_expected < 202202L
+#  error std::expected unavailable
+#endif
+int main() { std::expected<int, int> x(42); return x.value() == 42 ? 0 : 1; }
+" LIBAEON_HAVE_CXX23_EXPECTED)
+    check_cxx_source_compiles("
+#include <version>
+#include <bit>
+#include <cstdint>
+#if !defined(__cpp_lib_byteswap) || __cpp_lib_byteswap < 202110L
+#  error std::byteswap unavailable
+#endif
+int main() { return std::byteswap(std::uint32_t{0x12345678}) == 0x78563412 ? 0 : 1; }
+" LIBAEON_HAVE_CXX23_BYTESWAP)
+    check_cxx_source_compiles("
+#include <version>
+#include <utility>
+#if !defined(__cpp_lib_to_underlying) || __cpp_lib_to_underlying < 202102L
+#  error std::to_underlying unavailable
+#endif
+enum class e : int { value = 7 };
+int main() { return std::to_underlying(e::value) == 7 ? 0 : 1; }
+" LIBAEON_HAVE_CXX23_TO_UNDERLYING)
+    set(CMAKE_CXX_STANDARD 20)
+    set(LIBAEON_IMPLEMENTATION_CXX_STANDARD 23)
+endif()
 
 add_definitions(-DVERSION=${PROJECT_VERSION})
 
@@ -101,7 +161,6 @@ option(ENABLE_SSL "Enable SSL/TLS support with OpenSSL" OFF)
 if(ENABLE_SSL)
     find_package(OpenSSL REQUIRED)
     message(STATUS "SSL/TLS support enabled with OpenSSL ${OPENSSL_VERSION}")
-    add_definitions(-DENABLE_SSL)
 else()
     message(STATUS "SSL/TLS support disabled")
 endif()
@@ -171,7 +230,24 @@ target_compile_definitions(aeon PRIVATE LIBAEON_EXPORTS)
 # Static library
 add_library(aeon-static STATIC ${LIBAEON_SOURCES})
 set_target_properties(aeon-static PROPERTIES OUTPUT_NAME aeon_static)
-target_compile_definitions(aeon-static PRIVATE LIBAEON_STATIC)
+target_compile_definitions(aeon-static PUBLIC LIBAEON_STATIC)
+
+# Consumers always require C++20, including when library internals are built
+# with optional C++23 features. Never propagate cxx_std_23 through targets.
+target_compile_features(aeon PUBLIC cxx_std_20)
+target_compile_features(aeon-static PUBLIC cxx_std_20)
+set_target_properties(aeon aeon-static PROPERTIES
+    CXX_STANDARD ${LIBAEON_IMPLEMENTATION_CXX_STANDARD}
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
+
+# SSL support is part of the public header contract, not just an internal setting.
+# Propagate it to programs that link either target through CMake.
+if(ENABLE_SSL)
+    target_compile_definitions(aeon PUBLIC ENABLE_SSL)
+    target_compile_definitions(aeon-static PUBLIC ENABLE_SSL)
+endif()
 
 # Platform-specific linking
 if(WIN32)
@@ -199,11 +275,13 @@ else()
     target_compile_options(aeon PRIVATE -Wall -Wextra -Wconversion -Wpedantic)
     target_compile_options(aeon-static PRIVATE -Wall -Wextra -Wconversion -Wpedantic)
     
-    # Optimization flags: only use -march=native for native builds
-    # Skip it for cross-compilation (including ARM targets)
+    # -march=native can make redistributed binaries fail on other CPUs.
+    # Only enable it for explicit local benchmark builds, never cross-builds.
     if(NOT CMAKE_CROSSCOMPILING)
-        target_compile_options(aeon PRIVATE -march=native)
-        target_compile_options(aeon-static PRIVATE -march=native)
+        if(LIBAEON_ENABLE_NATIVE_ARCH)
+            target_compile_options(aeon PRIVATE -march=native)
+            target_compile_options(aeon-static PRIVATE -march=native)
+        endif()
     elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "ARM|arm|aarch64")
         # For ARM cross-compilation, users can specify architecture via ARM_ARCH
         # Example: cmake -DARM_ARCH=armv7-a
@@ -218,8 +296,12 @@ else()
     endif()
 endif()
 
-# Testing with Google Test
-include(FetchContent)
+# BUILD_TESTING defaults to ON; OFF supports dependency-free library builds.
+# Normal test configurations retain the existing GoogleTest suite and consumers.
+include(CTest)
+if(BUILD_TESTING)
+    # Testing with Google Test
+    include(FetchContent)
 
 FetchContent_Declare(googletest
   URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
@@ -246,6 +328,29 @@ target_link_libraries(aeon_tests PRIVATE aeon gtest_main)
 
 # Register tests with ctest
 add_test(NAME AeonTests COMMAND aeon_tests)
+
+# Compiled, independently linked consumers validate the public API and ABI-facing
+# export configuration, not merely compilation of internal unit tests.
+add_executable(aeon_consumer_shared tests/consumer_interface.cpp)
+target_link_libraries(aeon_consumer_shared PRIVATE aeon)
+add_test(NAME AeonSharedConsumer COMMAND aeon_consumer_shared)
+
+add_executable(aeon_consumer_static tests/consumer_interface.cpp)
+target_link_libraries(aeon_consumer_static PRIVATE aeon-static)
+add_test(NAME AeonStaticConsumer COMMAND aeon_consumer_static)
+
+# Compile and run the public interface in strict C++20 even when implementation
+# builds use C++23. Covers both shared and static export/propagation behavior.
+add_executable(aeon_cxx20_shared tests/m0_cpp_baseline.cpp)
+target_link_libraries(aeon_cxx20_shared PRIVATE aeon)
+set_target_properties(aeon_cxx20_shared PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+add_test(NAME AeonCxx20Shared COMMAND aeon_cxx20_shared)
+
+add_executable(aeon_cxx20_static tests/m0_cpp_baseline.cpp)
+target_link_libraries(aeon_cxx20_static PRIVATE aeon-static)
+set_target_properties(aeon_cxx20_static PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+add_test(NAME AeonCxx20Static COMMAND aeon_cxx20_static)
+endif()
 
 # Example executables
 add_executable(http-client example/http-client.cpp)
@@ -277,7 +382,15 @@ message(STATUS "")
 message(STATUS "libaeon Build Configuration")
 message(STATUS "===========================")
 message(STATUS "Version: ${PROJECT_VERSION}")
-message(STATUS "C++ Standard: ${CMAKE_CXX_STANDARD}")
+message(STATUS "Public C++ Standard: 20")
+message(STATUS "Implementation C++ Standard: ${LIBAEON_IMPLEMENTATION_CXX_STANDARD}")
+message(STATUS "Local -march=native: ${LIBAEON_ENABLE_NATIVE_ARCH}")
+if(LIBAEON_ENABLE_CXX23)
+    message(STATUS "C++23 std::expected: ${LIBAEON_HAVE_CXX23_EXPECTED}")
+    message(STATUS "C++23 std::byteswap: ${LIBAEON_HAVE_CXX23_BYTESWAP}")
+    message(STATUS "C++23 std::to_underlying: ${LIBAEON_HAVE_CXX23_TO_UNDERLYING}")
+endif()
+message(STATUS "Build tests: ${BUILD_TESTING}")
 message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "Platform: ${CMAKE_SYSTEM_NAME}")
 message(STATUS "Processor: ${CMAKE_SYSTEM_PROCESSOR}")
