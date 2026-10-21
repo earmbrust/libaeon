@@ -5,7 +5,7 @@ import os
 import re
 
 # Project information
-project = 'libaeon'
+project = 'Aeon'
 copyright = '2006-2025, Elden Armbrust'
 author = 'Elden Armbrust'
 
@@ -89,7 +89,7 @@ html_theme_options = {
     'titles_only': False,
 }
 
-html_title = 'libaeon - Networking Library'
+html_title = 'Aeon - Networking Library'
 
 # Setup paths
 docs_dir = os.path.dirname(os.path.abspath(__file__))

@@ -11,23 +11,29 @@
 
 namespace aeon {
 
+namespace internal {
+struct socket_private_state {
+    std::string hostname;
+    socket* parent_server = nullptr;
+};
+} // namespace internal
 
-// Static helpers for socket option configuration
-static inline void SetSocketReusAddr(socket_t sock) {
-    int reuse = 1;
-    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuse, sizeof(reuse));
+void socket::set_parent_server(socket* server) {
+    if (!state_) state_ = new internal::socket_private_state;
+    state_->parent_server = server;
+}
+socket* socket::parent_server() const noexcept {
+    return state_ ? state_->parent_server : nullptr;
 }
 
-static inline void SetSocketTCPNodelay(socket_t sock) {
-    int nodelay = 1;
-    setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, (const char*)&nodelay, sizeof(nodelay));
+void socket::set_remote_hostname(const std::string& hostname) {
+    // Do not allocate per socket until a named destination is used.
+    if (!state_) state_ = new internal::socket_private_state;
+    state_->hostname = hostname;
 }
 
-static inline void SetSocketLinger(socket_t sock, u_short linger_sec) {
-    struct linger linger_opt = {0, 0};
-    linger_opt.l_onoff = (linger_sec > 0) ? 1 : 0;
-    linger_opt.l_linger = linger_sec;
-    setsockopt(sock, SOL_SOCKET, SO_LINGER, (const char*)&linger_opt, sizeof(linger_opt));
+std::string socket::remote_hostname() const {
+    return state_ ? state_->hostname : std::string{};
 }
 
 
@@ -42,47 +48,6 @@ public:
 };
 static WindowsSocketInit g_wsa_init;
 #endif
-
-// Helper: Convert mode parameter for ioctlsocket (handles MinGW/MSVC type differences)
-// Both MSVC and MinGW expect u_long* for the third parameter
-static inline int set_socket_nonblocking(socket_t sockfd, bool nonblocking) {
-#ifdef NET_PLATFORM_WINDOWS
-    u_long mode = nonblocking ? 1 : 0;
-    return ioctlsocket(sockfd, FIONBIO, &mode);
-#else
-    int flags = fcntl(sockfd, F_GETFL, 0);
-    if (flags < 0) return -1;
-    
-    if (nonblocking) {
-        return fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
-    } else {
-        return fcntl(sockfd, F_SETFL, flags);
-    }
-#endif
-}
-
-// Helper: Copy string safely to fixed-size buffer
-static inline bool safe_string_copy(char* dest, const char* src, std::size_t dest_size) {
-    if (!dest || !src || dest_size == 0) {
-        return false;
-    }
-    std::size_t src_len = std::strlen(src);
-    if (src_len >= dest_size) {
-        // Source is too large for destination
-        std::strncpy(dest, src, dest_size - 1);
-        dest[dest_size - 1] = '\0';
-        return false;
-    }
-    std::strcpy(dest, src);
-    return true;
-}
-
-// Helper: Safe buffer clearing
-static inline void safe_clear_buffer(char* buffer, std::size_t size) {
-    if (buffer && size > 0) {
-        std::memset(buffer, 0, size);
-    }
-}
 
 /**
  * blocking_mode_guard implementation
@@ -431,12 +396,23 @@ socket::socket(socket_t existing_fd, bool is_existing_socket) {
     
     // Use the existing socket descriptor
     this->sockfd = existing_fd;
-    
+    if (this->is_valid_socket()) {
+        sockaddr_storage peer{};
+        socklen_t length = static_cast<socklen_t>(sizeof(peer));
+        if (::getpeername(this->sockfd,
+                          reinterpret_cast<sockaddr*>(&peer), &length) == 0) {
+            this->remote_addr = peer;
+            this->net_family = peer.ss_family;
+        }
+    }
+
 #if defined(NET_PLATFORM_LINUX) || defined(NET_PLATFORM_MACOS)
-    this->flags = fcntl(this->sockfd, F_GETFL, 0);
-    if (this->flags < 0) {
-        this->error_code = err_no_socket;
-        this->error_state = state_create;
+    if (this->is_valid_socket()) {
+        this->flags = fcntl(this->sockfd, F_GETFL, 0);
+        if (this->flags < 0) {
+            this->error_code = err_no_socket;
+            this->error_state = state_create;
+        }
     }
 #endif
 
@@ -453,6 +429,7 @@ socket::~socket() {
     if (this->is_valid_socket()) {
         (void)this->close();
     }
+    delete state_;
 }
 
 /**
@@ -579,41 +556,34 @@ int socket::write(const std::string& data) {
  */
 int socket::read(char* buffer, int size) {
     if (!buffer || !this->is_valid_socket() || size <= 0) {
+        this->n = NET_SOCKET_ERROR;
         return NET_SOCKET_ERROR;
     }
 
-    // Validate and clamp size to prevent buffer overflow
-    // Protect against INT_MAX and unreasonably large read sizes
-    int safe_size = (size > socket::max_buffer_size) 
-                  ? socket::max_buffer_size 
-                  : size;
-
-    // If read timeout is set, wait with timeout
+    // The explicit size is the caller's capacity, not the internal legacy
+    // 256-byte buffer size. Received bytes may contain embedded NULs; do not
+    // clear, terminate, or otherwise modify the caller's remaining capacity.
     if (this->read_timeout_ms > 0) {
-        int wait_result = socket::wait_for_readable(this->sockfd, this->read_timeout_ms);
-        if (wait_result == 0) {
-            // Timeout - no data available
+        const int ready = socket::wait_for_readable(this->sockfd, this->read_timeout_ms);
+        if (ready == 0) {
             this->n = 0;
             return 0;
-        } else if (wait_result < 0) {
-            // Error in select()
+        }
+        if (ready < 0) {
             this->error_code = GET_NET_SOCKET_ERROR();
             this->n = NET_SOCKET_ERROR;
             return NET_SOCKET_ERROR;
         }
     }
 
-    safe_clear_buffer(buffer, safe_size);
-    int bytesread = static_cast<int>(recv(this->sockfd, buffer, safe_size, 0));
-    this->n = bytesread;
-    
-    if (bytesread == 0) {
+    const int received = static_cast<int>(::recv(this->sockfd, buffer, size, 0));
+    this->n = received;
+    if (received == 0) {
         this->connected = false;
-    } else if (bytesread < 0) {
+    } else if (received < 0) {
         this->error_code = GET_NET_SOCKET_ERROR();
     }
-    
-    return bytesread;
+    return received;
 }
 
 /**
@@ -624,57 +594,19 @@ int socket::read(char* buffer, int size) {
  */
 int socket::read_until(char* buffer, int size) {
     if (!buffer || !this->is_valid_socket() || size <= 0) {
+        this->n = NET_SOCKET_ERROR;
         return NET_SOCKET_ERROR;
     }
 
-    // Validate and clamp size to prevent buffer overflow
-    // Protect against INT_MAX and unreasonably large read sizes
-    int safe_size = (size > socket::max_buffer_size) 
-                  ? socket::max_buffer_size 
-                  : size;
-
-    safe_clear_buffer(buffer, safe_size);
-    
-    std::string accumulated;
-    accumulated.reserve(safe_size);
-    
-    int totalBytes = 0;
-    char tempBuffer[256];
-    
-    while (totalBytes < safe_size) {
-        safe_clear_buffer(tempBuffer, sizeof(tempBuffer));
-        int remaining = safe_size - totalBytes;
-        int toread = (remaining < static_cast<int>(sizeof(tempBuffer))) 
-                    ? remaining 
-                    : static_cast<int>(sizeof(tempBuffer));
-        
-        int bytesread = static_cast<int>(recv(this->sockfd, tempBuffer, toread, 0));
-        this->n = bytesread;
-        
-        if (bytesread == 0) {
-            this->connected = false;
-            break;
-        }
-        
-        if (bytesread < 0) {
-            this->error_code = GET_NET_SOCKET_ERROR();
-            break;
-        }
-        
-        accumulated.append(tempBuffer, bytesread);
-        totalBytes += bytesread;
+    // Consume exactly size bytes when available. Never reserve one byte for
+    // a terminator: this method receives binary streams, not C strings.
+    int total = 0;
+    while (total < size) {
+        const int received = this->read(buffer + total, size - total);
+        if (received <= 0) break; // EOF, timeout, or OS error: preserve partial data.
+        total += received;
     }
-    
-    // Safe copy to output buffer
-    if (!accumulated.empty()) {
-        std::size_t copySize = (accumulated.size() < static_cast<std::size_t>(safe_size - 1))
-                              ? accumulated.size()
-                              : static_cast<std::size_t>(safe_size - 1);
-        std::memcpy(buffer, accumulated.data(), copySize);
-        buffer[copySize] = '\0';
-    }
-    
-    return totalBytes;
+    return total;
 }
 
 /**
@@ -682,7 +614,9 @@ int socket::read_until(char* buffer, int size) {
  * \return Number of bytes read
  */
 int socket::read() {
-    return this->read(this->inbuffer, socket::max_buffer_size - 1);
+    const int received = this->read(this->inbuffer, socket::max_buffer_size - 1);
+    if (received >= 0) this->inbuffer[received] = '\0';
+    return received;
 }
 
 /**
@@ -691,33 +625,15 @@ int socket::read() {
  * \return std::string containing read data
  */
 std::string socket::read(int size) {
-    std::string retVal;
-    
-    if (!this->is_valid_socket() || size <= 0) {
-        return retVal;
-    }
+    if (!this->is_valid_socket() || size <= 0) return {};
 
-    // Validate and clamp size to prevent buffer overflow
-    // Protect against INT_MAX and values exceeding max_buffer_size
-    int safe_size = (size > socket::max_buffer_size - 1) 
-                  ? socket::max_buffer_size - 1 
-                  : size;
-
-    safe_clear_buffer(this->inbuffer, socket::max_buffer_size);
-    int bytesread = static_cast<int>(recv(this->sockfd, this->inbuffer, safe_size, 0));
-    
-    this->n = bytesread;
-    
-    if (bytesread > 0) {
-        this->inbuffer[bytesread] = '\0';
-        retVal = this->inbuffer;
-    } else if (bytesread == 0) {
-        this->connected = false;
-    } else {
-        this->error_code = GET_NET_SOCKET_ERROR();
-    }
-    
-    return retVal;
+    // Allocate for the requested maximum and resize to recv's byte count;
+    // constructing from a NUL-terminated inbuffer would discard binary data.
+    std::string result(static_cast<std::size_t>(size), '\0');
+    const int received = this->read(result.data(), size);
+    if (received <= 0) return {};
+    result.resize(static_cast<std::size_t>(received));
+    return result;
 }
 
 /**
@@ -1112,4 +1028,274 @@ void socket::set_socket_linger(u_short linger_sec) {
     linger_opt.l_linger = linger_sec;
     setsockopt(this->sockfd, SOL_SOCKET, SO_LINGER, (const char*)&linger_opt, sizeof(linger_opt));
 }
+
+bool socket::tcp_connect(const char* hostname, int port) {
+    if (!hostname || !*hostname || !is_valid_port(port)) {
+        this->error_code = err_no_socket;
+        this->error_state = state_connect;
+        return false;
+    }
+    this->set_remote_hostname(hostname);
+    this->port = port;
+    return tcp_connect();
+}
+
+bool socket::tcp_connect() {
+    const std::string hostname = this->remote_hostname();
+    if (hostname.empty() || !is_valid_port(this->port)) {
+        this->error_code = err_no_host;
+        this->error_state = state_resolve;
+        return false;
+    }
+    addrinfo hints{};
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    addrinfo* results = nullptr;
+    const std::string port_string = std::to_string(this->port);
+    if (::getaddrinfo(hostname.c_str(), port_string.c_str(),
+                      &hints, &results) != 0) {
+        this->error_code = err_no_host;
+        this->error_state = state_resolve;
+        return false;
+    }
+    bool success = false;
+    for (addrinfo* entry = results; entry; entry = entry->ai_next) {
+        if (entry->ai_family != AF_INET && entry->ai_family != AF_INET6) continue;
+        if (entry->ai_family == AF_INET) {
+            success = tcp_connect(address(*reinterpret_cast<sockaddr_in*>(entry->ai_addr)));
+        } else {
+            success = tcp_connect(address(*reinterpret_cast<sockaddr_in6*>(entry->ai_addr)));
+        }
+        if (success) break;
+    }
+    ::freeaddrinfo(results);
+    this->connected = success;
+    return success;
+}
+
+bool socket::tcp_connect(const address& addr) {
+    const sockaddr_storage target = addr.get_sockaddr_storage();
+    const int family = target.ss_family;
+    if (family != AF_INET && family != AF_INET6) {
+        this->error_code = err_no_socket;
+        this->error_state = state_connect;
+        return false;
+    }
+    const socklen_t length = family == AF_INET6
+        ? static_cast<socklen_t>(sizeof(sockaddr_in6))
+        : static_cast<socklen_t>(sizeof(sockaddr_in));
+
+    // A fresh descriptor for each attempt prevents stale TCP state on retry.
+    this->close();
+    this->sockfd = ::socket(family, SOCK_STREAM, 0);
+    this->connected = false;
+    if (!this->is_valid_socket()) {
+        this->error_code = err_no_socket;
+        this->error_state = state_create;
+        return false;
+    }
+    this->net_family = family;
+    this->configure_socket_for_connect();
+
+    bool succeeded = false;
+    if (this->connect_timeout_ms > 0) {
+        blocking_mode_guard guard(this);
+        if (!guard.is_valid()) {
+            this->error_code = GET_NET_SOCKET_ERROR();
+            this->error_state = state_connect;
+        } else {
+            const int status = ::connect(this->sockfd,
+                reinterpret_cast<const sockaddr*>(&target), length);
+            if (status == 0) {
+                succeeded = true;
+            } else {
+                const int error = GET_NET_SOCKET_ERROR();
+#ifdef NET_PLATFORM_WINDOWS
+                const bool pending = error == WSAEWOULDBLOCK || error == WSAEINPROGRESS;
+#else
+                const bool pending = error == EINPROGRESS || error == EWOULDBLOCK;
+#endif
+                if (pending) {
+                    const int ready = socket::wait_for_writable(this->sockfd,
+                        this->connect_timeout_ms);
+                    if (ready > 0) {
+                        int so_error = 0;
+#ifdef NET_PLATFORM_WINDOWS
+                        int len = static_cast<int>(sizeof(so_error));
+#else
+                        socklen_t len = sizeof(so_error);
+#endif
+                        if (::getsockopt(this->sockfd, SOL_SOCKET, SO_ERROR,
+                            reinterpret_cast<char*>(&so_error), &len) != 0) {
+                            this->error_code = GET_NET_SOCKET_ERROR();
+                            this->error_state = state_connect;
+                        } else if (so_error == 0) {
+                            succeeded = true;
+                        } else {
+                            this->error_code = so_error;
+                            this->error_state = state_connect;
+                        }
+                    } else if (ready == 0) {
+#ifdef NET_PLATFORM_WINDOWS
+                        this->error_code = WSAETIMEDOUT;
+#else
+                        this->error_code = ETIMEDOUT;
+#endif
+                        this->error_state = state_connect;
+                    } else {
+                        this->error_code = GET_NET_SOCKET_ERROR();
+                        this->error_state = state_connect;
+                    }
+                } else {
+                    this->error_code = error;
+                    this->error_state = state_connect;
+                }
+            }
+        }
+    } else {
+        if (::connect(this->sockfd,
+            reinterpret_cast<const sockaddr*>(&target), length) == 0) {
+            succeeded = true;
+        } else {
+            this->error_code = GET_NET_SOCKET_ERROR();
+            this->error_state = state_connect;
+        }
+    }
+
+    if (!succeeded) {
+        this->close();
+        return false;
+    }
+    this->remote_addr = target;
+    this->connected = true;
+    this->clear_buffers();
+    this->error_code = err_none;
+    this->error_state = 0;
+    return true;
+}
+
+int socket::tcp_bind(const sockaddr* addr, socklen_t length) {
+    if (!this->is_valid_socket() || !addr) {
+        this->error_code = err_no_socket;
+        this->error_state = state_bind;
+        return -1;
+    }
+    if (::bind(this->sockfd, addr, length) != 0) {
+        this->error_code = GET_NET_SOCKET_ERROR();
+        this->error_state = state_bind;
+        return -1;
+    }
+    this->error_code = err_none;
+    return 0;
+}
+
+bool socket::tcp_listen(const char* ip, int port) {
+    if (!ip || !is_valid_port(port)) {
+        this->error_code = err_no_socket;
+        this->error_state = state_bind;
+        return false;
+    }
+    sockaddr_storage target{};
+    socklen_t length = 0;
+    auto* ip4 = reinterpret_cast<sockaddr_in*>(&target);
+    auto* ip6 = reinterpret_cast<sockaddr_in6*>(&target);
+    if (::inet_pton(AF_INET6, ip, &ip6->sin6_addr) == 1) {
+        ip6->sin6_family = AF_INET6;
+        ip6->sin6_port = htons(static_cast<unsigned short>(port));
+        length = static_cast<socklen_t>(sizeof(sockaddr_in6));
+    } else if (::inet_pton(AF_INET, ip, &ip4->sin_addr) == 1) {
+        ip4->sin_family = AF_INET;
+        ip4->sin_port = htons(static_cast<unsigned short>(port));
+        length = static_cast<socklen_t>(sizeof(sockaddr_in));
+    } else {
+        this->error_code = err_no_socket;
+        this->error_state = state_bind;
+        return false;
+    }
+    // Listening is always a new binding attempt. Never reuse a previously
+    // listening descriptor, including when rebinding within the same family.
+    this->close();
+    this->sockfd = ::socket(target.ss_family, SOCK_STREAM, 0);
+    if (!this->is_valid_socket()) {
+        this->error_code = err_no_socket;
+        this->error_state = state_create;
+        return false;
+    }
+    this->net_family = target.ss_family;
+    this->port = port;
+    this->set_so_reuseaddr(true);
+    if (target.ss_family == AF_INET6) this->set_ipv6_v6only(true);
+    if (tcp_bind(reinterpret_cast<const sockaddr*>(&target), length) != 0) {
+        this->close();
+        return false;
+    }
+    if (::listen(this->sockfd, SOMAXCONN) != 0) {
+        this->error_code = GET_NET_SOCKET_ERROR();
+        this->error_state = state_accept;
+        this->close();
+        return false;
+    }
+    this->connected = true;
+    this->error_state = 0;
+    this->error_code = err_none;
+    return true;
+}
+
+socket_t socket::tcp_accept(int timeout_ms, bool blocking,
+                         sockaddr_storage& peer) {
+    if (!this->is_valid_socket()) {
+        this->error_code = err_no_socket;
+        this->error_state = state_accept;
+        return invalid_socket;
+    }
+    if (timeout_ms > 0) {
+        const int ready = socket::wait_for_readable(this->sockfd, timeout_ms);
+        if (ready == 0) return invalid_socket; // timeout is not an error
+        if (ready < 0) {
+            this->error_code = GET_NET_SOCKET_ERROR();
+            this->error_state = state_accept;
+            return invalid_socket;
+        }
+    }
+    socklen_t length = static_cast<socklen_t>(sizeof(peer));
+    const socket_t fd = ::accept(this->sockfd,
+        reinterpret_cast<sockaddr*>(&peer), &length);
+    if (fd == invalid_socket) {
+        const int error = GET_NET_SOCKET_ERROR();
+#ifdef NET_PLATFORM_WINDOWS
+        if (error == WSAEWOULDBLOCK || error == WSAECONNRESET) return invalid_socket;
+#else
+        if (error == EAGAIN || error == EWOULDBLOCK || error == ECONNRESET) return invalid_socket;
+#endif
+        this->error_code = error;
+        this->error_state = state_accept;
+        return invalid_socket;
+    }
+    // Configure the accepted descriptor before transferring ownership.
+#ifdef NET_PLATFORM_WINDOWS
+    u_long mode = blocking ? 0UL : 1UL;
+    if (::ioctlsocket(fd, FIONBIO, &mode) != 0) {
+        this->error_code = GET_NET_SOCKET_ERROR();
+        this->error_state = state_accept;
+        NET_CLOSE_SOCKET(fd);
+        return invalid_socket;
+    }
+#else
+    const int flags = ::fcntl(fd, F_GETFL, 0);
+    if (flags < 0 || ::fcntl(fd, F_SETFL,
+                           blocking ? (flags & ~O_NONBLOCK) : (flags | O_NONBLOCK)) != 0) {
+        this->error_code = GET_NET_SOCKET_ERROR();
+        this->error_state = state_accept;
+        NET_CLOSE_SOCKET(fd);
+        return invalid_socket;
+    }
+#endif
+    int nodelay = 1;
+    (void)::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY,
+                       reinterpret_cast<const char*>(&nodelay), sizeof(nodelay));
+    this->error_code = err_none;
+    this->error_state = 0;
+    return fd;
+}
+
 } // aeon

@@ -1,35 +1,36 @@
-/*********************************************************************
- * libaeon - A simple, lightweight, cross platform networking library
- * Copyright 2006-2025 (c) Elden Armbrust
- * This software is licensed under the BSD software license.
- *********************************************************************/
-
 #pragma once
-
 #include "socket.hpp"
-#include <memory>
 
 namespace aeon {
 
-    class event_socket;
+class LIBAEON_API server_socket : public socket, protected internal::peer_collection {
+public:
+    server_socket();
+    ~server_socket() override;
+    server_socket(const server_socket&) = delete;
+    server_socket& operator=(const server_socket&) = delete;
 
-    class LIBAEON_API server_socket : public socket {
-    public:
-        server_socket();
-        virtual ~server_socket();
+    int set_accept_timeout(int timeout_ms);
+    int bind(const sockaddr* addr, socklen_t addrlen);
+    bool listen();
+    bool listen(int port);
+    bool listen(const char* address, int port);
 
-        int set_accept_timeout(int timeout_ms);
-        int bind(const sockaddr* addr, socklen_t addrlen);
-        bool listen();
-        bool listen(int port);
-        bool listen(const char* address, int port);
+    // Borrowed pointers. The listener owns every accepted peer until destruction.
+    // close() closes peers, but retains their objects until destruction.
+    socket* accept();
+    socket* accept(bool blocking);
+    bool close() override;
+    // Explicitly retire one registered peer. External non-owning poll sets
+    // must be unregistered first. Borrowed pointers become invalid.
+    bool remove_peer(socket* peer);
+    // The socket_set is a non-owning view; server is the actual owner.
+    socket_set& peers();
+    const socket_set& peers() const;
+    int peer_count() const;
+    socket* peer_at(unsigned int index) const;
 
-        std::unique_ptr<event_socket> accept();
-        std::unique_ptr<event_socket> accept(bool blocking);
-        event_socket* accept(event_socket* client_socket, bool blocking);
-
-    private:
-        int accept_timeout_ms = 0;
-    };
-
-} // aeon
+private:
+    int accept_timeout_ms = 0;
+};
+} // namespace aeon

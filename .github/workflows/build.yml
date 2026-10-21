@@ -17,6 +17,17 @@ concurrency:
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
+  events-disabled:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure core library
+        run: cmake -S . -B build-core -DCMAKE_BUILD_TYPE=Release -DLIBAEON_ENABLE_EVENTS=OFF -DBUILD_TESTING=ON -DLIBAEON_BUILD_EXAMPLES=OFF
+      - name: Build core library and tests
+        run: cmake --build build-core --parallel 2
+      - name: Test core library
+        run: ctest --test-dir build-core --output-on-failure
+
   # Every row builds and runs the test suite independently. A failing Linux job
   # must not prevent Windows, macOS or other CPU architectures from being checked.
   build-test:
@@ -92,7 +103,7 @@ jobs:
           if [[ '${{ matrix.arch }}' == 'x86' ]]; then
             flags+=('-DCMAKE_CXX_FLAGS=-m32' '-DCMAKE_C_FLAGS=-m32')
           fi
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.config }} "${flags[@]}"
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.config }} -DBUILD_TESTING=ON -DLIBAEON_BUILD_EXAMPLES=ON "${flags[@]}"
 
       - name: Configure (Linux ARMv7 cross-compiler)
         if: matrix.arch == 'armv7'
@@ -101,18 +112,19 @@ jobs:
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=armv7l \
             -DCMAKE_C_COMPILER=arm-linux-gnueabihf-gcc \
-            -DCMAKE_CXX_COMPILER=arm-linux-gnueabihf-g++
+            -DCMAKE_CXX_COMPILER=arm-linux-gnueabihf-g++ \
+            -DBUILD_TESTING=ON -DLIBAEON_BUILD_EXAMPLES=ON
 
       - name: Configure (Visual Studio/MSVC)
         if: matrix.compiler == 'msvc'
         shell: pwsh
         run: |
-          cmake -S . -B build -G '${{ matrix.generator }}' -A '${{ matrix.arch }}'
+          cmake -S . -B build -G '${{ matrix.generator }}' -A '${{ matrix.arch }}' -DBUILD_TESTING=ON -DLIBAEON_BUILD_EXAMPLES=ON
 
       - name: Configure (MinGW-w64)
         if: matrix.compiler == 'mingw'
         shell: msys2 {0}
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DLIBAEON_BUILD_EXAMPLES=ON
 
       - name: Build
         if: matrix.compiler != 'mingw'

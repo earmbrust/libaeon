@@ -1,70 +1,42 @@
 Introduction
 ============
 
-What is libaeon?
-----------------
+What is Aeon?
+-------------
 
-libaeon is a lightweight, cross-platform C++ networking library that provides simple abstractions for socket programming. Whether you're building a networked game, a distributed system, or a simple client-server application, libaeon makes it easy to work with TCP and UDP sockets across Windows, Linux, macOS, and ARM platforms.
+Aeon (library file ``libaeon``) is a lightweight C++17 networking library.
+It provides socket abstractions for applications using TCP, UDP and optional
+SSL/TLS on Windows, Linux and macOS. Its public C++ namespace is ``aeon``.
 
-Design Philosophy
-------------------
+Design
+------
 
-libaeon follows these core principles:
+The public API follows the C++ Core Guidelines' preferred ``underscore_style``:
+``aeon::socket``, ``aeon::client_socket``, ``aeon::server_socket``, and
+``aeon::udp_socket``. The generic ``aeon::socket`` class remains extensible.
+Class names do not use a ``C`` prefix; the old ``net::CSocket`` naming belongs
+to earlier API versions and is not part of the 2.0 interface.
 
-1. **Simplicity**: The API is straightforward and intuitive. Common tasks should require minimal code.
-2. **Portability**: Write once, compile everywhere. The same code works on Windows, Linux, macOS, and ARM.
-3. **Lightweight**: Minimal dependencies and overhead. libaeon doesn't force you to use heavy frameworks.
-4. **Flexibility**: Support for both synchronous blocking I/O and event-driven non-blocking I/O patterns.
+Aeon uses native socket implementations internally, with a common C++ surface
+and deterministic descriptor cleanup. Native socket descriptors have exclusive
+ownership and socket objects cannot be copied.
 
-Key Features
-------------
+Features
+--------
 
-**TCP Networking**
-  - Client and server socket classes
-  - Blocking and non-blocking modes
-  - Configurable timeouts for read, write, and connect operations
+- **TCP:** client and server connections, blocking and non-blocking I/O
+- **UDP:** datagrams, including configurable receive timeouts
+- **Events:** callbacks and socket collections for polling-based I/O
+- **Addresses:** IPv4/IPv6 addresses and resolution
+- **TLS:** optional OpenSSL-backed client sockets when enabled at build time
 
-**UDP Networking**
-  - UDP datagram sockets for both client and server
-  - Full support for UDP-specific operations
+Supported platforms
+-------------------
 
-**Event-Driven I/O**
-  - Poll-based event handling with callback methods
-  - Socket sets for managing multiple connections efficiently
-  - Perfect for servers handling many concurrent clients
+GitHub Actions builds and tests supported Windows, Linux and macOS configurations,
+including native x64/ARM64 and selected cross-compiled targets. Consult the
+`GitHub Actions status <https://github.com/earmbrust/libaeon/actions>`_ for the
+latest verified results.
 
-**Cross-Platform Support**
-  - Unified API across Windows, Linux, macOS, and ARM
-  - Automatic platform detection and abstraction
-  - Same code compiles everywhere
-
-Platform Support
-----------------
-
-- **Windows**: Visual Studio (MSVC), MinGW, Clang
-- **Linux**: GCC, Clang (x86_64, ARM)
-- **macOS**: Apple Clang (x86_64, ARM64)
-- **ARM**: ARMv7, ARMv8 (32-bit and 64-bit)
-
-C++ Standard
-------------
-
-libaeon requires C++17 or later. If you're using an older compiler, please upgrade to benefit from modern C++ features and better standard library support.
-
-License
--------
-
-libaeon is released under the BSD License, which permits both commercial and personal use with minimal restrictions. See the LICENSE file in the repository for full details.
-
-Contributing
-------------
-
-libaeon is open source and welcomes contributions. If you find a bug, have a feature request, or want to submit a pull request, please visit the `GitHub repository <https://github.com/earmrust/libaeon>`_.
-
-Getting Help
-------------
-
-- Check the :doc:`Getting Started <getting_started>` guide
-- Review the :doc:`API Reference <api/index>`
-- Look at the `example programs <https://github.com/earmrust/libaeon/tree/master/example>`_
-- Open an issue on GitHub for bugs or feature requests
+See :doc:`Getting Started <getting_started>` for build commands and examples,
+or browse the :doc:`API Reference <api/index>`.

@@ -4,10 +4,6 @@
  * This software is licensed under the BSD software license.
  *********************************************************************/
 
-#ifdef _MSC_VER
-#pragma warning(disable:4251)
-#endif
-
 #include <aeon.hpp>
 #include <iostream>
 #include <cstdio>

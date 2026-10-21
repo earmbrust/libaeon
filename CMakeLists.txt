@@ -1,9 +1,4 @@
-cmake_minimum_required(VERSION 3.15)
-
-# Set policy for FetchContent timestamp handling (CMake 3.24+)
-if(POLICY CMP0135)
-  cmake_policy(SET CMP0135 NEW)
-endif()
+cmake_minimum_required(VERSION 3.24)
 
 # Fix Python3 detection for Windows + pyenv
 # Google Test doesn't need Python to build, but its CMake tries to find it
@@ -88,20 +83,81 @@ message(STATUS "Git version string: ${GIT_VERSION_STRING}")
 # Now create project with version from git
 project(libaeon VERSION ${PROJECT_VERSION} LANGUAGES CXX)
 
-# C++17 standard required
-set(CMAKE_CXX_STANDARD 17)
+# C++20 is the public API and consumer baseline. C++23 is an explicitly
+# selected implementation profile, never a requirement of installed headers.
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+option(LIBAEON_ENABLE_CXX23 "Build Aeon internals in C++23 mode when supported (public API remains C++20)" OFF)
+option(LIBAEON_ENABLE_NATIVE_ARCH "Use -march=native for local benchmarks only (not redistributable builds)" OFF)
+
+set(LIBAEON_IMPLEMENTATION_CXX_STANDARD 20)
+if(LIBAEON_ENABLE_CXX23)
+    if(CMAKE_VERSION VERSION_LESS 3.20)
+        message(FATAL_ERROR "LIBAEON_ENABLE_CXX23 requires CMake >= 3.20")
+    endif()
+
+    include(CheckCXXSourceCompiles)
+    # Check the actual selected C++23 compiler mode, not just the compiler version.
+    # Some toolchains provide only a preview dialect, and MSVC has _MSVC_LANG.
+    set(CMAKE_CXX_STANDARD 23)
+    check_cxx_source_compiles("
+#if defined(_MSVC_LANG)
+#  if _MSVC_LANG <= 202002L
+#    error C++23 mode was not selected
+#  endif
+#elif __cplusplus <= 202002L
+#  error C++23 mode was not selected
+#endif
+int main() { return 0; }
+" LIBAEON_CXX23_MODE_WORKS)
+    if(NOT LIBAEON_CXX23_MODE_WORKS)
+        message(FATAL_ERROR "C++23 was requested, but the current compiler cannot build in C++23 mode. Set LIBAEON_ENABLE_CXX23=OFF to use the supported C++20 baseline.")
+    endif()
+
+    # Probe individual library features with real compile/link tests. Do not
+    # infer feature support from -std=c++23 or change public ABI per feature.
+    check_cxx_source_compiles("
+#include <version>
+#include <expected>
+#if !defined(__cpp_lib_expected) || __cpp_lib_expected < 202202L
+#  error std::expected unavailable
+#endif
+int main() { std::expected<int, int> x(42); return x.value() == 42 ? 0 : 1; }
+" LIBAEON_HAVE_CXX23_EXPECTED)
+    check_cxx_source_compiles("
+#include <version>
+#include <bit>
+#include <cstdint>
+#if !defined(__cpp_lib_byteswap) || __cpp_lib_byteswap < 202110L
+#  error std::byteswap unavailable
+#endif
+int main() { return std::byteswap(std::uint32_t{0x12345678}) == 0x78563412 ? 0 : 1; }
+" LIBAEON_HAVE_CXX23_BYTESWAP)
+    check_cxx_source_compiles("
+#include <version>
+#include <utility>
+#if !defined(__cpp_lib_to_underlying) || __cpp_lib_to_underlying < 202102L
+#  error std::to_underlying unavailable
+#endif
+enum class e : int { value = 7 };
+int main() { return std::to_underlying(e::value) == 7 ? 0 : 1; }
+" LIBAEON_HAVE_CXX23_TO_UNDERLYING)
+    set(CMAKE_CXX_STANDARD 20)
+    set(LIBAEON_IMPLEMENTATION_CXX_STANDARD 23)
+endif()
 
 add_definitions(-DVERSION=${PROJECT_VERSION})
 
 # SSL/TLS support option
 option(ENABLE_SSL "Enable SSL/TLS support with OpenSSL" OFF)
+option(LIBAEON_ENABLE_EVENTS "Build event-driven socket support" ON)
+option(LIBAEON_BUILD_EXAMPLES "Build libAeon example programs" OFF)
 
 if(ENABLE_SSL)
     find_package(OpenSSL REQUIRED)
     message(STATUS "SSL/TLS support enabled with OpenSSL ${OPENSSL_VERSION}")
-    add_definitions(-DENABLE_SSL)
 else()
     message(STATUS "SSL/TLS support disabled")
 endif()
@@ -109,13 +165,10 @@ endif()
 # Platform detection
 if(WIN32)
     message(STATUS "Detected platform: Windows")
-    add_definitions(-D_WIN32)
 elseif(APPLE)
     message(STATUS "Detected platform: macOS")
-    add_definitions(-D__APPLE__)
 elseif(UNIX AND NOT APPLE)
     message(STATUS "Detected platform: Linux")
-    add_definitions(-D__linux__)
 endif()
 
 # Architecture detection and logging
@@ -123,17 +176,6 @@ message(STATUS "Target architecture: ${CMAKE_SYSTEM_PROCESSOR}")
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "ARM|arm|aarch64")
     message(STATUS "ARM architecture detected - optimization may vary")
 endif()
-
-# Configuration header
-include(CheckIncludeFiles)
-CHECK_INCLUDE_FILES(dlfcn.h HAVE_DLFCN_H)
-CHECK_INCLUDE_FILES(inttypes.h HAVE_INTTYPES_H)
-CHECK_INCLUDE_FILES(memory.h HAVE_MEMORY_H)
-CHECK_INCLUDE_FILES(stdbool.h HAVE_STDBOOL_H)
-CHECK_INCLUDE_FILES(stdint.h HAVE_STDINT_H)
-CHECK_INCLUDE_FILES(stdlib.h HAVE_STDLIB_H)
-CHECK_INCLUDE_FILES(strings.h HAVE_STRINGS_H)
-CHECK_INCLUDE_FILES(string.h HAVE_STRING_H)
 
 # Include directories - headers are in include/, sources in src/
 include_directories(include)
@@ -146,15 +188,23 @@ set(LIBAEON_SOURCES
     src/socket.cpp
     src/client_socket.cpp
     src/server_socket.cpp
-    src/event_socket.cpp
-    src/client_event_socket.cpp
-    src/server_event_socket.cpp
     src/socket_set.cpp
-    src/event_socket_set.cpp
     src/udp_socket.cpp
     src/udp_client_socket.cpp
     src/udp_server_socket.cpp
 )
+
+if(LIBAEON_ENABLE_EVENTS)
+    list(APPEND LIBAEON_SOURCES
+        src/event_socket.cpp
+        src/client_event_socket.cpp
+        src/server_event_socket.cpp
+        src/event_socket_set.cpp
+        src/udp_event_socket.cpp
+        src/udp_client_event_socket.cpp
+        src/udp_server_event_socket.cpp
+    )
+endif()
 
 # Add SSL sources if enabled
 if(ENABLE_SSL)
@@ -166,12 +216,49 @@ endif()
 
 # Shared library
 add_library(aeon SHARED ${LIBAEON_SOURCES})
-target_compile_definitions(aeon PRIVATE LIBAEON_EXPORTS)
+include(GenerateExportHeader)
+generate_export_header(aeon
+    EXPORT_FILE_NAME "${CMAKE_CURRENT_BINARY_DIR}/generated/aeon_export.hpp"
+    EXPORT_MACRO_NAME LIBAEON_API
+    STATIC_DEFINE LIBAEON_STATIC
+)
+target_include_directories(aeon PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated>
+    $<INSTALL_INTERFACE:include>
+)
 
 # Static library
 add_library(aeon-static STATIC ${LIBAEON_SOURCES})
 set_target_properties(aeon-static PROPERTIES OUTPUT_NAME aeon_static)
-target_compile_definitions(aeon-static PRIVATE LIBAEON_STATIC)
+target_compile_definitions(aeon-static PUBLIC LIBAEON_STATIC)
+target_include_directories(aeon-static PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated>
+    $<INSTALL_INTERFACE:include>
+)
+
+set(LIBAEON_HAS_EVENTS ${LIBAEON_ENABLE_EVENTS})
+set(LIBAEON_HAS_SSL ${ENABLE_SSL})
+configure_file(cmake/aeon_features.hpp.in
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/aeon_features.hpp")
+
+# Consumers always require C++20, including when library internals are built
+# with optional C++23 features. Never propagate cxx_std_23 through targets.
+target_compile_features(aeon PUBLIC cxx_std_20)
+target_compile_features(aeon-static PUBLIC cxx_std_20)
+set_target_properties(aeon aeon-static PROPERTIES
+    CXX_STANDARD ${LIBAEON_IMPLEMENTATION_CXX_STANDARD}
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
+
+# SSL support is part of the public header contract, not just an internal setting.
+# Propagate it to programs that link either target through CMake.
+if(ENABLE_SSL)
+    target_compile_definitions(aeon PUBLIC ENABLE_SSL)
+    target_compile_definitions(aeon-static PUBLIC ENABLE_SSL)
+endif()
 
 # Platform-specific linking
 if(WIN32)
@@ -199,11 +286,13 @@ else()
     target_compile_options(aeon PRIVATE -Wall -Wextra -Wconversion -Wpedantic)
     target_compile_options(aeon-static PRIVATE -Wall -Wextra -Wconversion -Wpedantic)
     
-    # Optimization flags: only use -march=native for native builds
-    # Skip it for cross-compilation (including ARM targets)
+    # -march=native can make redistributed binaries fail on other CPUs.
+    # Only enable it for explicit local benchmark builds, never cross-builds.
     if(NOT CMAKE_CROSSCOMPILING)
-        target_compile_options(aeon PRIVATE -march=native)
-        target_compile_options(aeon-static PRIVATE -march=native)
+        if(LIBAEON_ENABLE_NATIVE_ARCH)
+            target_compile_options(aeon PRIVATE -march=native)
+            target_compile_options(aeon-static PRIVATE -march=native)
+        endif()
     elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "ARM|arm|aarch64")
         # For ARM cross-compilation, users can specify architecture via ARM_ARCH
         # Example: cmake -DARM_ARCH=armv7-a
@@ -218,15 +307,22 @@ else()
     endif()
 endif()
 
-# Testing with Google Test
-include(FetchContent)
+# Build only the libraries by default. CI and local development can enable tests.
+option(BUILD_TESTING "Build libAeon tests" OFF)
+include(CTest)
+if(BUILD_TESTING)
+    # Testing with Google Test
+    include(FetchContent)
 
+# GoogleTest's subproject normally receives this version from its root CMakeLists.txt.
+set(GOOGLETEST_VERSION 1.14.0)
 FetchContent_Declare(googletest
-  URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
+  URL https://github.com/google/googletest/archive/refs/tags/v${GOOGLETEST_VERSION}.zip
   DOWNLOAD_EXTRACT_TIMESTAMP ON
+  SOURCE_SUBDIR googletest
 )
 
-# For Windows: Prevent overriding the parent project's compiler/linker settings
+# Keep the test runtime consistent with the Windows library build.
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 
 FetchContent_MakeAvailable(googletest)
@@ -236,48 +332,165 @@ enable_testing()
 # Test executable
 add_executable(aeon_tests
     tests/test_address.cpp
+    tests/test_core_peer_collections.cpp
     tests/test_socket_basics.cpp
+    tests/test_abi_storage.cpp
+    tests/test_io_sizes.cpp
     tests/test_udp.cpp
     tests/test_resolver.cpp
 )
 
+if(LIBAEON_ENABLE_EVENTS)
+    target_sources(aeon_tests PRIVATE
+        tests/test_event_callbacks.cpp
+        tests/test_event_lifecycle.cpp
+        tests/test_event_polling.cpp
+        tests/test_write_queue.cpp
+        tests/test_server_peer_lifecycle.cpp
+        tests/test_tcp_ownership.cpp
+        tests/test_udp_ownership.cpp
+        tests/test_udp_send_to.cpp
+    )
+endif()
 target_include_directories(aeon_tests PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(aeon_tests PRIVATE aeon gtest_main)
 
 # Register tests with ctest
 add_test(NAME AeonTests COMMAND aeon_tests)
 
-# Example executables
-add_executable(http-client example/http-client.cpp)
-target_include_directories(http-client PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(http-client aeon)
+# Internal implementation tests link the static library so non-exported
+# implementation seams are testable without adding DLL/public API symbols.
+add_executable(aeon_internal_tests
+    tests/test_udp_internal.cpp
+)
+target_include_directories(aeon_internal_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(aeon_internal_tests PRIVATE aeon-static gtest_main)
+add_test(NAME AeonInternalTests COMMAND aeon_internal_tests)
 
-add_executable(hello-world example/hello-world.cpp)
-target_include_directories(hello-world PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(hello-world aeon)
+# Two independent C++20 consumers verify public headers, exports, callbacks,
+# and actual shared/static linkage without separate duplicate smoke executables.
+add_executable(aeon_consumer_shared tests/consumer_interface.cpp)
+target_link_libraries(aeon_consumer_shared PRIVATE aeon)
+set_target_properties(aeon_consumer_shared PROPERTIES
+    CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+add_test(NAME AeonSharedConsumer COMMAND aeon_consumer_shared)
 
-add_executable(simple-server example/simple-server.cpp)
-target_include_directories(simple-server PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(simple-server aeon)
+add_executable(aeon_consumer_static tests/consumer_interface.cpp)
+target_link_libraries(aeon_consumer_static PRIVATE aeon-static)
+set_target_properties(aeon_consumer_static PROPERTIES
+    CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+add_test(NAME AeonStaticConsumer COMMAND aeon_consumer_static)
 
-add_executable(test-client example/test-client.cpp)
-target_include_directories(test-client PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(test-client aeon)
+# M6c: real loopback TLS with generated, trusted/mismatched/self-signed certs.
+# No external network or openssl CLI dependency; runs for static and shared.
+if(ENABLE_SSL)
+    find_package(Threads REQUIRED)
+    add_executable(aeon_tls_live_shared tests/tls_live_validation.cpp)
+    target_link_libraries(aeon_tls_live_shared PRIVATE aeon Threads::Threads)
+    add_test(NAME AeonTlsLiveShared COMMAND aeon_tls_live_shared)
+    add_executable(aeon_tls_live_static tests/tls_live_validation.cpp)
+    target_link_libraries(aeon_tls_live_static PRIVATE aeon-static Threads::Threads)
+    add_test(NAME AeonTlsLiveStatic COMMAND aeon_tls_live_static)
+endif()
+endif()
 
-add_executable(udp-server example/udp-server.cpp)
-target_include_directories(udp-server PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(udp-server aeon)
+# Ordinary example executables are opt-in and do not affect the default build.
+if(LIBAEON_BUILD_EXAMPLES)
+    add_executable(http-client example/http-client.cpp)
+    target_link_libraries(http-client PRIVATE aeon)
 
-add_executable(udp-client example/udp-client.cpp)
-target_include_directories(udp-client PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(udp-client aeon)
+    add_executable(hello-world example/hello-world.cpp)
+    target_link_libraries(hello-world PRIVATE aeon)
+
+    add_executable(test-client example/test-client.cpp)
+    target_link_libraries(test-client PRIVATE aeon)
+
+    add_executable(udp-server example/udp-server.cpp)
+    target_link_libraries(udp-server PRIVATE aeon)
+
+    add_executable(udp-client example/udp-client.cpp)
+    target_link_libraries(udp-client PRIVATE aeon)
+
+    if(LIBAEON_ENABLE_EVENTS)
+        add_executable(simple-server example/simple-server.cpp)
+        target_link_libraries(simple-server PRIVATE aeon)
+    endif()
+endif()
+
+# Integration tests use the real example server implementations even when
+# example executables are disabled. Neither is built by default.
+if(LIBAEON_ENABLE_EVENTS AND (LIBAEON_BUILD_EXAMPLES OR BUILD_TESTING))
+    add_library(aeon_chat_example STATIC example/chat_server.cpp)
+    target_include_directories(aeon_chat_example PUBLIC ${CMAKE_SOURCE_DIR}/example)
+    target_link_libraries(aeon_chat_example PUBLIC aeon)
+    set_target_properties(aeon_chat_example PROPERTIES
+        CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+    if(LIBAEON_BUILD_EXAMPLES)
+        add_executable(chat-server example/chat-server.cpp)
+        target_link_libraries(chat-server PRIVATE aeon_chat_example)
+    endif()
+    if(BUILD_TESTING)
+        target_sources(aeon_tests PRIVATE tests/test_chat_server.cpp)
+        target_link_libraries(aeon_tests PRIVATE aeon_chat_example)
+    endif()
+
+    add_library(aeon_pong_example STATIC example/pong_server.cpp)
+    target_include_directories(aeon_pong_example PUBLIC ${CMAKE_SOURCE_DIR}/example)
+    target_link_libraries(aeon_pong_example PUBLIC aeon)
+    set_target_properties(aeon_pong_example PROPERTIES
+        CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+    if(LIBAEON_BUILD_EXAMPLES)
+        add_executable(pong-server example/pong-server.cpp)
+        target_link_libraries(pong-server PRIVATE aeon_pong_example)
+        add_executable(pong-client example/pong-client.cpp)
+        target_link_libraries(pong-client PRIVATE aeon)
+    endif()
+    if(BUILD_TESTING)
+        target_sources(aeon_tests PRIVATE tests/test_udp_pong.cpp)
+        target_link_libraries(aeon_tests PRIVATE aeon_pong_example)
+    endif()
+
+    add_library(aeon_http_example STATIC example/http_server.cpp)
+    target_include_directories(aeon_http_example PUBLIC ${CMAKE_SOURCE_DIR}/example)
+    target_link_libraries(aeon_http_example PUBLIC aeon)
+    set_target_properties(aeon_http_example PROPERTIES
+        CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+    if(LIBAEON_BUILD_EXAMPLES)
+        add_executable(http-server example/http-server.cpp)
+        target_link_libraries(http-server PRIVATE aeon_http_example)
+    endif()
+    if(BUILD_TESTING)
+        target_sources(aeon_tests PRIVATE tests/test_http_server.cpp)
+        target_link_libraries(aeon_tests PRIVATE aeon_http_example)
+    endif()
+endif()
+
+# Benchmark is opt-in and does not require GoogleTest or extra dependencies.
+option(LIBAEON_BUILD_BENCHMARKS "Build standalone loopback throughput benchmark" OFF)
+if(LIBAEON_BUILD_BENCHMARKS AND LIBAEON_ENABLE_EVENTS)
+    add_executable(aeon_write_queue_benchmark benchmarks/write_queue_benchmark.cpp)
+    target_link_libraries(aeon_write_queue_benchmark PRIVATE aeon-static)
+    set_target_properties(aeon_write_queue_benchmark PROPERTIES
+        CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+endif()
 
 # Build configuration summary
 message(STATUS "")
 message(STATUS "libaeon Build Configuration")
 message(STATUS "===========================")
 message(STATUS "Version: ${PROJECT_VERSION}")
-message(STATUS "C++ Standard: ${CMAKE_CXX_STANDARD}")
+message(STATUS "Public C++ Standard: 20")
+message(STATUS "Implementation C++ Standard: ${LIBAEON_IMPLEMENTATION_CXX_STANDARD}")
+message(STATUS "Local -march=native: ${LIBAEON_ENABLE_NATIVE_ARCH}")
+if(LIBAEON_ENABLE_CXX23)
+    message(STATUS "C++23 std::expected: ${LIBAEON_HAVE_CXX23_EXPECTED}")
+    message(STATUS "C++23 std::byteswap: ${LIBAEON_HAVE_CXX23_BYTESWAP}")
+    message(STATUS "C++23 std::to_underlying: ${LIBAEON_HAVE_CXX23_TO_UNDERLYING}")
+endif()
+message(STATUS "Event sockets: ${LIBAEON_ENABLE_EVENTS}")
+message(STATUS "Build tests: ${BUILD_TESTING}")
+message(STATUS "Build examples: ${LIBAEON_BUILD_EXAMPLES}")
+message(STATUS "Build benchmarks: ${LIBAEON_BUILD_BENCHMARKS}")
 message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "Platform: ${CMAKE_SYSTEM_NAME}")
 message(STATUS "Processor: ${CMAKE_SYSTEM_PROCESSOR}")

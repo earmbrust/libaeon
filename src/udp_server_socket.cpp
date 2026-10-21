@@ -3,127 +3,91 @@
  * Copyright 2006-2025 (c) Elden Armbrust
  * This software is licensed under the BSD software license.
  *********************************************************************/
-
-#include <aeon.hpp>
+#include "aeon.hpp"
+#include "udp_server_socket.hpp"
+#include <memory>
 #include <cstring>
 
+namespace aeon::internal {
+
+static bool same_udp_address(const address& a, const address& b) {
+    const auto lhs = a.get_sockaddr_storage();
+    const auto rhs = b.get_sockaddr_storage();
+    if (a.get_port() != b.get_port()) return false;
+    if (lhs.ss_family == AF_INET && rhs.ss_family == AF_INET) {
+        return reinterpret_cast<const sockaddr_in*>(&lhs)->sin_addr.s_addr ==
+               reinterpret_cast<const sockaddr_in*>(&rhs)->sin_addr.s_addr;
+    }
+    if (lhs.ss_family == AF_INET6 && rhs.ss_family == AF_INET6) {
+        const auto* l = reinterpret_cast<const sockaddr_in6*>(&lhs);
+        const auto* r = reinterpret_cast<const sockaddr_in6*>(&rhs);
+        return l->sin6_scope_id == r->sin6_scope_id &&
+               std::memcmp(&l->sin6_addr, &r->sin6_addr, sizeof(l->sin6_addr)) == 0;
+    }
+    // Treat IPv4 and an equivalent IPv4-mapped IPv6 endpoint as one peer.
+    // Dual-stack UDP listeners receive IPv4 senders as ::ffff:a.b.c.d.
+    const auto& v6 = lhs.ss_family == AF_INET6 ? lhs : rhs;
+    const auto& v4 = lhs.ss_family == AF_INET ? lhs : rhs;
+    if (v6.ss_family != AF_INET6 || v4.ss_family != AF_INET) return false;
+    const auto* ipv6 = reinterpret_cast<const sockaddr_in6*>(&v6);
+    const auto* ipv4 = reinterpret_cast<const sockaddr_in*>(&v4);
+    const unsigned char* p = ipv6->sin6_addr.s6_addr;
+    static constexpr unsigned char mapped_prefix[12] =
+        {0,0,0,0,0,0,0,0,0,0,0xff,0xff};
+    return ipv6->sin6_scope_id == 0 &&
+           std::memcmp(p, mapped_prefix, sizeof(mapped_prefix)) == 0 &&
+           std::memcmp(p + 12, &ipv4->sin_addr, sizeof(ipv4->sin_addr)) == 0;
+}
+
+socket* peer_collection::find_udp_peer(const address& remote) const {
+    const auto& members = peer_members();
+    for (unsigned int i = 0; i < static_cast<unsigned int>(members.size()); ++i) {
+        socket* peer = members.at(i);
+        if (peer && same_udp_address(peer->get_remote_address(), remote)) return peer;
+    }
+    return nullptr;
+}
+
+udp_socket* peer_collection::get_or_create_udp_peer(udp_socket* server, const address& remote) {
+    if (!server || !server->is_valid_socket()) return nullptr;
+    if (auto* existing = static_cast<udp_socket*>(find_udp_peer(remote))) {
+        if (existing->is_valid_socket()) return existing;
+        remove_owned_peer(existing);
+    }
+    const auto endpoint = remote.get_sockaddr_storage();
+    if (endpoint.ss_family != AF_INET && endpoint.ss_family != AF_INET6) return nullptr;
+    return static_cast<udp_socket*>(add_peer(std::unique_ptr<udp_socket>(new udp_socket(server, remote))));
+}
+
+} // namespace aeon::internal
+
 namespace aeon {
-
-/**
- * udp_server_socket default constructor
- */
-udp_server_socket::udp_server_socket() {
-    listening = false;
-}
-
-/**
- * udp_server_socket destructor
- */
-udp_server_socket::~udp_server_socket() {
-}
-
-/**
- * Bind to specified port for receiving UDP datagrams
- * \param port Port number to bind to
- * \return true if successful, false otherwise
- */
+udp_server_socket::udp_server_socket() = default;
+udp_server_socket::~udp_server_socket() { close(); }
 bool udp_server_socket::listen(int port) {
-    this->port = port;
-
-    // UDP socket already created in udp_socket constructor (as IPv4)
-    if (!this->is_valid_socket()) {
-        this->error_code = err_no_socket;
-        this->error_state = state_create;
-        return false;
-    }
-
-    // Validate port range
-    if (!is_valid_port(port)) {
-        this->error_code = err_no_socket;
-        this->error_state = state_bind;
-        return false;
-    }
-
-    // Try IPv6 first with dual-stack mode (can accept both IPv4 and IPv6)
-    // If that fails, fall back to IPv4
-    
-    // Try to create and bind IPv6 socket first
-    socket_t ipv6_sock = ::socket(AF_INET6, socket::datagram_type, 0);
-#ifdef NET_PLATFORM_WINDOWS
-    bool ipv6_valid = (ipv6_sock != INVALID_SOCKET);
-#else
-    bool ipv6_valid = (ipv6_sock >= 0);
-#endif
-
-    if (ipv6_valid) {
-        // Try to enable dual-stack mode (accepts both IPv4 and IPv6)
-        // This is not available on all platforms, so we ignore failures
-#ifdef IPV6_V6ONLY
-        int v6only = 0;
-        setsockopt(ipv6_sock, IPPROTO_IPV6, IPV6_V6ONLY, (const char*)&v6only, sizeof(v6only));
-#endif
-
-        // Set up IPv6 address structure (local variable)
-        sockaddr_storage serv_addr;
-        std::memset(&serv_addr, 0, sizeof(serv_addr));
-        struct sockaddr_in6* addr6 = (struct sockaddr_in6*)&serv_addr;
-        addr6->sin6_family = AF_INET6;
-        addr6->sin6_addr = in6addr_any;  // Listen on any interface
-        addr6->sin6_port = htons(static_cast<u_short>(port));
-
-        // Try to bind IPv6 socket
-        int bind_result = ::bind(ipv6_sock, 
-                              (struct sockaddr*)&serv_addr, 
-                              sizeof(struct sockaddr_in6));
-        
-        if (bind_result == 0) {
-            // IPv6 bind succeeded - close old IPv4 socket and use IPv6
-            NET_CLOSE_SOCKET(this->sockfd);
-            this->sockfd = ipv6_sock;
-            this->listening = true;
-            return true;
-        } else {
-            // IPv6 bind failed, close it and try IPv4
-            NET_CLOSE_SOCKET(ipv6_sock);
-        }
-    }
-
-    // Fall back to IPv4
-    // Set up IPv4 address structure (local variable)
-    sockaddr_storage serv_addr;
-    std::memset(&serv_addr, 0, sizeof(serv_addr));
-    struct sockaddr_in* addr4 = (struct sockaddr_in*)&serv_addr;
-    addr4->sin_family = AF_INET;
-    addr4->sin_addr.s_addr = htonl(INADDR_ANY);  // Listen on any interface
-    addr4->sin_port = htons(static_cast<u_short>(port));
-
-    // Bind IPv4 socket
-    int bind_result = ::bind(this->sockfd, 
-                          (struct sockaddr*)&serv_addr, 
-                          sizeof(struct sockaddr_in));
-    
-    if (bind_result < 0) {
-        this->error_code = GET_NET_SOCKET_ERROR();
-        this->error_state = state_bind;
-        
-        // Close socket on error
-        NET_CLOSE_SOCKET(this->sockfd);
-        this->sockfd = invalid_socket;
-        this->listening = false;
-        
-        return false;
-    }
-
-    this->listening = true;
-    return true;
+    // Existing logical peers cannot survive a rebind as active endpoints.
+    const bool ok = udp_listen(port);
+    if (ok) close_owned_peers();
+    return ok;
+}
+bool udp_server_socket::listen() { return listen(port); }
+bool udp_server_socket::close() {
+    bool changed = udp_socket::close();
+    changed = close_owned_peers() || changed;
+    return changed;
+}
+udp_socket* udp_server_socket::get_peer(const address& remote) {
+    return get_or_create_udp_peer(this, remote);
 }
 
-/**
- * Bind to previously set port
- * \return true if successful, false otherwise
- */
-bool udp_server_socket::listen() {
-    return this->listen(this->port);
+bool udp_server_socket::remove_peer(udp_socket* peer) {
+    return remove_owned_peer(peer);
 }
-
-}  // aeon
+socket_set& udp_server_socket::peers() { return peer_members(); }
+const socket_set& udp_server_socket::peers() const { return peer_members(); }
+int udp_server_socket::read(char* data, int size) {
+    const int n = udp_socket::read(data, size);
+    if (n >= 0) (void)get_peer(get_remote_address());
+    return n;
+}
+} // namespace aeon

@@ -6,10 +6,6 @@
 
 #pragma once
 
-#ifdef _MSC_VER
-#pragma warning(disable:4251)
-#endif
-
 #ifdef ENABLE_SSL
 
 #include "ssl_socket.hpp"
@@ -75,6 +71,8 @@ namespace aeon {
         virtual ~ssl_client_socket();
 
     private:
+        bool connect_to(const address& addr, const std::string& expected_identity);
+
         std::string hostname;
         int port_num;
     };

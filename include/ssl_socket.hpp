@@ -6,10 +6,6 @@
 
 #pragma once
 
-#ifdef _MSC_VER
-#pragma warning(disable:4251)
-#endif
-
 #ifdef ENABLE_SSL
 
 #include "socket.hpp"
@@ -30,7 +26,7 @@ namespace aeon {
      * \brief SSL/TLS peer verification mode
      */
     enum class ssl_verify_mode {
-        strict,  // Verify peer certificate, fail if invalid
+        strict,  // Require a trusted certificate matching the requested DNS name or IP
         off      // Don't verify peer certificate
     };
 
@@ -54,8 +50,8 @@ namespace aeon {
         // Protected constructor for derived classes
         explicit ssl_socket(SSL_CTX* shared_ctx = nullptr);
 
-        // Initialize SSL structure and attach to socket
-        int setup_ssl();
+        // Initialize SSL, attach its descriptor and verify the expected peer identity.
+        int setup_ssl(const std::string& expected_identity);
 
         // Perform SSL/TLS handshake
         int perform_handshake();
@@ -76,7 +72,12 @@ namespace aeon {
         int set_private_key_file(const char* path);
         int set_ca_file(const char* path);
         int set_peer_verification(ssl_verify_mode mode);
+        // Explicitly allow an untrusted self-signed LEAF certificate in strict mode.
+        // Peer identity (DNS/IP), certificate validity and handshake are still checked.
         int set_allow_self_signed(bool allow);
+
+        // Close TLS before releasing the owned native socket; safe on failure/retry.
+        bool close() override;
 
         // Override read/write to use SSL
         int write(char* data, int size) override;

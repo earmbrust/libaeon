@@ -1,173 +1,167 @@
 Getting Started
 ===============
 
-Installation
-------------
+Aeon 2.0 requires C++20 and CMake. Public types and functions use the ``aeon``
+namespace and lowercase ``snake_case`` names.
 
-Windows
-~~~~~~~
+Build and test
+--------------
 
-Using CMake and MSVC::
+Linux / macOS
+~~~~~~~~~~~~~
 
-    mkdir build
-    cd build
-    cmake .. -G "Visual Studio 17 2022"
-    cmake --build . --config Release
+From the repository root::
 
-Using MinGW::
+    cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+    cmake --build build --parallel
+    ctest --test-dir build --output-on-failure
 
-    mkdir build
-    cd build
-    cmake .. -G "MinGW Makefiles"
-    cmake --build .
+Install a C++ compiler and CMake first (GCC or Clang on Linux, Xcode Command
+Line Tools on macOS). CMake fetches Google Test when configuring tests.
 
-Linux
-~~~~~
+Windows (MSVC)
+~~~~~~~~~~~~~~
 
-::
+Using Visual Studio 2022::
 
-    sudo apt-get install cmake build-essential
-    mkdir build
-    cd build
-    cmake .. -DCMAKE_BUILD_TYPE=Release
-    cmake --build .
+    cmake -S . -B build-vs2022 -G "Visual Studio 17 2022" -A x64
+    cmake --build build-vs2022 --config Release
+    ctest --test-dir build-vs2022 -C Release --output-on-failure
 
-macOS
-~~~~~
+Using Visual Studio 2026 (requires CMake with VS 2026 generator support)::
 
-::
+    cmake -S . -B build-vs2026 -G "Visual Studio 18 2026" -A x64
+    cmake --build build-vs2026 --config Release
+    ctest --test-dir build-vs2026 -C Release --output-on-failure
 
-    brew install cmake
-    mkdir build
-    cd build
-    cmake .. -DCMAKE_BUILD_TYPE=Release
-    cmake --build .
-
-ARM (Cross-compile)
-~~~~~~~~~~~~~~~~~~~
-
-::
-
-    sudo apt-get install cmake gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
-    mkdir build
-    cd build
-    cmake .. \
-      -DCMAKE_SYSTEM_NAME=Linux \
-      -DCMAKE_SYSTEM_PROCESSOR=armv7l \
-      -DCMAKE_CXX_COMPILER=arm-linux-gnueabihf-g++ \
-      -DCMAKE_C_COMPILER=arm-linux-gnueabihf-gcc \
-      -DCMAKE_BUILD_TYPE=Release
-    cmake --build .
-
-Basic Usage
------------
-
-Creating a TCP Server
+Optional event sockets
 ~~~~~~~~~~~~~~~~~~~~~
+
+Event-driven sockets are enabled by default. If your application uses only
+ordinary TCP and UDP sockets, configure with
+``-DLIBAEON_ENABLE_EVENTS=OFF`` to exclude event handling and polling code.
+This option is independent of SSL/TLS. ``socket_set`` and server-owned peers
+remain available in either configuration. Include ``<aeon.hpp>`` in your
+application; CMake provides the generated ``aeon_features.hpp`` and
+``aeon_export.hpp`` include path to targets that link Aeon.
+
+Optional SSL/TLS
+~~~~~~~~~~~~~~~~
+
+Install OpenSSL development libraries for the target architecture and configure
+with ``-DENABLE_SSL=ON``. For example::
+
+    cmake -S . -B build-ssl -DCMAKE_BUILD_TYPE=Release -DENABLE_SSL=ON
+    cmake --build build-ssl --parallel
+    ctest --test-dir build-ssl --output-on-failure
+
+On Windows, an architecture-matched OpenSSL package (for example, from vcpkg)
+is required. SSL/TLS socket classes are conditional on ``ENABLE_SSL``.
+
+``ssl_client_socket`` defaults to **strict verification**: certificate trust
+and the requested DNS name or IP address must both match. The client sends SNI
+for DNS names. Calling ``connect(const address&)`` verifies that numeric IP.
+Use ``set_ca_file()`` to load a private CA. ``set_allow_self_signed(true)``
+explicitly allows a self-signed *leaf* certificate in strict mode but does not
+bypass identity, validity dates or handshake failures. The safer default is
+``false``. ``set_peer_verification(ssl_verify_mode::off)`` disables validation
+and must only be used when this risk is understood.
+
+The ``http-client`` example now verifies HTTPS by default. Its ``--no-verify``
+flag explicitly disables this protection. For local TLS regression tests,
+build with ``ENABLE_SSL=ON`` and ``BUILD_TESTING=ON``; CTest includes real
+loopback handshakes for the shared and static targets.
+
+TCP server
+----------
+
+``server_socket::accept()`` returns a borrowed ``aeon::socket*``. The
+server owns accepted peers and closes them when the listener closes. See
+``docs/engineering/server-peer-ownership.md`` for lifetime rules.
 
 .. code-block:: cpp
 
-    #include <libaeon.h>
+    #include <aeon.hpp>
     #include <iostream>
 
     int main() {
-        net::CServerSocket server;
-        
-        if (!server.Listen(2300)) {
-            std::cerr << "Failed to listen on port 2300\n";
+        aeon::server_socket server;
+        if (!server.listen("127.0.0.1", 2300)) {
+            std::cerr << "Could not listen\n";
             return 1;
         }
-        
-        std::cout << "Server listening on port 2300\n";
-        
-        net::CSocket* client = server.Accept();
+
+        auto client = server.accept();
         if (client && client->connected) {
-            std::cout << "Client connected\n";
-            client->Write("Hello from server!\n");
-            client->Close();
-            delete client;
+            client->write("Hello from Aeon!\n");
+            client->close();
         }
-        
-        return 0;
     }
 
-Creating a TCP Client
-~~~~~~~~~~~~~~~~~~~~~
+TCP client
+----------
 
 .. code-block:: cpp
 
-    #include <libaeon.h>
+    #include <aeon.hpp>
     #include <iostream>
 
     int main() {
-        net::CClientSocket client("localhost", 2300);
-        
-        if (!client.connected) {
+        aeon::client_socket client;
+        if (!client.connect("127.0.0.1", 2300)) {
             std::cerr << "Connection failed\n";
             return 1;
         }
-        
-        char buffer[256];
-        int bytes_read = client.Read(buffer, sizeof(buffer) - 1);
-        buffer[bytes_read] = '\0';
-        
-        std::cout << "Server says: " << buffer << std::endl;
-        client.Close();
-        
-        return 0;
+
+        char buffer[256]{};
+        const int count = client.read(buffer, sizeof(buffer));
+        if (count > 0) {
+            std::cout.write(buffer, count);
+        }
+        client.close();
     }
 
-UDP Communication
-~~~~~~~~~~~~~~~~~
+UDP server
+----------
+
+UDP is connectionless. A zero-length datagram is valid and is not a connection
+closure. With a configured timeout, ``read`` returns 0 if no datagram arrives.
 
 .. code-block:: cpp
 
-    // UDP Server
-    net::CServerSocketUDP server;
-    server.Listen(2301);
-    
-    char buffer[256];
-    int bytes_read = server.Read(buffer, sizeof(buffer) - 1);
-    
-    // UDP Client
-    net::CClientSocketUDP client("localhost", 2301);
-    client.Write("Hello UDP!\n");
+    #include <aeon.hpp>
 
-Event-Driven I/O
-~~~~~~~~~~~~~~~~
+    int main() {
+        aeon::udp_server_socket server;
+        if (!server.listen(2301)) {
+            return 1;
+        }
+        server.set_read_timeout(1000); // milliseconds
+
+        char buffer[256]{};
+        const int count = server.read(buffer, sizeof(buffer));
+        if (count > 0) {
+            server.write(buffer, count); // Reply to last sender
+        }
+    }
+
+Extending the socket abstraction
+--------------------------------
+
+``aeon::socket`` remains a public extensible base class. Overriding a virtual
+I/O method allows applications to customize socket behavior:
 
 .. code-block:: cpp
 
-    #include <libaeon.h>
+    #include <aeon.hpp>
 
-    class MyEventSocket : public net::CEventSocket {
+    class custom_socket : public aeon::socket {
     public:
-        bool OnRead(const char* buffer, int size) override {
-            std::cout << "Received " << size << " bytes\n";
-            return true; // continue polling
+        int read(char* buffer, int size) override {
+            return aeon::socket::read(buffer, size);
         }
     };
 
-    int main() {
-        net::CServerSocket server;
-        server.Listen(2300);
-        
-        net::CEventSocketSet clients;
-        
-        while (true) {
-            net::CEventSocket* client = server.Accept();
-            if (client && client->connected) {
-                clients.Add(client);
-            }
-            
-            // Poll all connected clients
-            clients.Poll();
-        }
-    }
-
-Next Steps
-----------
-
-- Read the :doc:`API Reference <api/index>` for detailed class and method documentation
-- Check out the `example programs <https://github.com/earmrust/libaeon/tree/master/example>`_
-- Visit the `GitHub repository <https://github.com/earmrust/libaeon>`_ for issues and discussions
+See the :doc:`API Reference <api/index>` and the
+`source examples <https://github.com/earmbrust/libaeon/tree/2.0-devel/example>`_
+for additional usage patterns.

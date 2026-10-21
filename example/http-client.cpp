@@ -4,10 +4,6 @@
  * This software is licensed under the BSD software license.
  *********************************************************************/
 
-#ifdef _MSC_VER
-#pragma warning(disable:4251)
-#endif
-
 #include <iostream>
 #include <cstdio>
 #include <cstring>
@@ -106,13 +102,13 @@ int main(int argc, char** argv) {
     if (argc < 2) {
         std::fprintf(stderr, "Usage: %s URL [--verify] [--cacert <path>]\n", argv[0]);
         std::fprintf(stderr, "  URL: The HTTP or HTTPS URL to fetch\n");
-        std::fprintf(stderr, "  --verify: Enable peer certificate verification (default: off)\n");
+        std::fprintf(stderr, "  --no-verify: Disable TLS peer certificate and hostname verification (INSECURE)\n");
         std::fprintf(stderr, "  --cacert <path>: Path to CA certificate bundle file\n");
         return EXIT_FAILURE;
     }
 
     std::string current_url = argv[1];
-    bool verify_peer = false;
+    bool verify_peer = true;
     std::string ca_cert_file;
     
     // Parse optional arguments
@@ -120,6 +116,8 @@ int main(int argc, char** argv) {
         std::string arg = argv[i];
         if (arg == "--verify") {
             verify_peer = true;
+        } else if (arg == "--no-verify") {
+            verify_peer = false;
         } else if (arg == "--cacert" && i + 1 < argc) {
             ca_cert_file = argv[++i];
         }
@@ -165,6 +163,7 @@ int main(int argc, char** argv) {
             
             if (!ssl_sock->connect(parts.domain.c_str(), parts.port)) {
                 std::fprintf(stderr, "SSL connection failed: %d\n", ssl_sock->get_error());
+                delete ssl_sock;
                 return EXIT_FAILURE;
             }
             socket = ssl_sock;

@@ -6,8 +6,7 @@
 
 #pragma once
 
-#include "internal/config.hpp"
-#include "internal/export.hpp"
+#include "aeon_export.hpp"
 #include <string>
 #include <cstdint>
 

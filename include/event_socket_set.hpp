@@ -3,65 +3,84 @@
  * Copyright 2006-2025 (c) Elden Armbrust
  * This software is licensed under the BSD software license.
  *********************************************************************/
-
 #pragma once
 
-#ifdef _MSC_VER
-// C4251: STL member needs dll-interface
-// This is a known MSVC artifact when exporting classes with STL containers.
-// The vector is explicitly instantiated in event_socket_set.cpp with dllexport,
-// so the warning about missing interface is spurious. Safe to suppress.
-#pragma warning(disable:4251)
-#endif
-
 #include "event_socket.hpp"
-#include <vector>
+#include "udp_event_socket.hpp"
 #include <functional>
+#include <cstddef>
 
 namespace aeon {
+namespace internal { struct set_poll_state; }
 
-    class LIBAEON_API event_socket_set {
-    public:
-        event_socket_set();
-        virtual ~event_socket_set();
+class LIBAEON_API event_socket_set : protected internal::event_handlers {
+public:
+    using data_handler = std::function<void(event_socket*, const char*, int)>;
+    using notification_handler = std::function<void(event_socket*)>;
+    using error_handler = std::function<void(event_socket*, int)>;
+    using datagram_handler = std::function<void(udp_event_socket*, const char*, int, const address&)>;
+    using udp_error_handler = std::function<void(udp_event_socket*, int)>;
 
-        bool add(event_socket* socket);
-        bool remove(unsigned int index);
-        int size() const;
+    event_socket_set();
+    virtual ~event_socket_set();
+    event_socket_set(const event_socket_set&) = delete;
+    event_socket_set& operator=(const event_socket_set&) = delete;
 
-        // Public callbacks - users assign these
-        std::function<void(event_socket*, const char*, int)> on_socket_data;
-        std::function<void(event_socket*)> on_socket_connect;
-        std::function<void(event_socket*)> on_socket_close;
-        std::function<void(event_socket*)> on_socket_listen;
-        std::function<void(event_socket*, int)> on_socket_error;
+    // Non-owning registration. Deregister before destroying a socket. Removal
+    // invalidates pending poll snapshots but does not wait for an in-progress
+    // callback. Socket destruction cannot race active event dispatch.
+    bool add(event_socket* socket);
+    bool add(udp_event_socket* socket);
+    bool add(std::nullptr_t) noexcept { return false; }
+    bool remove(unsigned int index);
+    bool remove_socket(event_socket* socket);
+    bool remove_udp_socket(udp_event_socket* socket);
+    // Returns the total number of TCP and UDP registrations. remove(index)
+    // indexes TCP registrations first, followed by UDP registrations.
+    int size() const;
 
-    protected:
-        // Virtual methods - derived classes can override these
-        virtual void on_socket_data_impl([[maybe_unused]] event_socket* socket, [[maybe_unused]] const char* buffer, [[maybe_unused]] int size) {}
-        virtual void on_socket_connect_impl([[maybe_unused]] event_socket* socket) {}
-        virtual void on_socket_close_impl([[maybe_unused]] event_socket* socket) {}
-        virtual void on_socket_listen_impl([[maybe_unused]] event_socket* socket) {}
-        virtual void on_socket_error_impl([[maybe_unused]] event_socket* socket, [[maybe_unused]] int error_code) {}
+    // Application-driven readiness dispatch. No internal threads.
+    // timeout_ms: -1 waits indefinitely when sockets exist; 0 is nonblocking;
+    // positive values wait for at most that many milliseconds.
+    // Returns readiness events handled, 0 for timeout/no active sockets, -1 on
+    // invalid timeout, concurrent/reentrant poll, or native poll failure.
+    // Exceptions from user callbacks propagate. Concurrent destruction of
+    // registered sockets or of this set during poll is not supported.
+    int poll(int timeout_ms);
 
-        void fire_on_socket_data(event_socket* socket, const char* buffer, int size);
-        void fire_on_socket_connect(event_socket* socket);
-        void fire_on_socket_close(event_socket* socket);
-        void fire_on_socket_listen(event_socket* socket);
-        void fire_on_socket_error(event_socket* socket, int error_code);
+    // Callbacks execute synchronously on the thread performing dispatch.
+    void on_socket_data(data_handler handler);
+    void on_socket_connect(notification_handler handler);
+    void on_socket_close(notification_handler handler);
+    // For registered TCP listeners, this signals pending accept readiness.
+    // server_event_socket::on_listen signals successful listen() separately.
+    void on_socket_listen(notification_handler handler);
+    void on_socket_error(error_handler handler);
+    // Fired after a registered TCP stream's queued output drains to empty.
+    void on_socket_drain(notification_handler handler);
+    void on_socket_datagram(datagram_handler handler);
+    void on_udp_socket_error(udp_error_handler handler);
 
-        std::vector<event_socket*> sockets_;
+protected:
+    virtual void on_socket_data_impl(event_socket*, const char*, int) {}
+    virtual void on_socket_connect_impl(event_socket*) {}
+    virtual void on_socket_close_impl(event_socket*) {}
+    virtual void on_socket_listen_impl(event_socket*) {}
+    virtual void on_socket_error_impl(event_socket*, int) {}
+    virtual void on_socket_drain_impl(event_socket*) {}
+    virtual void on_socket_datagram_impl(udp_event_socket*, const char*, int, const address&) {}
+    virtual void on_udp_socket_error_impl(udp_event_socket*, int) {}
 
-    private:
-        int error_code_;
-        int error_state_;
-    };
+    void fire_on_socket_data(event_socket* socket, const char* buffer, int size);
+    void fire_on_socket_connect(event_socket* socket);
+    void fire_on_socket_close(event_socket* socket);
+    void fire_on_socket_listen(event_socket* socket);
+    void fire_on_socket_error(event_socket* socket, int error_code);
+    void fire_on_socket_drain(event_socket* socket);
+    void fire_on_socket_datagram(udp_event_socket*, const char*, int, const address&);
+    void fire_on_udp_socket_error(udp_event_socket*, int);
 
-} // aeon
-
-#ifdef _MSC_VER
-template class __declspec(dllexport) std::vector<aeon::event_socket*>;
-template class __declspec(dllexport) std::function<void(aeon::event_socket*, const char*, int)>;
-template class __declspec(dllexport) std::function<void(aeon::event_socket*)>;
-template class __declspec(dllexport) std::function<void(aeon::event_socket*, int)>;
-#endif
+private:
+    internal::set_poll_state* state_;
+};
+} // namespace aeon

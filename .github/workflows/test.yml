@@ -89,7 +89,7 @@ jobs:
           fi
           args=()
           if [[ -n "${OPENSSL_ROOT_DIR:-}" ]]; then args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_ROOT_DIR"); fi
-          cmake -S . -B build-ssl -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_SSL=ON "${args[@]}"
+          cmake -S . -B build-ssl -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_SSL=ON -DBUILD_TESTING=ON -DLIBAEON_BUILD_EXAMPLES=ON "${args[@]}"
 
       - name: Configure SSL build (MSVC)
         if: matrix.compiler == 'msvc'
@@ -99,14 +99,14 @@ jobs:
           $root = $env:VCPKG_INSTALLATION_ROOT
           $toolchain = Join-Path $root 'scripts/buildsystems/vcpkg.cmake'
           cmake -S . -B build-ssl -G '${{ matrix.generator }}' -A '${{ matrix.arch }}' `
-            '-DENABLE_SSL=ON' "-DCMAKE_TOOLCHAIN_FILE=$toolchain" `
+            '-DENABLE_SSL=ON' '-DBUILD_TESTING=ON' '-DLIBAEON_BUILD_EXAMPLES=ON' "-DCMAKE_TOOLCHAIN_FILE=$toolchain" `
             '-DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}'
           if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed' }
 
       - name: Configure SSL build (MinGW-w64)
         if: matrix.compiler == 'mingw'
         shell: msys2 {0}
-        run: cmake -S . -B build-ssl -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_SSL=ON
+        run: cmake -S . -B build-ssl -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_SSL=ON -DBUILD_TESTING=ON -DLIBAEON_BUILD_EXAMPLES=ON
 
       - name: Build with SSL enabled
         if: matrix.compiler != 'mingw'
@@ -145,7 +145,7 @@ jobs:
           CC: gcc
           CXX: g++
         run: |
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DLIBAEON_BUILD_EXAMPLES=ON \
             '-DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -fno-omit-frame-pointer' \
             '-DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=address,undefined' \
             '-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined'

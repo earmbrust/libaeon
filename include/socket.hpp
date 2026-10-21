@@ -6,16 +6,12 @@
 
 #pragma once
 
-#ifdef _MSC_VER
-#pragma warning(disable:4251)
-#endif
-
 #include "address.hpp"
-#include "internal/config.hpp"
-#include "internal/platform.hpp"
-#include "internal/export.hpp"
+#include "aeon_export.hpp"
 
 namespace aeon {
+
+    namespace internal { struct socket_private_state; }
 
     /**
      * \brief RAII guard for temporary non-blocking socket mode
@@ -50,6 +46,9 @@ namespace aeon {
     class LIBAEON_API socket {
     public:
         friend class blocking_mode_guard;
+        friend class server_socket;
+        friend class server_event_socket;
+        friend class udp_socket;
 
         // Constants
         static constexpr int max_buffer_size = 256;
@@ -77,10 +76,17 @@ namespace aeon {
         virtual int write(const char* data);
         virtual int write(const std::string& data);
 
+        // read() uses the legacy internal buffer (at most 255 data bytes).
+        // read(char*, size) accepts the full caller-owned buffer capacity,
+        // receives raw bytes, and does not append a terminator.
         virtual int read();
         virtual int read(char* buffer, int size);
+        // Legacy, NUL-terminated line input retains its fixed-buffer limit.
         virtual int read_line(char* buffer, int size);
+        // Reads up to size bytes; returns the actual count on EOF/timeout/error.
         virtual int read_until(char* buffer, int size);
+        // Returns up to size bytes, preserving embedded NULs; an empty string
+        // can mean EOF, timeout or error (consult n/get_error()).
         virtual std::string read(int size);
 
         // Socket configuration shortcuts
@@ -102,13 +108,16 @@ namespace aeon {
         socket(socket&&) = delete;
         socket& operator=(socket&&) = delete;
 
-        bool close();
-        bool is_valid_socket() const;
+        virtual bool close();
+        virtual bool is_valid_socket() const;
 
         // Accessors
         std::string get_remote_ip() const;
         int get_remote_port() const;
         address get_remote_address() const;
+        // Observer-only parent association for server-owned peer sockets.
+        // This pointer never extends the server lifetime. nullptr for clients.
+        socket* parent_server() const noexcept;
 
         int get_error() const;
         int get_state() const;
@@ -130,8 +139,11 @@ namespace aeon {
         bool blocking = true;
         char inbuffer[socket::max_buffer_size]{};
         char outbuffer[socket::max_buffer_size]{};
-        std::string remote_host;
-        std::string remote_ip;
+        // Stored behind an implementation pointer so the exported class does
+        // not contain an STL object with a toolchain-specific layout.
+        void set_remote_hostname(const std::string& hostname);
+        void set_parent_server(socket* server);
+        std::string remote_hostname() const;
         int connect_code = 0;
         int error_code = err_none;
         int error_state = 0;
@@ -144,6 +156,13 @@ namespace aeon {
         void clear_buffers();
         void clear_buffer(char* buffer, int size);
 
+        bool tcp_connect(const char* hostname, int port);
+        bool tcp_connect();
+        bool tcp_connect(const address& addr);
+        int tcp_bind(const sockaddr* addr, socklen_t length);
+        bool tcp_listen(const char* ip, int port);
+        socket_t tcp_accept(int timeout_ms, bool blocking, sockaddr_storage& peer);
+
         void configure_socket_for_connect();
         int set_socket_nonblocking(bool nonblocking);
         void safe_clear_buffer(char* buffer, std::size_t size);
@@ -155,6 +174,9 @@ namespace aeon {
         int wsaret = 0;
         WSADATA wsadata{};
 #endif
+
+    private:
+        internal::socket_private_state* state_ = nullptr;
     };
 
 } // aeon

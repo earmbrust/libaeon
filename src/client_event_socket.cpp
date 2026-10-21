@@ -1,65 +1,37 @@
-/*********************************************************************
- * libaeon - A simple, lightweight, cross platform networking library
- * Copyright 2006-2025 (c) Elden Armbrust
- * This software is licensed under the BSD software license.
- *********************************************************************/
-
+#include "aeon.hpp"
 #include "client_event_socket.hpp"
 
 namespace aeon {
 
-    client_event_socket::client_event_socket()
-        : client_socket(), event_socket() {
-    }
+client_event_socket::client_event_socket() = default;
+client_event_socket::client_event_socket(const char* hostname, int port)
+    : client_event_socket() { connect(hostname, port); }
+client_event_socket::~client_event_socket() = default;
 
-    client_event_socket::client_event_socket(const char* hostname, int port)
-        : client_socket(hostname, port), event_socket() {
-        if (client_socket::connected) {
-            event_socket::start_polling();
-            fire_on_connect();
-        }
-    }
+bool client_event_socket::connect() {
+    if (!tcp_connect()) return false;
+    return finish_connect();
+}
 
-    client_event_socket::~client_event_socket() {
-        event_socket::stop_polling();
-    }
+bool client_event_socket::connect(const char* hostname, int port) {
+    if (!tcp_connect( hostname, port)) return false;
+    return finish_connect();
+}
 
-    bool client_event_socket::connect() {
-        if (!client_socket::connect()) {
-            return false;
-        }
-        event_socket::start_polling();
-        fire_on_connect();
-        return true;
-    }
+bool client_event_socket::connect(const address& addr) {
+    if (!tcp_connect( addr)) return false;
+    return finish_connect();
+}
 
-    bool client_event_socket::connect(const char* hostname, int port) {
-        if (!client_socket::connect(hostname, port)) {
-            return false;
-        }
-        event_socket::start_polling();
-        fire_on_connect();
-        return true;
-    }
+bool client_event_socket::finish_connect() {
+    if (set_blocking(false) != 0) { socket::close(); return false; }
+    fire_on_connect();
+    return true;
+}
 
-    bool client_event_socket::close() {
-        event_socket::stop_polling();
-        return client_socket::close();
-    }
+bool client_event_socket::close() {
+    return event_socket::close();
+}
 
-    void client_event_socket::on_data_impl(const char* buffer, int size) {
-        (void)buffer;
-        (void)size;
-    }
 
-    void client_event_socket::on_connect_impl() {
-    }
-
-    void client_event_socket::on_close_impl() {
-    }
-
-    void client_event_socket::on_error_impl(int error_code) {
-        (void)error_code;
-    }
-
-}  // aeon
+} // namespace aeon

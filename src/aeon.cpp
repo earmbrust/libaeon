@@ -6,12 +6,12 @@
 
 #include <aeon.hpp>
 
-// Stringification macros to convert version numbers to string
+// Stringification helpers for the public aeon::get_library_version() API.
 #define STR_(x) #x
 #define STR(x) STR_(x)
 
 namespace aeon {
-    const char* GetLibraryVersion() {
+    const char* get_library_version() {
         return STR(VERSION);
     };
 }

@@ -22,4 +22,4 @@ build/
 docs/_build/
 CMakeUserPresets.json
 patch/
-build-vs2026/
+docs/engineering/
