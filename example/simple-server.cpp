@@ -1,7 +1,7 @@
 /******************************************************************
  * simple-server.cpp - Event-driven server using server_event_socket
- * Demonstrates the proper way to use libaeon for medical-grade resilience
- * No timeouts, no manual polling - just event-driven I/O with callbacks
+ * Demonstrates callback registration and non-owning socket sets.
+ * Accepts connections and writes greetings; no receive loop is included.
  * Copyright 2006-2025 (c) Elden Armbrust
  * This software is licensed under the BSD software license.
  *********************************************************************/
@@ -12,6 +12,7 @@
 #include <csignal>
 #include <atomic>
 #include <memory>
+#include <vector>
 #include <thread>
 #include <chrono>
 #include <cstring>
@@ -56,7 +57,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    std::cout << "Event-driven server using server_event_socket\n";
+    std::cout << "TCP greeting example (no input readiness loop)\n";
     std::cout << "Binding to " << bind_address << ":" << port << "\n";
     std::cout << "Press Ctrl-C to exit.\n";
 
@@ -80,27 +81,29 @@ int main(int argc, char** argv) {
     
     aeon::event_socket_set client_sockets;
     int connection_count = 0;
+    std::vector<std::unique_ptr<aeon::event_socket>> clients;
 
     // Set callbacks for client events
-    client_sockets.on_socket_data = [](aeon::event_socket* client, const char* buffer, int size) {
+    client_sockets.on_socket_data([](aeon::event_socket* client, const char* buffer, int size) {
         std::printf("Received %d bytes from client\n", size);
         // Echo back to client
-        client->write(buffer);
-    };
+        client->write(buffer, size); // Application must handle partial writes.
+    });
 
-    client_sockets.on_socket_connect = [](aeon::event_socket* client) {
+    client_sockets.on_socket_connect([](aeon::event_socket*) {
         std::printf("Client connected\n");
-    };
+    });
 
-    client_sockets.on_socket_close = [](aeon::event_socket* client) {
+    client_sockets.on_socket_close([](aeon::event_socket*) {
         std::printf("Client closed connection\n");
-    };
+    });
 
-    client_sockets.on_socket_error = [](aeon::event_socket* client, int error_code) {
+    client_sockets.on_socket_error([](aeon::event_socket*, int error_code) {
         std::printf("Client error: %d\n", error_code);
-    };
+    });
 
-    // Main server loop - event-driven
+    // This example accepts connections and writes greetings. No receive
+    // readiness loop is installed, so data handlers are not dispatched.
     while (!shutdown_requested) {
         // Accept new connections
         auto client = server.accept();
@@ -119,14 +122,18 @@ int main(int argc, char** argv) {
                            connection_count, bytes_sent);
             }
             
-            // Add to set - event socket will auto-poll in background thread
-            client_sockets.add(client.release());
+            // Keep ownership in the application. The set never owns sockets.
+            client_sockets.add(client.get());
+            clients.push_back(std::move(client));
         }
         
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
     // Cleanup
+    // Deregister before destroying application-owned sockets.
+    while (client_sockets.size() != 0) client_sockets.remove(0U);
+    clients.clear();
     server.close();
     
     std::cout << "Server shutdown complete.\n";

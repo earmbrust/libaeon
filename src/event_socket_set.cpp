@@ -3,71 +3,51 @@
  * Copyright 2006-2025 (c) Elden Armbrust
  * This software is licensed under the BSD software license.
  *********************************************************************/
-#include <aeon.hpp>
-namespace aeon {
-    event_socket_set::event_socket_set()
-        : error_code_(err_none), error_state_(0) {
-    }
-    event_socket_set::~event_socket_set() = default;
-    bool event_socket_set::add(event_socket* socket) {
-        if (!socket) {
-            error_code_ = err_no_socket;
-            error_state_ = state_create;
-            return false;
-        }
-        sockets_.push_back(socket);
-        error_code_ = err_none;
-        error_state_ = 0;
-        return true;
-    }
-    bool event_socket_set::remove(unsigned int index) {
-        if (index >= static_cast<unsigned int>(sockets_.size())) {
-            error_code_ = err_no_socket;
-            error_state_ = state_accept;
-            return false;
-        }
-        sockets_.erase(sockets_.begin() + index);
-        error_code_ = err_none;
-        error_state_ = 0;
-        return true;
-    }
-    int event_socket_set::size() const {
-        return static_cast<int>(sockets_.size());
-    }
-    void event_socket_set::fire_on_socket_data(event_socket* socket, const char* buffer, int size) {
-        if (on_socket_data) {
-            on_socket_data(socket, buffer, size);
-        } else {
-            on_socket_data_impl(socket, buffer, size);
-        }
-    }
-    void event_socket_set::fire_on_socket_connect(event_socket* socket) {
-        if (on_socket_connect) {
-            on_socket_connect(socket);
-        } else {
-            on_socket_connect_impl(socket);
-        }
-    }
-    void event_socket_set::fire_on_socket_close(event_socket* socket) {
-        if (on_socket_close) {
-            on_socket_close(socket);
-        } else {
-            on_socket_close_impl(socket);
-        }
-    }
-    void event_socket_set::fire_on_socket_listen(event_socket* socket) {
-        if (on_socket_listen) {
-            on_socket_listen(socket);
-        } else {
-            on_socket_listen_impl(socket);
-        }
-    }
-    void event_socket_set::fire_on_socket_error(event_socket* socket, int error_code) {
-        if (on_socket_error) {
-            on_socket_error(socket, error_code);
-        } else {
-            on_socket_error_impl(socket, error_code);
-        }
-    }
-}  // aeon
+#include "event_socket_set.hpp"
+#include "internal/callback_state.hpp"
+#include <utility>
 
+namespace aeon {
+event_socket_set::event_socket_set() : state_(new internal::set_callback_state) {}
+event_socket_set::~event_socket_set() { delete state_; }
+
+bool event_socket_set::add(event_socket* socket) {
+    return state_->sockets.add(socket);
+}
+bool event_socket_set::remove(unsigned int index) {
+    return state_->sockets.remove_index(index);
+}
+bool event_socket_set::remove_socket(event_socket* socket) {
+    return state_->sockets.remove_socket(socket);
+}
+int event_socket_set::size() const {
+    return state_->sockets.size();
+}
+
+void event_socket_set::on_socket_data(data_handler f) { state_->data.set(std::move(f)); }
+void event_socket_set::on_socket_connect(notification_handler f) { state_->connect.set(std::move(f)); }
+void event_socket_set::on_socket_close(notification_handler f) { state_->close.set(std::move(f)); }
+void event_socket_set::on_socket_listen(notification_handler f) { state_->listen.set(std::move(f)); }
+void event_socket_set::on_socket_error(error_handler f) { state_->error.set(std::move(f)); }
+
+void event_socket_set::fire_on_socket_data(event_socket* s, const char* d, int n) {
+    auto f = state_->data.snapshot();
+    if (f) (*f)(s, d, n); else on_socket_data_impl(s, d, n);
+}
+void event_socket_set::fire_on_socket_connect(event_socket* s) {
+    auto f = state_->connect.snapshot();
+    if (f) (*f)(s); else on_socket_connect_impl(s);
+}
+void event_socket_set::fire_on_socket_close(event_socket* s) {
+    auto f = state_->close.snapshot();
+    if (f) (*f)(s); else on_socket_close_impl(s);
+}
+void event_socket_set::fire_on_socket_listen(event_socket* s) {
+    auto f = state_->listen.snapshot();
+    if (f) (*f)(s); else on_socket_listen_impl(s);
+}
+void event_socket_set::fire_on_socket_error(event_socket* s, int code) {
+    auto f = state_->error.snapshot();
+    if (f) (*f)(s, code); else on_socket_error_impl(s, code);
+}
+} // namespace aeon

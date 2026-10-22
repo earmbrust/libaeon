@@ -220,7 +220,7 @@ TEST(TcpOwnership, EventClientConnectUsesItsSingleSocketBase) {
     ASSERT_TRUE(server.listen("127.0.0.1", 0));
     aeon::client_event_socket client;
     bool connected_callback = false;
-    client.on_connect = [&] { connected_callback = true; };
+    client.on_connect([&] { connected_callback = true; });
     ASSERT_TRUE(client.connect("127.0.0.1", local_port(server)));
     EXPECT_TRUE(connected_callback);
     aeon::socket& base = client;

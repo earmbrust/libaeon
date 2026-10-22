@@ -17,7 +17,7 @@ int fail(const char* message) {
 }
 
 // Consumer-defined subclasses must be able to call protected, exported
-// event-dispatch methods in Aeon, with std::function callbacks set by consumers.
+// event-dispatch methods in Aeon, with callbacks registered by consumers.
 class client_event_probe final : public aeon::event_socket {
 public:
     void emit_data(const char* data, int count) { fire_on_data(data, count); }
@@ -54,22 +54,22 @@ int main() {
 
     client_event_probe event_socket;
     bool local_callback_ran = false;
-    event_socket.on_data = [&](const char* data, int count) {
+    event_socket.on_data([&](const char* data, int count) {
         local_callback_ran = count == 4 && std::memcmp(data, "ping", 4) == 0;
-    };
+    });
     event_socket.emit_data("ping", 4);
     if (!local_callback_ran) return fail("event_socket consumer callback");
 
-    // std::function is assigned in the consumer and invoked in the library.
+    // A C++20 consumer registers a callback invoked by the library.
     // This checks both DLL linkage and actual callback invocation.
     {
         client_event_set_probe events;
         bool set_callback_ran = false;
-        events.on_socket_data = [&](aeon::event_socket* source,
+        events.on_socket_data([&](aeon::event_socket* source,
                                     const char* data, int count) {
             set_callback_ran = source == &event_socket && count == 4 &&
                                std::memcmp(data, "pong", 4) == 0;
-        };
+        });
         if (!events.add(&event_socket) || events.size() != 1) {
             return fail("event_socket_set::add/size");
         }

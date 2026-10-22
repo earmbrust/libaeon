@@ -6,7 +6,7 @@ namespace aeon {
 server_event_socket::server_event_socket() = default;
 server_event_socket::server_event_socket(int port)
     : server_event_socket() { listen(port); }
-server_event_socket::~server_event_socket() { stop_polling(); }
+server_event_socket::~server_event_socket() = default;
 
 int server_event_socket::set_accept_timeout(int ms) {
     if (ms < 0 || ms > 60000) {
@@ -25,7 +25,6 @@ int server_event_socket::bind(const sockaddr* addr, socklen_t len) {
 bool server_event_socket::listen() { return listen(port); }
 bool server_event_socket::listen(int port) { return listen("0.0.0.0", port); }
 bool server_event_socket::listen(const char* ip, int port) {
-    stop_polling(); // Listening sockets are not connected data streams.
     if (!internal::tcp_ops::listen(*this, ip, port)) return false;
     if (set_blocking(false) != 0) { socket::close(); return false; }
     fire_on_listen();
@@ -59,10 +58,7 @@ std::unique_ptr<event_socket> server_event_socket::accept(bool blocking) {
 }
 
 bool server_event_socket::close() {
-    stop_polling();
-    const bool result = socket::close();
-    if (result) fire_on_close();
-    return result;
+    return event_socket::close();
 }
 
 void server_event_socket::on_data_impl(const char*, int) {}

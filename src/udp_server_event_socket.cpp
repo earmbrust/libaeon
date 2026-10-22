@@ -7,7 +7,9 @@ udp_server_event_socket::udp_server_event_socket() = default;
 udp_server_event_socket::~udp_server_event_socket() = default;
 
 bool udp_server_event_socket::listen(int port) {
-    return internal::udp_ops::listen(*this, port);
+    const bool ok = internal::udp_ops::listen(*this, port);
+    if (ok) fire_on_listen();
+    return ok;
 }
 bool udp_server_event_socket::listen() {
     return listen(port);

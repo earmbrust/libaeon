@@ -10,13 +10,19 @@ udp_client_event_socket::udp_client_event_socket(const char* hostname, int port)
 udp_client_event_socket::~udp_client_event_socket() = default;
 
 bool udp_client_event_socket::connect(const char* hostname, int port) {
-    return internal::udp_ops::connect(*this, hostname, port);
+    const bool ok = internal::udp_ops::connect(*this, hostname, port);
+    if (ok) fire_on_connect();
+    return ok;
 }
 bool udp_client_event_socket::connect(const address& destination) {
-    return internal::udp_ops::connect(*this, destination);
+    const bool ok = internal::udp_ops::connect(*this, destination);
+    if (ok) fire_on_connect();
+    return ok;
 }
 bool udp_client_event_socket::connect() {
-    return internal::udp_ops::connect(*this);
+    const bool ok = internal::udp_ops::connect(*this);
+    if (ok) fire_on_connect();
+    return ok;
 }
 
 } // namespace aeon
