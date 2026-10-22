@@ -6,6 +6,7 @@
 
 #include <aeon.hpp>
 #include <cstring>
+#include <climits>
 
 namespace aeon {
 
@@ -106,6 +107,42 @@ LIBAEON_API int udp_socket::write(const std::string& data) {
                           (struct sockaddr*)&this->remote_addr, 
                           addr_len));
     return bytesSent;
+}
+
+LIBAEON_API int udp_socket::write_to(const address& destination, const char* data, int size) {
+    if (!is_valid_socket() || size < 0 || (size > 0 && !data)) return NET_SOCKET_ERROR;
+
+    sockaddr_storage target = destination.get_sockaddr_storage();
+    socklen_t target_len = 0;
+    if (target.ss_family == net_family) {
+        target_len = static_cast<socklen_t>(net_family == AF_INET6
+            ? sizeof(sockaddr_in6) : sizeof(sockaddr_in));
+    } else if (net_family == AF_INET6 && target.ss_family == AF_INET) {
+        // A dual-stack IPv6 listener needs an IPv4-mapped destination.
+        const auto* ipv4 = reinterpret_cast<const sockaddr_in*>(&target);
+        sockaddr_in6 mapped{};
+        mapped.sin6_family = AF_INET6;
+        mapped.sin6_port = ipv4->sin_port;
+        mapped.sin6_addr.s6_addr[10] = 0xff;
+        mapped.sin6_addr.s6_addr[11] = 0xff;
+        std::memcpy(&mapped.sin6_addr.s6_addr[12], &ipv4->sin_addr, sizeof(ipv4->sin_addr));
+        std::memcpy(&target, &mapped, sizeof(mapped));
+        target_len = static_cast<socklen_t>(sizeof(mapped));
+    } else {
+        return NET_SOCKET_ERROR;
+    }
+    // The native API permits a null buffer for a zero-byte datagram on some
+    // systems but not all; provide a stable non-null pointer instead.
+    const char empty = 0;
+    const int sent = static_cast<int>(::sendto(sockfd, size ? data : &empty, size, 0,
+        reinterpret_cast<const sockaddr*>(&target), target_len));
+    if (sent < 0) error_code = GET_NET_SOCKET_ERROR();
+    return sent;
+}
+
+LIBAEON_API int udp_socket::write_to(const address& destination, const std::string& data) {
+    if (data.size() > static_cast<std::size_t>(INT_MAX)) return NET_SOCKET_ERROR;
+    return write_to(destination, data.data(), static_cast<int>(data.size()));
 }
 
 /**

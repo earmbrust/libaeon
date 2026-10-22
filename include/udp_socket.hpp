@@ -20,6 +20,12 @@ namespace aeon {
         int write(const char* data);
         int write(const std::string& data);
 
+        // Sends one UDP datagram to an explicit destination without changing
+        // the socket's remembered remote address. Supports zero-length datagrams.
+        // Returns the number of bytes sent or NET_SOCKET_ERROR.
+        int write_to(const address& destination, const char* data, int size);
+        int write_to(const address& destination, const std::string& data);
+
         // Read one datagram into caller-owned storage. size is the full
         // capacity; payload bytes are not NUL-terminated.
         int read(char* buffer, int size);

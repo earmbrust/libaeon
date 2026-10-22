@@ -403,6 +403,55 @@ add_executable(udp-client example/udp-client.cpp)
 target_include_directories(udp-client PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(udp-client aeon)
 
+# Real-world chat example: reusable application core plus executable. Its
+# integration tests exercise the same core in-process, not a mock server.
+add_library(aeon_chat_example STATIC example/chat_server.cpp)
+target_include_directories(aeon_chat_example PUBLIC ${CMAKE_SOURCE_DIR}/example)
+target_link_libraries(aeon_chat_example PUBLIC aeon)
+set_target_properties(aeon_chat_example PROPERTIES
+    CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+
+add_executable(chat-server example/chat-server.cpp)
+target_link_libraries(chat-server PRIVATE aeon_chat_example)
+
+if(BUILD_TESTING)
+    target_sources(aeon_tests PRIVATE tests/test_chat_server.cpp)
+    target_link_libraries(aeon_tests PRIVATE aeon_chat_example)
+endif()
+
+# UDP Pong: one authoritative, two-player server and an ASCII terminal client.
+add_library(aeon_pong_example STATIC example/pong_server.cpp)
+target_include_directories(aeon_pong_example PUBLIC ${CMAKE_SOURCE_DIR}/example)
+target_link_libraries(aeon_pong_example PUBLIC aeon)
+set_target_properties(aeon_pong_example PROPERTIES
+    CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+
+add_executable(pong-server example/pong-server.cpp)
+target_link_libraries(pong-server PRIVATE aeon_pong_example)
+
+add_executable(pong-client example/pong-client.cpp)
+target_link_libraries(pong-client PRIVATE aeon)
+
+if(BUILD_TESTING)
+    target_sources(aeon_tests PRIVATE tests/test_udp_pong.cpp tests/test_udp_send_to.cpp)
+    target_link_libraries(aeon_tests PRIVATE aeon_pong_example)
+endif()
+
+# M5c: minimally scoped HTTP/1.x server with real loopback integration tests.
+add_library(aeon_http_example STATIC example/http_server.cpp)
+target_include_directories(aeon_http_example PUBLIC ${CMAKE_SOURCE_DIR}/example)
+target_link_libraries(aeon_http_example PUBLIC aeon)
+set_target_properties(aeon_http_example PROPERTIES
+    CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+
+add_executable(http-server example/http-server.cpp)
+target_link_libraries(http-server PRIVATE aeon_http_example)
+
+if(BUILD_TESTING)
+    target_sources(aeon_tests PRIVATE tests/test_http_server.cpp)
+    target_link_libraries(aeon_tests PRIVATE aeon_http_example)
+endif()
+
 # Benchmark is opt-in and does not require GoogleTest or extra dependencies.
 option(LIBAEON_BUILD_BENCHMARKS "Build standalone loopback throughput benchmark" OFF)
 if(LIBAEON_BUILD_BENCHMARKS)
