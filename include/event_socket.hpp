@@ -7,6 +7,7 @@
 
 #include "socket.hpp"
 #include <functional>
+#include <cstddef>
 
 namespace aeon {
 namespace internal { struct socket_callback_state; }
@@ -25,6 +26,23 @@ public:
     int write(const char* data) override;
     int write(const std::string& data) override;
     bool close() override;
+
+    // Opt-in buffered send for nonblocking TCP streams. Accepted bytes are
+    // copied, never sent inline. poll() flushes at most 64 KiB per socket per
+    // iteration; call it again while queued_bytes() is nonzero. Returns false
+    // without accepting any bytes if the queue would exceed its bound.
+    // Existing write() overloads retain their direct, partial-send semantics.
+    // Do not mix direct write() with queued writes on the same stream unless
+    // the caller coordinates ordering: direct writes bypass pending output.
+    // Drain notifications mean the queue reached empty during a poll flush;
+    // a concurrent producer can enqueue more data before notification.
+    bool queue_write(const char* data, std::size_t size);
+    bool queue_write(const std::string& data);
+    std::size_t queued_bytes() const;
+    // Rejects a new limit smaller than the currently queued byte count.
+    bool set_max_queued_bytes(std::size_t limit);
+    // Called once when a nonempty queue is completely transmitted.
+    void on_drain(notification_handler handler);
 
     // One handler per event. Replacing or clearing a handler is synchronized.
     // Dispatch invokes the snapshot outside the registration lock, on the
@@ -48,6 +66,13 @@ protected:
     void fire_on_close();
     void fire_on_listen();
     void fire_on_error(int error_code);
+    void fire_on_drain();
+
+private:
+    struct flush_result { std::size_t bytes = 0; int error = 0; bool drained = false; };
+    flush_result flush_queued(std::size_t budget);
+
+
 
 private:
     internal::socket_callback_state* callbacks_;

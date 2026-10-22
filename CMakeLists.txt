@@ -329,6 +329,8 @@ add_executable(aeon_tests
     tests/test_event_callbacks.cpp
     tests/test_event_lifecycle.cpp
     tests/test_event_polling.cpp
+    tests/test_io_sizes.cpp
+    tests/test_write_queue.cpp
     tests/test_udp_ownership.cpp
     tests/test_udp.cpp
     tests/test_resolver.cpp
@@ -347,6 +349,7 @@ add_executable(aeon_internal_tests
     tests/test_callback_state_internal.cpp
     tests/test_socket_registry_internal.cpp
     tests/test_native_poller_internal.cpp
+    tests/test_write_queue_internal.cpp
 )
 target_include_directories(aeon_internal_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(aeon_internal_tests PRIVATE aeon-static gtest_main)
@@ -399,6 +402,15 @@ target_link_libraries(udp-server aeon)
 add_executable(udp-client example/udp-client.cpp)
 target_include_directories(udp-client PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(udp-client aeon)
+
+# Benchmark is opt-in and does not require GoogleTest or extra dependencies.
+option(LIBAEON_BUILD_BENCHMARKS "Build standalone loopback throughput benchmark" OFF)
+if(LIBAEON_BUILD_BENCHMARKS)
+    add_executable(aeon_write_queue_benchmark benchmarks/write_queue_benchmark.cpp)
+    target_link_libraries(aeon_write_queue_benchmark PRIVATE aeon-static)
+    set_target_properties(aeon_write_queue_benchmark PROPERTIES
+        CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+endif()
 
 # Build configuration summary
 message(STATUS "")

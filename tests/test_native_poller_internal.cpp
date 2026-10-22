@@ -1,6 +1,11 @@
 #include <gtest/gtest.h>
 #include "internal/native_poller.hpp"
 #include "udp_server_socket.hpp"
+#include "server_socket.hpp"
+#include "client_socket.hpp"
+#ifndef NET_PLATFORM_WINDOWS
+#include <poll.h>
+#endif
 #include "udp_client_socket.hpp"
 #include <vector>
 
@@ -107,4 +112,23 @@ TEST(NativePollerInternal, OnlyReadyDatagramSocketGetsReadinessFlags) {
     ASSERT_GT(aeon::internal::poll_readable(entries, 2000), 0);
     EXPECT_EQ(entries[0].revents, 0);
     EXPECT_NE(entries[1].revents, 0);
+}
+
+TEST(NativePollerInternal, WritableInterestIsOptIn) {
+    aeon::server_socket listener;
+    ASSERT_TRUE(listener.listen("127.0.0.1", 0));
+    aeon::client_socket client;
+    ASSERT_TRUE(client.connect("127.0.0.1", port_of(listener)));
+    auto accepted = listener.accept(false);
+    ASSERT_NE(accepted, nullptr);
+    std::vector<aeon::internal::poll_descriptor> entries{{accepted->sockfd, 0, true}};
+    ASSERT_GT(aeon::internal::poll_readable(entries, 2000), 0);
+    #ifdef NET_PLATFORM_WINDOWS
+    EXPECT_NE((entries[0].revents & POLLWRNORM), 0);
+#else
+    EXPECT_NE((entries[0].revents & POLLOUT), 0);
+#endif
+    entries[0].watch_writable = false;
+    EXPECT_EQ(aeon::internal::poll_readable(entries, 0), 0);
+    EXPECT_EQ(entries[0].revents, 0);
 }

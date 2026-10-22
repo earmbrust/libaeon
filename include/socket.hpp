@@ -77,10 +77,17 @@ namespace aeon {
         virtual int write(const char* data);
         virtual int write(const std::string& data);
 
+        // read() uses the legacy internal buffer (at most 255 data bytes).
+        // read(char*, size) accepts the full caller-owned buffer capacity,
+        // receives raw bytes, and does not append a terminator.
         virtual int read();
         virtual int read(char* buffer, int size);
+        // Legacy, NUL-terminated line input retains its fixed-buffer limit.
         virtual int read_line(char* buffer, int size);
+        // Reads up to size bytes; returns the actual count on EOF/timeout/error.
         virtual int read_until(char* buffer, int size);
+        // Returns up to size bytes, preserving embedded NULs; an empty string
+        // can mean EOF, timeout or error (consult n/get_error()).
         virtual std::string read(int size);
 
         // Socket configuration shortcuts

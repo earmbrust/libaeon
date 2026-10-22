@@ -7,6 +7,9 @@
 namespace aeon { class event_socket; class udp_event_socket; }
 
 #include <functional>
+#include <deque>
+#include <string>
+#include <cstddef>
 #include <memory>
 #include <mutex>
 #include <utility>
@@ -41,7 +44,19 @@ private:
     std::shared_ptr<const handler> callback_;
 };
 
+// Only event_socket uses this queue. Producers submit complete writes while
+// the application's poller flushes them in bounded nonblocking sends.
+struct pending_write_state {
+    mutable std::mutex mutex;
+    std::deque<std::string> chunks;
+    std::size_t front_offset = 0;
+    std::size_t bytes = 0;
+    std::size_t limit = 1024 * 1024;
+};
+
 struct socket_callback_state {
+    pending_write_state outgoing;
+    callback_slot<void()> drain;
     callback_slot<void(const char*, int)> data;
     callback_slot<void(const char*, int, const address&)> datagram;
     callback_slot<void()> connect;
@@ -51,6 +66,7 @@ struct socket_callback_state {
 };
 
 struct set_callback_state {
+    callback_slot<void(event_socket*)> drain;
     std::mutex poll_mutex;
     callback_slot<void(event_socket*, const char*, int)> data;
     callback_slot<void(event_socket*)> connect;

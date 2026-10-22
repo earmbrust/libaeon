@@ -588,41 +588,34 @@ int socket::write(const std::string& data) {
  */
 int socket::read(char* buffer, int size) {
     if (!buffer || !this->is_valid_socket() || size <= 0) {
+        this->n = NET_SOCKET_ERROR;
         return NET_SOCKET_ERROR;
     }
 
-    // Validate and clamp size to prevent buffer overflow
-    // Protect against INT_MAX and unreasonably large read sizes
-    int safe_size = (size > socket::max_buffer_size) 
-                  ? socket::max_buffer_size 
-                  : size;
-
-    // If read timeout is set, wait with timeout
+    // The explicit size is the caller's capacity, not the internal legacy
+    // 256-byte buffer size. Received bytes may contain embedded NULs; do not
+    // clear, terminate, or otherwise modify the caller's remaining capacity.
     if (this->read_timeout_ms > 0) {
-        int wait_result = socket::wait_for_readable(this->sockfd, this->read_timeout_ms);
-        if (wait_result == 0) {
-            // Timeout - no data available
+        const int ready = socket::wait_for_readable(this->sockfd, this->read_timeout_ms);
+        if (ready == 0) {
             this->n = 0;
             return 0;
-        } else if (wait_result < 0) {
-            // Error in select()
+        }
+        if (ready < 0) {
             this->error_code = GET_NET_SOCKET_ERROR();
             this->n = NET_SOCKET_ERROR;
             return NET_SOCKET_ERROR;
         }
     }
 
-    safe_clear_buffer(buffer, safe_size);
-    int bytesread = static_cast<int>(recv(this->sockfd, buffer, safe_size, 0));
-    this->n = bytesread;
-    
-    if (bytesread == 0) {
+    const int received = static_cast<int>(::recv(this->sockfd, buffer, size, 0));
+    this->n = received;
+    if (received == 0) {
         this->connected = false;
-    } else if (bytesread < 0) {
+    } else if (received < 0) {
         this->error_code = GET_NET_SOCKET_ERROR();
     }
-    
-    return bytesread;
+    return received;
 }
 
 /**
@@ -633,57 +626,19 @@ int socket::read(char* buffer, int size) {
  */
 int socket::read_until(char* buffer, int size) {
     if (!buffer || !this->is_valid_socket() || size <= 0) {
+        this->n = NET_SOCKET_ERROR;
         return NET_SOCKET_ERROR;
     }
 
-    // Validate and clamp size to prevent buffer overflow
-    // Protect against INT_MAX and unreasonably large read sizes
-    int safe_size = (size > socket::max_buffer_size) 
-                  ? socket::max_buffer_size 
-                  : size;
-
-    safe_clear_buffer(buffer, safe_size);
-    
-    std::string accumulated;
-    accumulated.reserve(safe_size);
-    
-    int totalBytes = 0;
-    char tempBuffer[256];
-    
-    while (totalBytes < safe_size) {
-        safe_clear_buffer(tempBuffer, sizeof(tempBuffer));
-        int remaining = safe_size - totalBytes;
-        int toread = (remaining < static_cast<int>(sizeof(tempBuffer))) 
-                    ? remaining 
-                    : static_cast<int>(sizeof(tempBuffer));
-        
-        int bytesread = static_cast<int>(recv(this->sockfd, tempBuffer, toread, 0));
-        this->n = bytesread;
-        
-        if (bytesread == 0) {
-            this->connected = false;
-            break;
-        }
-        
-        if (bytesread < 0) {
-            this->error_code = GET_NET_SOCKET_ERROR();
-            break;
-        }
-        
-        accumulated.append(tempBuffer, bytesread);
-        totalBytes += bytesread;
+    // Consume exactly size bytes when available. Never reserve one byte for
+    // a terminator: this method receives binary streams, not C strings.
+    int total = 0;
+    while (total < size) {
+        const int received = this->read(buffer + total, size - total);
+        if (received <= 0) break; // EOF, timeout, or OS error: preserve partial data.
+        total += received;
     }
-    
-    // Safe copy to output buffer
-    if (!accumulated.empty()) {
-        std::size_t copySize = (accumulated.size() < static_cast<std::size_t>(safe_size - 1))
-                              ? accumulated.size()
-                              : static_cast<std::size_t>(safe_size - 1);
-        std::memcpy(buffer, accumulated.data(), copySize);
-        buffer[copySize] = '\0';
-    }
-    
-    return totalBytes;
+    return total;
 }
 
 /**
@@ -691,7 +646,9 @@ int socket::read_until(char* buffer, int size) {
  * \return Number of bytes read
  */
 int socket::read() {
-    return this->read(this->inbuffer, socket::max_buffer_size - 1);
+    const int received = this->read(this->inbuffer, socket::max_buffer_size - 1);
+    if (received >= 0) this->inbuffer[received] = '\0';
+    return received;
 }
 
 /**
@@ -700,33 +657,15 @@ int socket::read() {
  * \return std::string containing read data
  */
 std::string socket::read(int size) {
-    std::string retVal;
-    
-    if (!this->is_valid_socket() || size <= 0) {
-        return retVal;
-    }
+    if (!this->is_valid_socket() || size <= 0) return {};
 
-    // Validate and clamp size to prevent buffer overflow
-    // Protect against INT_MAX and values exceeding max_buffer_size
-    int safe_size = (size > socket::max_buffer_size - 1) 
-                  ? socket::max_buffer_size - 1 
-                  : size;
-
-    safe_clear_buffer(this->inbuffer, socket::max_buffer_size);
-    int bytesread = static_cast<int>(recv(this->sockfd, this->inbuffer, safe_size, 0));
-    
-    this->n = bytesread;
-    
-    if (bytesread > 0) {
-        this->inbuffer[bytesread] = '\0';
-        retVal = this->inbuffer;
-    } else if (bytesread == 0) {
-        this->connected = false;
-    } else {
-        this->error_code = GET_NET_SOCKET_ERROR();
-    }
-    
-    return retVal;
+    // Allocate for the requested maximum and resize to recv's byte count;
+    // constructing from a NUL-terminated inbuffer would discard binary data.
+    std::string result(static_cast<std::size_t>(size), '\0');
+    const int received = this->read(result.data(), size);
+    if (received <= 0) return {};
+    result.resize(static_cast<std::size_t>(received));
+    return result;
 }
 
 /**

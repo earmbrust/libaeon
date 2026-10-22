@@ -44,6 +44,7 @@ void event_socket_set::on_socket_connect(notification_handler f) { state_->conne
 void event_socket_set::on_socket_close(notification_handler f) { state_->close.set(std::move(f)); }
 void event_socket_set::on_socket_listen(notification_handler f) { state_->listen.set(std::move(f)); }
 void event_socket_set::on_socket_error(error_handler f) { state_->error.set(std::move(f)); }
+void event_socket_set::on_socket_drain(notification_handler f) { state_->drain.set(std::move(f)); }
 void event_socket_set::on_socket_datagram(datagram_handler f) { state_->udp_datagram.set(std::move(f)); }
 void event_socket_set::on_udp_socket_error(udp_error_handler f) { state_->udp_error.set(std::move(f)); }
 
@@ -62,6 +63,10 @@ void event_socket_set::fire_on_socket_close(event_socket* s) {
 void event_socket_set::fire_on_socket_listen(event_socket* s) {
     auto f = state_->listen.snapshot();
     if (f) (*f)(s); else on_socket_listen_impl(s);
+}
+void event_socket_set::fire_on_socket_drain(event_socket* s) {
+    auto f = state_->drain.snapshot();
+    if (f) (*f)(s); else on_socket_drain_impl(s);
 }
 void event_socket_set::fire_on_socket_error(event_socket* s, int code) {
     auto f = state_->error.snapshot();
@@ -97,7 +102,7 @@ int event_socket_set::poll(int timeout_ms) {
         auto* s = entry->get_if_active();
         if (!s || !s->is_valid_socket()) continue;
         watched.push_back({entry, {}, s->sockfd});
-        native.push_back({s->sockfd, 0});
+        native.push_back({s->sockfd, 0, s->queued_bytes() != 0});
     }
     for (const auto& entry : udp_snapshot) {
         auto* s = entry->get_if_active();
@@ -162,6 +167,23 @@ int event_socket_set::poll(int timeout_ms) {
                 s->n = NET_SOCKET_ERROR;
                 s->fire_on_error(err);
                 if (watch.tcp->get_if_active()) fire_on_socket_error(s, err);
+            }
+            // Check registration and descriptor again: the read/error handler
+            // may have closed, removed or replaced this socket.
+            if ((flags & POLLOUT) && watch.tcp->get_if_active() &&
+                s->is_valid_socket() && s->sockfd == watch.fd) {
+                constexpr std::size_t send_budget = 64 * 1024;
+                const auto flushed = s->flush_queued(send_budget);
+                if (flushed.bytes || flushed.drained || flushed.error) ++handled;
+                if (flushed.error) {
+                    s->set_error(flushed.error);
+                    s->n = NET_SOCKET_ERROR;
+                    s->fire_on_error(flushed.error);
+                    if (watch.tcp->get_if_active()) fire_on_socket_error(s, flushed.error);
+                } else if (flushed.drained) {
+                    s->fire_on_drain();
+                    if (watch.tcp->get_if_active()) fire_on_socket_drain(s);
+                }
             }
         } else {
             auto* s = watch.udp->get_if_active();

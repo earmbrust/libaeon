@@ -21,6 +21,7 @@ int fail(const char* message) {
 class client_event_probe final : public aeon::event_socket {
 public:
     void emit_data(const char* data, int count) { fire_on_data(data, count); }
+    void emit_drain() { fire_on_drain(); }
 };
 
 class client_event_set_probe final : public aeon::event_socket_set {
@@ -28,6 +29,7 @@ public:
     void emit_data(aeon::event_socket* source, const char* data, int count) {
         fire_on_socket_data(source, data, count);
     }
+    void emit_drain(aeon::event_socket* source) { fire_on_socket_drain(source); }
 };
 
 } // namespace
@@ -59,6 +61,13 @@ int main() {
     });
     event_socket.emit_data("ping", 4);
     if (!local_callback_ran) return fail("event_socket consumer callback");
+    bool local_drain = false;
+    event_socket.on_drain([&] { local_drain = true; });
+    event_socket.emit_drain();
+    if (!local_drain) return fail("event_socket drain callback");
+    if (event_socket.queue_write("x", 1)) return fail("unconnected queue rejected");
+    if (event_socket.queued_bytes() != 0 ||
+        !event_socket.set_max_queued_bytes(4096)) return fail("queue consumer API");
 
     // A C++20 consumer registers a callback invoked by the library.
     // This checks both DLL linkage and actual callback invocation.
@@ -76,6 +85,12 @@ int main() {
         }
         events.emit_data(&event_socket, "pong", 4);
         if (!set_callback_ran) return fail("event_socket_set consumer callback");
+        bool set_drain = false;
+        events.on_socket_drain([&](aeon::event_socket* source) {
+            set_drain = source == &event_socket;
+        });
+        events.emit_drain(&event_socket);
+        if (!set_drain) return fail("event_socket_set drain callback");
         if (!events.remove(0) || events.size() != 0) {
             return fail("event_socket_set::remove/size");
         }

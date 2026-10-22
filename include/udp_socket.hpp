@@ -20,8 +20,13 @@ namespace aeon {
         int write(const char* data);
         int write(const std::string& data);
 
+        // Read one datagram into caller-owned storage. size is the full
+        // capacity; payload bytes are not NUL-terminated.
         int read(char* buffer, int size);
+        // Binary-safe datagram. Empty data also represents an empty datagram,
+        // timeout, or error; inspect n/get_error() to distinguish them.
         std::string read(int size);
+        // Legacy internal buffer read (up to 255 data bytes).
         int read();
     };
 

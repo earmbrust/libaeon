@@ -56,6 +56,8 @@ public:
     // server_event_socket::on_listen signals successful listen() separately.
     void on_socket_listen(notification_handler handler);
     void on_socket_error(error_handler handler);
+    // Fired after a registered TCP stream's queued output drains to empty.
+    void on_socket_drain(notification_handler handler);
     void on_socket_datagram(datagram_handler handler);
     void on_udp_socket_error(udp_error_handler handler);
 
@@ -65,6 +67,7 @@ protected:
     virtual void on_socket_close_impl(event_socket*) {}
     virtual void on_socket_listen_impl(event_socket*) {}
     virtual void on_socket_error_impl(event_socket*, int) {}
+    virtual void on_socket_drain_impl(event_socket*) {}
     virtual void on_socket_datagram_impl(udp_event_socket*, const char*, int, const address&) {}
     virtual void on_udp_socket_error_impl(udp_event_socket*, int) {}
 
@@ -73,6 +76,7 @@ protected:
     void fire_on_socket_close(event_socket* socket);
     void fire_on_socket_listen(event_socket* socket);
     void fire_on_socket_error(event_socket* socket, int error_code);
+    void fire_on_socket_drain(event_socket* socket);
     void fire_on_socket_datagram(udp_event_socket*, const char*, int, const address&);
     void fire_on_udp_socket_error(udp_event_socket*, int);
 

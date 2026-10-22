@@ -52,12 +52,12 @@ int poll_readable(std::vector<poll_descriptor>& descriptors, int timeout_ms) {
     if (descriptors.size() > static_cast<size_t>(ULONG_MAX)) return -1;
     std::vector<WSAPOLLFD> native;
     native.reserve(descriptors.size());
-    for (const auto& entry : descriptors) native.push_back({entry.fd, POLLRDNORM, 0});
+    for (const auto& entry : descriptors) native.push_back({entry.fd, static_cast<SHORT>(POLLRDNORM | (entry.watch_writable ? POLLWRNORM : 0)), 0});
     const int result = ::WSAPoll(native.data(), static_cast<ULONG>(native.size()), timeout_ms);
 #else
     std::vector<pollfd> native;
     native.reserve(descriptors.size());
-    for (const auto& entry : descriptors) native.push_back({entry.fd, POLLIN, 0});
+    for (const auto& entry : descriptors) native.push_back({entry.fd, static_cast<short>(POLLIN | (entry.watch_writable ? POLLOUT : 0)), 0});
     int result = -1;
     if (timeout_ms == -1) {
         do { result = ::poll(native.data(), static_cast<nfds_t>(native.size()), -1); }

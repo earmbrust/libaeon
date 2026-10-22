@@ -116,17 +116,12 @@ LIBAEON_API int udp_socket::write(const std::string& data) {
  */
 LIBAEON_API int udp_socket::read(char* buffer, int size) {
     if (!buffer || !this->is_valid_socket() || size <= 0) {
+        this->n = NET_SOCKET_ERROR;
         return NET_SOCKET_ERROR;
     }
 
-    // Validate and clamp size to prevent buffer overflow
-    // Protect against INT_MAX and unreasonably large read sizes
-    int safe_size = (size > socket::max_buffer_size) 
-                  ? socket::max_buffer_size 
-                  : size;
-
-    // Match socket::read(): a positive timeout bounds a blocking recvfrom().
-    // UDP sockets do not necessarily become readable until a datagram arrives.
+    // Datagram payloads are binary and can exceed the legacy 256-byte
+    // internal buffer. recvfrom writes at most the requested capacity.
     if (this->read_timeout_ms > 0) {
         const int ready = socket::wait_for_readable(this->sockfd, this->read_timeout_ms);
         if (ready == 0) {
@@ -141,21 +136,16 @@ LIBAEON_API int udp_socket::read(char* buffer, int size) {
         }
     }
 
-    this->safe_clear_buffer(buffer, safe_size);
-    socklen_t sockaddr_size = sizeof(struct sockaddr_storage);
-    
-    int bytesRead = static_cast<int>(recvfrom(this->sockfd, buffer, safe_size, 0, 
-                            (struct sockaddr*)&this->remote_addr, &sockaddr_size));
-    
-    this->n = bytesRead;
-    
+    socklen_t sockaddr_size = sizeof(sockaddr_storage);
+    const int received = static_cast<int>(::recvfrom(this->sockfd, buffer, size, 0,
+                            reinterpret_cast<sockaddr*>(&this->remote_addr), &sockaddr_size));
+    this->n = received;
     // A zero-length UDP datagram is valid; it is not a disconnect.
-    if (bytesRead < 0) {
+    if (received < 0) {
         this->error_code = GET_NET_SOCKET_ERROR();
         this->error_state = state_accept;
     }
-    
-    return bytesRead;
+    return received;
 }
 
 /**
@@ -164,26 +154,13 @@ LIBAEON_API int udp_socket::read(char* buffer, int size) {
  * \return Binary-safe datagram data, or an empty string on timeout/error
  */
 LIBAEON_API std::string udp_socket::read(int size) {
-    std::string retVal;
-    
-    if (!this->is_valid_socket() || size <= 0) {
-        return retVal;
-    }
+    if (!this->is_valid_socket() || size <= 0) return {};
 
-    // Validate and clamp size to prevent buffer overflow
-    // Protect against INT_MAX and values exceeding MaxBufferSize
-    int safe_size = (size > socket::max_buffer_size - 1) 
-                  ? socket::max_buffer_size - 1 
-                  : size;
-
-    // Reuse the buffer overload to share timeout and error handling.
-    const int bytes_read = this->read(this->inbuffer, safe_size);
-    if (bytes_read > 0) {
-        // Use the datagram length: payloads may contain embedded NUL bytes.
-        retVal.assign(this->inbuffer, static_cast<std::size_t>(bytes_read));
-    }
-
-    return retVal;
+    std::string result(static_cast<std::size_t>(size), '\0');
+    const int received = this->read(result.data(), size);
+    if (received <= 0) return {};
+    result.resize(static_cast<std::size_t>(received));
+    return result;
 }
 
 /**
@@ -191,7 +168,8 @@ LIBAEON_API std::string udp_socket::read(int size) {
  * \return Number of bytes read
  */
 LIBAEON_API int udp_socket::read() {
-    return this->read(this->inbuffer, socket::max_buffer_size - 1);
+    const int received = this->read(this->inbuffer, socket::max_buffer_size - 1);
+    if (received >= 0) this->inbuffer[received] = '\0';
+    return received;
 }
-
 }  // aeon
