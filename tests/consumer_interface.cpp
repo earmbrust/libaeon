@@ -70,6 +70,7 @@ int main() {
             set_callback_ran = source == &event_socket && count == 4 &&
                                std::memcmp(data, "pong", 4) == 0;
         });
+        if (events.poll(0) != 0) return fail("empty event poll");
         if (!events.add(&event_socket) || events.size() != 1) {
             return fail("event_socket_set::add/size");
         }

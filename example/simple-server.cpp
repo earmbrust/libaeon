@@ -1,7 +1,7 @@
 /******************************************************************
  * simple-server.cpp - Event-driven server using server_event_socket
  * Demonstrates callback registration and non-owning socket sets.
- * Accepts connections and writes greetings; no receive loop is included.
+ * Accepts, reads, and writes through one application-owned poll loop.
  * Copyright 2006-2025 (c) Elden Armbrust
  * This software is licensed under the BSD software license.
  *********************************************************************/
@@ -13,15 +13,13 @@
 #include <atomic>
 #include <memory>
 #include <vector>
-#include <thread>
-#include <chrono>
+#include <algorithm>
 #include <cstring>
 
 static std::atomic<bool> shutdown_requested(false);
 
 void signal_handler(int sig) {
     if (sig == SIGINT) {
-        std::cout << "\n*** Shutdown requested...\n";
         shutdown_requested = true;
     }
 }
@@ -57,7 +55,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    std::cout << "TCP greeting example (no input readiness loop)\n";
+    std::cout << "TCP greeting and echo example (application-driven poller)\n";
     std::cout << "Binding to " << bind_address << ":" << port << "\n";
     std::cout << "Press Ctrl-C to exit.\n";
 
@@ -76,12 +74,23 @@ int main(int argc, char** argv) {
 
     std::cout << "Server listening...\n";
 
-    // Make accept non-blocking
-    server.set_blocking(false);
-    
     aeon::event_socket_set client_sockets;
     int connection_count = 0;
     std::vector<std::unique_ptr<aeon::event_socket>> clients;
+
+    // Poll both the listening socket and accepted clients. Applications own
+    // every accepted descriptor; the socket set never frees them.
+    if (!client_sockets.add(&server)) return EXIT_FAILURE;
+    client_sockets.on_socket_listen([&](aeon::event_socket*) {
+        auto client = server.accept(); // Nonblocking: listener is readable.
+        if (!client) return;
+        ++connection_count;
+        std::printf("Client %d accepted\n", connection_count);
+        client->set_socket_tcp_nodelay();
+        client->write("Hello, world!\r\n");
+        client_sockets.add(client.get());
+        clients.push_back(std::move(client));
+    });
 
     // Set callbacks for client events
     client_sockets.on_socket_data([](aeon::event_socket* client, const char* buffer, int size) {
@@ -90,52 +99,32 @@ int main(int argc, char** argv) {
         client->write(buffer, size); // Application must handle partial writes.
     });
 
-    client_sockets.on_socket_connect([](aeon::event_socket*) {
-        std::printf("Client connected\n");
-    });
-
-    client_sockets.on_socket_close([](aeon::event_socket*) {
+    client_sockets.on_socket_close([&](aeon::event_socket* client) {
         std::printf("Client closed connection\n");
+        client_sockets.remove_socket(client);
     });
 
-    client_sockets.on_socket_error([](aeon::event_socket*, int error_code) {
+    client_sockets.on_socket_error([&](aeon::event_socket* client, int error_code) {
         std::printf("Client error: %d\n", error_code);
+        client_sockets.remove_socket(client);
+        client->close();
     });
 
-    // This example accepts connections and writes greetings. No receive
-    // readiness loop is installed, so data handlers are not dispatched.
     while (!shutdown_requested) {
-        // Accept new connections
-        auto client = server.accept();
-        
-        if (client) {
-            ++connection_count;
-            std::printf("Client %d accepted\n", connection_count);
-            
-            // Configure socket
-            client->set_socket_tcp_nodelay();
-
-            // Send greeting
-            int bytes_sent = client->write("Hello, world!\r\n");
-            if (bytes_sent > 0) {
-                std::printf("Sent greeting to client %d (%d bytes)\n", 
-                           connection_count, bytes_sent);
-            }
-            
-            // Keep ownership in the application. The set never owns sockets.
-            client_sockets.add(client.get());
-            clients.push_back(std::move(client));
+        if (client_sockets.poll(100) < 0) {
+            std::fprintf(stderr, "Socket readiness poll failed\n");
+            break;
         }
-        
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        // Do not destroy application-owned sockets while callbacks execute.
+        clients.erase(std::remove_if(clients.begin(), clients.end(),
+            [](const auto& client) { return !client->is_valid_socket(); }), clients.end());
     }
 
-    // Cleanup
-    // Deregister before destroying application-owned sockets.
+    // Deregister before destroying sockets; close after poll returns.
     while (client_sockets.size() != 0) client_sockets.remove(0U);
     clients.clear();
     server.close();
-    
+
     std::cout << "Server shutdown complete.\n";
     return EXIT_SUCCESS;
 }

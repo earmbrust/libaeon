@@ -4,7 +4,7 @@
 #include "socket.hpp"
 #include "socket_registry.hpp"
 
-namespace aeon { class event_socket; }
+namespace aeon { class event_socket; class udp_event_socket; }
 
 #include <functional>
 #include <memory>
@@ -51,6 +51,7 @@ struct socket_callback_state {
 };
 
 struct set_callback_state {
+    std::mutex poll_mutex;
     callback_slot<void(event_socket*, const char*, int)> data;
     callback_slot<void(event_socket*)> connect;
     callback_slot<void(event_socket*)> close;
@@ -59,6 +60,9 @@ struct set_callback_state {
 
     // Non-owning registry with invalidatable poll snapshots.
     socket_registry sockets;
+    udp_socket_registry udp_sockets;
+    callback_slot<void(udp_event_socket*, const char*, int, const address&)> udp_datagram;
+    callback_slot<void(udp_event_socket*, int)> udp_error;
 };
 
 } // namespace aeon::internal

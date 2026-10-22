@@ -6,7 +6,7 @@
 #include <mutex>
 #include <vector>
 
-namespace aeon { class event_socket; }
+namespace aeon { class event_socket; class udp_event_socket; }
 
 namespace aeon::internal {
 
@@ -14,38 +14,40 @@ namespace aeon::internal {
 // alive after removal, not the event_socket itself. Before using the pointer,
 // the poller must check get_if_active(). Deregistration is required before
 // socket destruction, and destruction must not race an active dispatch.
-class socket_registration final {
+template<class Socket>
+class basic_socket_registration final {
 public:
-    explicit socket_registration(event_socket* socket) noexcept : socket_(socket) {}
-    socket_registration(const socket_registration&) = delete;
-    socket_registration& operator=(const socket_registration&) = delete;
+    explicit basic_socket_registration(Socket* socket) noexcept : socket_(socket) {}
+    basic_socket_registration(const basic_socket_registration&) = delete;
+    basic_socket_registration& operator=(const basic_socket_registration&) = delete;
 
-    event_socket* get_if_active() const noexcept {
+    Socket* get_if_active() const noexcept {
         return active_.load(std::memory_order_acquire) ? socket_ : nullptr;
     }
 
 private:
-    friend class socket_registry;
+    template<class> friend class basic_socket_registry;
     void deactivate() noexcept { active_.store(false, std::memory_order_release); }
 
-    event_socket* const socket_;
+    Socket* const socket_;
     std::atomic<bool> active_{true};
 };
 
-class socket_registry final {
+template<class Socket>
+class basic_socket_registry final {
 public:
-    using token = std::shared_ptr<socket_registration>;
+    using token = std::shared_ptr<basic_socket_registration<Socket>>;
 
-    socket_registry() = default;
-    socket_registry(const socket_registry&) = delete;
-    socket_registry& operator=(const socket_registry&) = delete;
-    ~socket_registry() { clear(); }
+    basic_socket_registry() = default;
+    basic_socket_registry(const basic_socket_registry&) = delete;
+    basic_socket_registry& operator=(const basic_socket_registry&) = delete;
+    ~basic_socket_registry() { clear(); }
 
-    bool add(event_socket* socket) {
+    bool add(Socket* socket) {
         if (!socket) return false;
         std::lock_guard<std::mutex> lock(mutex_);
         if (find(socket) != entries_.end()) return false;
-        entries_.push_back(std::make_shared<socket_registration>(socket));
+        entries_.push_back(std::make_shared<basic_socket_registration<Socket>>(socket));
         return true;
     }
 
@@ -57,7 +59,7 @@ public:
         return true;
     }
 
-    bool remove_socket(event_socket* socket) {
+    bool remove_socket(Socket* socket) {
         if (!socket) return false;
         std::lock_guard<std::mutex> lock(mutex_);
         auto it = find(socket);
@@ -87,7 +89,7 @@ public:
     }
 
 private:
-    std::vector<token>::iterator find(event_socket* socket) {
+    std::vector<token>::iterator find(Socket* socket) {
         return std::find_if(entries_.begin(), entries_.end(),
                             [socket](const token& entry) {
                                 return entry->get_if_active() == socket;
@@ -97,5 +99,8 @@ private:
     mutable std::mutex mutex_;
     std::vector<token> entries_;
 };
+
+using socket_registry = basic_socket_registry<event_socket>;
+using udp_socket_registry = basic_socket_registry<udp_event_socket>;
 
 } // namespace aeon::internal

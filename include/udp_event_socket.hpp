@@ -7,6 +7,7 @@ namespace aeon {
 namespace internal { struct socket_callback_state; }
 
 class LIBAEON_API udp_event_socket : public udp_socket {
+    friend class event_socket_set;
 public:
     using datagram_handler = std::function<void(const char*, int, const address&)>;
     using notification_handler = std::function<void()>;

@@ -12,6 +12,7 @@ namespace aeon {
 namespace internal { struct socket_callback_state; }
 
 class LIBAEON_API event_socket : public socket {
+    friend class event_socket_set;
 public:
     using data_handler = std::function<void(const char*, int)>;
     using notification_handler = std::function<void()>;

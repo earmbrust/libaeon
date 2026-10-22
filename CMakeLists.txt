@@ -204,6 +204,7 @@ set(LIBAEON_SOURCES
     src/resolver.cpp
     src/socket.cpp
     src/internal/tcp_ops.cpp
+    src/internal/native_poller.cpp
     src/client_socket.cpp
     src/server_socket.cpp
     src/event_socket.cpp
@@ -327,6 +328,7 @@ add_executable(aeon_tests
     tests/test_tcp_ownership.cpp
     tests/test_event_callbacks.cpp
     tests/test_event_lifecycle.cpp
+    tests/test_event_polling.cpp
     tests/test_udp_ownership.cpp
     tests/test_udp.cpp
     tests/test_resolver.cpp
@@ -344,6 +346,7 @@ add_executable(aeon_internal_tests
     tests/test_udp_internal.cpp
     tests/test_callback_state_internal.cpp
     tests/test_socket_registry_internal.cpp
+    tests/test_native_poller_internal.cpp
 )
 target_include_directories(aeon_internal_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(aeon_internal_tests PRIVATE aeon-static gtest_main)
