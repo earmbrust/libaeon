@@ -17,6 +17,11 @@ namespace aeon {
         set_blocking(false);
     }
 
+    event_socket::event_socket(socket_t fd, bool adopt)
+        : socket(fd, adopt), poll_thread_(nullptr), polling_(false) {
+        set_blocking(false);
+    }
+
     event_socket::~event_socket() {
         stop_polling();
     }

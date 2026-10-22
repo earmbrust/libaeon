@@ -13,6 +13,8 @@
 
 namespace aeon {
 
+    namespace internal { struct tcp_ops; struct udp_ops; }
+
     /**
      * \brief RAII guard for temporary non-blocking socket mode
      * 
@@ -46,6 +48,8 @@ namespace aeon {
     class LIBAEON_API socket {
     public:
         friend class blocking_mode_guard;
+        friend struct internal::tcp_ops;
+        friend struct internal::udp_ops;
 
         // Constants
         static constexpr int max_buffer_size = 256;
@@ -98,7 +102,7 @@ namespace aeon {
         socket(socket&&) = delete;
         socket& operator=(socket&&) = delete;
 
-        bool close();
+        virtual bool close();
         bool is_valid_socket() const;
 
         // Accessors

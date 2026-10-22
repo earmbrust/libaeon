@@ -21,6 +21,9 @@
 #include "udp_socket.hpp"
 #include "udp_client_socket.hpp"
 #include "udp_server_socket.hpp"
+#include "udp_event_socket.hpp"
+#include "udp_client_event_socket.hpp"
+#include "udp_server_event_socket.hpp"
 
 #ifdef ENABLE_SSL
 #include "ssl_socket.hpp"

@@ -431,7 +431,16 @@ socket::socket(socket_t existing_fd, bool is_existing_socket) {
     
     // Use the existing socket descriptor
     this->sockfd = existing_fd;
-    
+    if (this->is_valid_socket()) {
+        sockaddr_storage peer{};
+        socklen_t length = static_cast<socklen_t>(sizeof(peer));
+        if (::getpeername(this->sockfd,
+                          reinterpret_cast<sockaddr*>(&peer), &length) == 0) {
+            this->remote_addr = peer;
+            this->net_family = peer.ss_family;
+        }
+    }
+
 #if defined(NET_PLATFORM_LINUX) || defined(NET_PLATFORM_MACOS)
     this->flags = fcntl(this->sockfd, F_GETFL, 0);
     if (this->flags < 0) {

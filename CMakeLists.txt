@@ -203,6 +203,7 @@ set(LIBAEON_SOURCES
     src/address.cpp
     src/resolver.cpp
     src/socket.cpp
+    src/internal/tcp_ops.cpp
     src/client_socket.cpp
     src/server_socket.cpp
     src/event_socket.cpp
@@ -213,6 +214,10 @@ set(LIBAEON_SOURCES
     src/udp_socket.cpp
     src/udp_client_socket.cpp
     src/udp_server_socket.cpp
+    src/udp_event_socket.cpp
+    src/udp_client_event_socket.cpp
+    src/udp_server_event_socket.cpp
+    src/internal/udp_ops.cpp
 )
 
 # Add SSL sources if enabled
@@ -319,6 +324,8 @@ enable_testing()
 add_executable(aeon_tests
     tests/test_address.cpp
     tests/test_socket_basics.cpp
+    tests/test_tcp_ownership.cpp
+    tests/test_udp_ownership.cpp
     tests/test_udp.cpp
     tests/test_resolver.cpp
 )
@@ -328,6 +335,13 @@ target_link_libraries(aeon_tests PRIVATE aeon gtest_main)
 
 # Register tests with ctest
 add_test(NAME AeonTests COMMAND aeon_tests)
+
+# Internal implementation tests link the static library so non-exported
+# implementation seams are testable without adding DLL/public API symbols.
+add_executable(aeon_internal_tests tests/test_udp_internal.cpp)
+target_include_directories(aeon_internal_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(aeon_internal_tests PRIVATE aeon-static gtest_main)
+add_test(NAME AeonInternalTests COMMAND aeon_internal_tests)
 
 # Compiled, independently linked consumers validate the public API and ABI-facing
 # export configuration, not merely compilation of internal unit tests.

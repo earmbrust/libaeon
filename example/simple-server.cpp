@@ -69,14 +69,14 @@ int main(int argc, char** argv) {
 
     if (!server.listen(bind_address, port)) {
         std::fprintf(stderr, "Error: Failed to listen on %s:%d\n", bind_address, port);
-        std::fprintf(stderr, "Error code: %d\n", server.server_socket::get_error());
+        std::fprintf(stderr, "Error code: %d\n", server.get_error());
         return EXIT_FAILURE;
     }
 
     std::cout << "Server listening...\n";
 
     // Make accept non-blocking
-    server.server_socket::set_blocking(false);
+    server.set_blocking(false);
     
     aeon::event_socket_set client_sockets;
     int connection_count = 0;

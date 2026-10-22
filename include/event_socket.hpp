@@ -15,6 +15,7 @@ namespace aeon {
     class LIBAEON_API event_socket : public socket {
     public:
         event_socket();
+        using socket::write;
         virtual ~event_socket();
 
         int write(const char* data);
@@ -28,6 +29,7 @@ namespace aeon {
         std::function<void(int)> on_error;
 
     protected:
+        explicit event_socket(socket_t existing_fd, bool adopt);
         // Virtual methods - derived classes can override these
         virtual void on_data_impl(const char* buffer, int size);
         virtual void on_connect_impl();

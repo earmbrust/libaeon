@@ -8,14 +8,7 @@ namespace aeon {
     event_socket_set::event_socket_set()
         : error_code_(err_none), error_state_(0) {
     }
-    event_socket_set::~event_socket_set() {
-        for (unsigned int i = 0; i < static_cast<unsigned int>(sockets_.size()); ++i) {
-            if (sockets_[i]) {
-                sockets_[i]->close();
-            }
-        }
-        sockets_.clear();
-    }
+    event_socket_set::~event_socket_set() = default;
     bool event_socket_set::add(event_socket* socket) {
         if (!socket) {
             error_code_ = err_no_socket;
