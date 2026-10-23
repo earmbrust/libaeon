@@ -51,7 +51,7 @@ std::size_t chat_server::client_count() const {
 
 chat_server::peer* chat_server::lookup(aeon::event_socket* socket) {
     const auto it = std::find_if(peers_.begin(), peers_.end(),
-        [socket](const auto& p) { return p->socket.get() == socket; });
+        [socket](const auto& p) { return p->socket == socket; });
     return it == peers_.end() ? nullptr : it->get();
 }
 
@@ -69,9 +69,9 @@ void chat_server::accept_ready() {
             continue;
         }
         auto next = std::make_unique<peer>();
-        next->socket = std::move(accepted);
+        next->socket = accepted;
         next->id = next_id_++;
-        auto* native = next->socket.get();
+        auto* native = next->socket;
         if (!sockets_.add(native)) continue;
         peers_.push_back(std::move(next));
         const std::string greeting = "* connected as guest-" +
@@ -91,7 +91,7 @@ void chat_server::retire(aeon::event_socket* socket) {
 void chat_server::broadcast(const peer& sender, const std::string& line) {
     const std::string frame = "guest-" + std::to_string(sender.id) + ": " + line + "\n";
     for (const auto& p : peers_) {
-        if (!p->retire && !p->socket->queue_write(frame)) retire(p->socket.get());
+        if (!p->retire && !p->socket->queue_write(frame)) retire(p->socket);
     }
 }
 
@@ -118,11 +118,12 @@ void chat_server::receive(aeon::event_socket* socket, const char* bytes, int cou
 }
 
 void chat_server::reap() {
-    peers_.erase(std::remove_if(peers_.begin(), peers_.end(), [](const auto& p) {
-        if (!p->retire) return false;
-        p->socket->close();
-        return true;
-    }), peers_.end());
+    for (auto it = peers_.begin(); it != peers_.end();) {
+        if (!(*it)->retire) { ++it; continue; }
+        // Socket has already been deregistered by retire().
+        listener_.remove_peer((*it)->socket);
+        it = peers_.erase(it);
+    }
 }
 
 int chat_server::poll(int timeout_ms) {
@@ -144,7 +145,7 @@ int chat_server::poll(int timeout_ms) {
 void chat_server::stop() {
     if (polling_) return; // Contract: stop() is only called outside poll().
     sockets_.remove_socket(&listener_);
-    for (auto& p : peers_) sockets_.remove_socket(p->socket.get());
+    for (auto& p : peers_) sockets_.remove_socket(p->socket);
     peers_.clear();
     listener_.close();
     running_ = false;

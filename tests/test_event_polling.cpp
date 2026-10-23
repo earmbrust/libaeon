@@ -51,7 +51,7 @@ bool wait_until_readable(aeon::socket_t fd) {
 struct tcp_fixture {
     aeon::server_event_socket listener;
     aeon::client_socket sender;
-    std::unique_ptr<aeon::event_socket> receiver;
+    aeon::event_socket* receiver = nullptr; // listener owns it
 
     bool start() {
         if (!listener.listen("127.0.0.1", 0)) return false;
@@ -79,14 +79,14 @@ TEST(EventPolling, TcpListeningReadinessAcceptsAndRegistersWithoutThreads) {
     ASSERT_TRUE(listener.listen("127.0.0.1", 0));
     aeon::event_socket_set set;
     ASSERT_TRUE(set.add(&listener));
-    std::unique_ptr<aeon::event_socket> peer;
+    aeon::event_socket* peer = nullptr; // listener owns it
     int listen_hits = 0;
     set.on_socket_listen([&](aeon::event_socket* ready) {
         EXPECT_EQ(ready, &listener);
         ++listen_hits;
         peer = listener.accept(false);
         ASSERT_NE(peer, nullptr);
-        EXPECT_TRUE(set.add(peer.get()));
+        EXPECT_TRUE(set.add(peer));
     });
     aeon::client_socket client;
     ASSERT_TRUE(client.connect("127.0.0.1", port_of(listener)));
@@ -101,7 +101,7 @@ TEST(EventPolling, TcpListeningReadinessAcceptsAndRegistersWithoutThreads) {
     ASSERT_EQ(client.write("ping", 4), 4);
     EXPECT_GT(set.poll(2000), 0);
     EXPECT_EQ(receive_hits, 1);
-    EXPECT_TRUE(set.remove_socket(peer.get()));
+    EXPECT_TRUE(set.remove_socket(peer));
     EXPECT_TRUE(set.remove_socket(&listener));
 }
 
@@ -109,7 +109,7 @@ TEST(EventPolling, SocketAndSetHandlersBothRunWithBinaryData) {
     tcp_fixture pair;
     ASSERT_TRUE(pair.start());
     aeon::event_socket_set set;
-    ASSERT_TRUE(set.add(pair.receiver.get()));
+    ASSERT_TRUE(set.add(pair.receiver));
     const char data[5] = {'a', '\0', 'b', 'c', 'd'};
     int local_hits = 0;
     pair.receiver->on_data([&](const char* b, int n) {
@@ -120,7 +120,7 @@ TEST(EventPolling, SocketAndSetHandlersBothRunWithBinaryData) {
     int set_hits = 0;
     set.on_socket_data([&](aeon::event_socket* s, const char* b, int n) {
         ++set_hits;
-        EXPECT_EQ(s, pair.receiver.get());
+        EXPECT_EQ(s, pair.receiver);
         ASSERT_EQ(n, 5);
         EXPECT_EQ(std::memcmp(b, data, sizeof(data)), 0);
     });
@@ -129,14 +129,14 @@ TEST(EventPolling, SocketAndSetHandlersBothRunWithBinaryData) {
     EXPECT_EQ(local_hits, 1);
     EXPECT_EQ(set_hits, 1);
     EXPECT_EQ(set.poll(0), 0);
-    EXPECT_TRUE(set.remove_socket(pair.receiver.get()));
+    EXPECT_TRUE(set.remove_socket(pair.receiver));
 }
 
 TEST(EventPolling, CallbackCanRemoveAndReaddItsOwnRegistration) {
     tcp_fixture pair;
     ASSERT_TRUE(pair.start());
     aeon::event_socket_set set;
-    ASSERT_TRUE(set.add(pair.receiver.get()));
+    ASSERT_TRUE(set.add(pair.receiver));
     int count = 0;
     set.on_socket_data([&](aeon::event_socket* s, const char*, int n) {
         count += n;
@@ -147,7 +147,7 @@ TEST(EventPolling, CallbackCanRemoveAndReaddItsOwnRegistration) {
     EXPECT_EQ(count, 3);
     EXPECT_EQ(set.size(), 0);
     EXPECT_TRUE(pair.receiver->is_valid_socket());
-    EXPECT_TRUE(set.add(pair.receiver.get()));
+    EXPECT_TRUE(set.add(pair.receiver));
     ASSERT_EQ(pair.sender.write("two", 3), 3);
     EXPECT_GT(set.poll(2000), 0);
     EXPECT_EQ(count, 6);
@@ -157,11 +157,11 @@ TEST(EventPolling, SocketCallbackRemovalSkipsSetFanout) {
     tcp_fixture pair;
     ASSERT_TRUE(pair.start());
     aeon::event_socket_set set;
-    ASSERT_TRUE(set.add(pair.receiver.get()));
+    ASSERT_TRUE(set.add(pair.receiver));
     int local = 0, global = 0;
     pair.receiver->on_data([&](const char*, int) {
         ++local;
-        EXPECT_TRUE(set.remove_socket(pair.receiver.get()));
+        EXPECT_TRUE(set.remove_socket(pair.receiver));
     });
     set.on_socket_data([&](aeon::event_socket*, const char*, int) { ++global; });
     ASSERT_EQ(pair.sender.write("a", 1), 1);
@@ -174,12 +174,12 @@ TEST(EventPolling, PeerEofClosesReceiverAndNotifiesSet) {
     tcp_fixture pair;
     ASSERT_TRUE(pair.start());
     aeon::event_socket_set set;
-    ASSERT_TRUE(set.add(pair.receiver.get()));
+    ASSERT_TRUE(set.add(pair.receiver));
     int socket_closes = 0, set_closes = 0;
     pair.receiver->on_close([&] { ++socket_closes; });
     set.on_socket_close([&](aeon::event_socket* s) {
         ++set_closes;
-        EXPECT_EQ(s, pair.receiver.get());
+        EXPECT_EQ(s, pair.receiver);
         EXPECT_TRUE(set.remove_socket(s));
     });
     ASSERT_TRUE(pair.sender.close());
@@ -195,7 +195,7 @@ TEST(EventPolling, ReentrantPollReturnsErrorRatherThanDeadlocking) {
     tcp_fixture pair;
     ASSERT_TRUE(pair.start());
     aeon::event_socket_set set;
-    ASSERT_TRUE(set.add(pair.receiver.get()));
+    ASSERT_TRUE(set.add(pair.receiver));
     int nested = 0;
     set.on_socket_data([&](aeon::event_socket*, const char*, int) { nested = set.poll(0); });
     ASSERT_EQ(pair.sender.write("x", 1), 1);
@@ -312,7 +312,7 @@ TEST(EventPolling, MoreThanOneHundredTcpClientsAndUdpShareOnePoller) {
 
     aeon::event_socket_set set;
     std::vector<std::unique_ptr<aeon::client_socket>> senders;
-    std::vector<std::unique_ptr<aeon::event_socket>> receivers;
+    std::vector<aeon::event_socket*> receivers; // server owns these
     constexpr int total = 105; // Above Windows select() FD_SETSIZE default.
     int tcp_bytes = 0, udp_datagrams = 0;
     set.on_socket_data([&](aeon::event_socket*, const char*, int n) { tcp_bytes += n; });
@@ -326,10 +326,10 @@ TEST(EventPolling, MoreThanOneHundredTcpClientsAndUdpShareOnePoller) {
         ASSERT_TRUE(client->connect("127.0.0.1", port));
         auto peer = server.accept(false);
         ASSERT_NE(peer, nullptr);
-        ASSERT_TRUE(set.add(peer.get()));
+        ASSERT_TRUE(set.add(peer));
         ASSERT_EQ(client->write("!", 1), 1);
         senders.push_back(std::move(client));
-        receivers.push_back(std::move(peer));
+        receivers.push_back(peer);
     }
     ASSERT_TRUE(set.add(&udp));
     ASSERT_EQ(udp_sender.write("ok", 2), 2);
@@ -344,7 +344,7 @@ TEST(EventPolling, ExceptionInCallbackReleasesSinglePollGuard) {
     tcp_fixture pair;
     ASSERT_TRUE(pair.start());
     aeon::event_socket_set set;
-    ASSERT_TRUE(set.add(pair.receiver.get()));
+    ASSERT_TRUE(set.add(pair.receiver));
     int calls = 0;
     set.on_socket_data([&](aeon::event_socket*, const char*, int) {
         ++calls;
@@ -360,7 +360,7 @@ TEST(EventPolling, ExceptionInCallbackReleasesSinglePollGuard) {
     ASSERT_EQ(pair.sender.write("b", 1), 1);
     EXPECT_GT(set.poll(2000), 0);
     EXPECT_EQ(calls, 2);
-    EXPECT_TRUE(set.remove_socket(pair.receiver.get()));
+    EXPECT_TRUE(set.remove_socket(pair.receiver));
 }
 
 TEST(EventPolling, ListenerCallbackCanDeregisterAndCloseListener) {
@@ -413,13 +413,13 @@ TEST(EventPolling, NewlyRegisteredReadySocketWaitsUntilNextPoll) {
     ASSERT_TRUE(a.start());
     ASSERT_TRUE(b.start());
     aeon::event_socket_set set;
-    ASSERT_TRUE(set.add(a.receiver.get()));
+    ASSERT_TRUE(set.add(a.receiver));
     int first = 0, second = 0;
     set.on_socket_data([&](aeon::event_socket* socket, const char*, int) {
-        if (socket == a.receiver.get()) {
+        if (socket == a.receiver) {
             ++first;
-            EXPECT_TRUE(set.add(b.receiver.get()));
-        } else if (socket == b.receiver.get()) {
+            EXPECT_TRUE(set.add(b.receiver));
+        } else if (socket == b.receiver) {
             ++second;
         }
     });
@@ -432,8 +432,8 @@ TEST(EventPolling, NewlyRegisteredReadySocketWaitsUntilNextPoll) {
     EXPECT_EQ(second, 0);
     EXPECT_EQ(set.poll(2000), 1);
     EXPECT_EQ(second, 1);
-    EXPECT_TRUE(set.remove_socket(a.receiver.get()));
-    EXPECT_TRUE(set.remove_socket(b.receiver.get()));
+    EXPECT_TRUE(set.remove_socket(a.receiver));
+    EXPECT_TRUE(set.remove_socket(b.receiver));
 }
 
 TEST(EventPolling, RemovingAnotherReadyRegistrationCancelsPendingDispatch) {
@@ -442,14 +442,14 @@ TEST(EventPolling, RemovingAnotherReadyRegistrationCancelsPendingDispatch) {
     ASSERT_TRUE(a.start());
     ASSERT_TRUE(b.start());
     aeon::event_socket_set set;
-    ASSERT_TRUE(set.add(a.receiver.get()));
-    ASSERT_TRUE(set.add(b.receiver.get()));
+    ASSERT_TRUE(set.add(a.receiver));
+    ASSERT_TRUE(set.add(b.receiver));
     int first = 0, second = 0;
     set.on_socket_data([&](aeon::event_socket* socket, const char*, int) {
-        if (socket == a.receiver.get()) {
+        if (socket == a.receiver) {
             ++first;
-            EXPECT_TRUE(set.remove_socket(b.receiver.get()));
-        } else if (socket == b.receiver.get()) {
+            EXPECT_TRUE(set.remove_socket(b.receiver));
+        } else if (socket == b.receiver) {
             ++second;
         }
     });
@@ -461,5 +461,5 @@ TEST(EventPolling, RemovingAnotherReadyRegistrationCancelsPendingDispatch) {
     EXPECT_EQ(first, 1);
     EXPECT_EQ(second, 0);
     EXPECT_TRUE(b.receiver->is_valid_socket());
-    EXPECT_TRUE(set.remove_socket(a.receiver.get()));
+    EXPECT_TRUE(set.remove_socket(a.receiver));
 }

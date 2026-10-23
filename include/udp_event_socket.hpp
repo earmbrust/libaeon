@@ -24,6 +24,8 @@ public:
     void on_error(error_handler handler);
 
 protected:
+    // Hook for server subclasses to register a peer before user callbacks.
+    virtual void register_sender(const address&) {}
     virtual void on_datagram_impl(const char*, int, const address&) {}
     virtual void on_connect_impl() {}
     virtual void on_listen_impl() {}

@@ -36,7 +36,7 @@ public:
 private:
     using clock = std::chrono::steady_clock;
     struct peer {
-        std::unique_ptr<aeon::event_socket> socket;
+        aeon::event_socket* socket = nullptr; // owned by listener_
         std::string incoming;
         clock::time_point last_activity;
         bool closing = false;

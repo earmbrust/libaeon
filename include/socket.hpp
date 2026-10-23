@@ -13,7 +13,7 @@
 
 namespace aeon {
 
-    namespace internal { struct tcp_ops; struct udp_ops; }
+    namespace internal { struct tcp_ops; struct udp_ops; struct socket_private_state; }
 
     /**
      * \brief RAII guard for temporary non-blocking socket mode
@@ -50,6 +50,9 @@ namespace aeon {
         friend class blocking_mode_guard;
         friend struct internal::tcp_ops;
         friend struct internal::udp_ops;
+        friend class server_socket;
+        friend class server_event_socket;
+        friend class udp_socket;
 
         // Constants
         static constexpr int max_buffer_size = 256;
@@ -110,12 +113,15 @@ namespace aeon {
         socket& operator=(socket&&) = delete;
 
         virtual bool close();
-        bool is_valid_socket() const;
+        virtual bool is_valid_socket() const;
 
         // Accessors
         std::string get_remote_ip() const;
         int get_remote_port() const;
         address get_remote_address() const;
+        // Observer-only parent association for server-owned peer sockets.
+        // This pointer never extends the server lifetime. nullptr for clients.
+        socket* parent_server() const noexcept;
 
         int get_error() const;
         int get_state() const;
@@ -137,8 +143,11 @@ namespace aeon {
         bool blocking = true;
         char inbuffer[socket::max_buffer_size]{};
         char outbuffer[socket::max_buffer_size]{};
-        std::string remote_host;
-        std::string remote_ip;
+        // Stored behind an implementation pointer so the exported class does
+        // not contain an STL object with a toolchain-specific layout.
+        void set_remote_hostname(const std::string& hostname);
+        void set_parent_server(socket* server);
+        std::string remote_hostname() const;
         int connect_code = 0;
         int error_code = err_none;
         int error_state = 0;
@@ -162,6 +171,9 @@ namespace aeon {
         int wsaret = 0;
         WSADATA wsadata{};
 #endif
+
+    private:
+        internal::socket_private_state* state_ = nullptr;
     };
 
 } // aeon

@@ -15,7 +15,8 @@ struct chat_limits {
     std::size_t max_queued_bytes = 128 * 1024;
 };
 
-// A single-threaded, application-owned, newline-delimited TCP chat server.
+// A single-threaded, application-driven, newline-delimited TCP chat server.
+// The library listener owns the TCP socket objects.
 // The server must not be moved, destroyed or stopped from within poll().
 class chat_server {
 public:
@@ -33,7 +34,7 @@ public:
 
 private:
     struct peer {
-        std::unique_ptr<aeon::event_socket> socket;
+        aeon::event_socket* socket = nullptr; // owned by listener_
         std::string pending_line;
         std::uint64_t id = 0;
         bool retire = false;

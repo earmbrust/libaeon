@@ -15,6 +15,7 @@ void udp_event_socket::on_close(notification_handler f) { callbacks_->close.set(
 void udp_event_socket::on_error(error_handler f) { callbacks_->error.set(std::move(f)); }
 
 void udp_event_socket::fire_on_datagram(const char* d, int n, const address& from) {
+    register_sender(from);
     auto f = callbacks_->datagram.snapshot();
     if (f) (*f)(d, n, from); else on_datagram_impl(d, n, from);
 }

@@ -27,7 +27,7 @@ int main(int argc, char** argv) {
     auto writer = listener.accept(false);
     if (!writer || receiver.set_blocking(false) != 0) return 1;
     aeon::event_socket_set set;
-    if (!set.add(writer.get())) return 1;
+    if (!set.add(writer)) return 1;
     if (!writer->set_max_queued_bytes(1024*1024)) return 1;
 
     std::string payload(static_cast<std::size_t>(chunk), 'q');
@@ -66,6 +66,6 @@ int main(int argc, char** argv) {
               << std::fixed << std::setprecision(4) << seconds << " MiB/s="
               << std::setprecision(2) << (delivered / (1024.0*1024.0) / seconds)
               << " queue_full_retries=" << queue_rejections << '\n';
-    set.remove_socket(writer.get());
+    set.remove_socket(writer);
     return submitted == delivered ? 0 : 1;
 }

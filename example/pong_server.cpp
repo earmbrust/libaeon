@@ -72,7 +72,8 @@ int pong_server::seat(const aeon::address& from) const {
 }
 
 void pong_server::reply(const aeon::address& to, std::string_view payload) {
-    server_.write_to(to, payload.data(), static_cast<int>(payload.size()));
+    if (auto* peer = server_.get_peer(to))
+        peer->write(payload.data(), static_cast<int>(payload.size()));
 }
 
 void pong_server::datagram(const char* bytes, int count, const aeon::address& from) {

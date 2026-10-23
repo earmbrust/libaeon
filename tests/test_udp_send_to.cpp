@@ -38,7 +38,7 @@ TEST(UdpSendTo, TargetedRepliesReachTwoDifferentClients) {
     ASSERT_GT(source_a_port, 0);
     ASSERT_GT(source_b_port, 0);
     ASSERT_TRUE(source_a_port != source_b_port);
-    // Supply explicit, routable IPv4 loopback addresses so write_to must
+    // Supply explicit, routable IPv4 loopback addresses so peer writes must
     // map them to IPv6 destinations on dual-stack listeners. The ports are
     // taken from received datagrams, never from an unspecified local bind.
     sockaddr_in source_a{};
@@ -50,8 +50,9 @@ TEST(UdpSendTo, TargetedRepliesReachTwoDifferentClients) {
     source_b.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     source_b.sin_port = htons(static_cast<unsigned short>(source_b_port));
     const auto prior = server.get_remote_address().get_port();
-    EXPECT_EQ(server.write_to(aeon::address(source_a), std::string("first\0binary", 12)), 12);
-    EXPECT_EQ(server.write_to(aeon::address(source_b), "second", 6), 6);
+    EXPECT_EQ(server.get_peer(aeon::address(source_a))->write(std::string("first\0binary", 12)), 12);
+    EXPECT_EQ(server.get_peer(aeon::address(source_b))->write("second", 6), 6);
+    EXPECT_EQ(server.peers().size(), 2); // IPv4 and IPv4-mapped addresses deduplicate
     EXPECT_EQ(server.get_remote_address().get_port(), prior);
     for (int i = 0; i < 20 && (received_a.empty() || received_b.empty()); ++i)
         ASSERT_GE(network.poll(5), 0);
@@ -61,9 +62,15 @@ TEST(UdpSendTo, TargetedRepliesReachTwoDifferentClients) {
 TEST(UdpSendTo, RejectsInvalidBufferSizes) {
     aeon::udp_server_event_socket server;
     ASSERT_TRUE(server.listen(0));
-    aeon::address target;
-    EXPECT_EQ(server.write_to(target, "x", -1), NET_SOCKET_ERROR);
-    EXPECT_EQ(server.write_to(target, nullptr, 1), NET_SOCKET_ERROR);
+    sockaddr_in target{};
+    target.sin_family = AF_INET;
+    target.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    target.sin_port = htons(40000);
+    auto* peer = server.get_peer(aeon::address(target));
+    ASSERT_NE(peer, nullptr);
+    EXPECT_EQ(peer->write("x", -1), NET_SOCKET_ERROR);
+    EXPECT_EQ(peer->write(static_cast<const char*>(nullptr), 1), NET_SOCKET_ERROR);
+    EXPECT_EQ(peer->parent_server(), &server);
 }
 
 TEST(UdpSendTo, ZeroLengthDatagramIsValid) {
@@ -85,8 +92,8 @@ TEST(UdpSendTo, ZeroLengthDatagramIsValid) {
                                    const aeon::address& from) { sender = from; });
     for (int i = 0; i < 12 && sender.get_port() == 0; ++i) ASSERT_GE(events.poll(5), 0);
     ASSERT_GT(sender.get_port(), 0);
-    EXPECT_EQ(server.write_to(sender, nullptr, 0), 0);
-    EXPECT_EQ(server.write_to(sender, std::string{}), 0);
+    EXPECT_EQ(server.get_peer(sender)->write(static_cast<const char*>(nullptr), 0), 0);
+    EXPECT_EQ(server.get_peer(sender)->write(std::string{}), 0);
     aeon::event_socket_set receiver;
     ASSERT_TRUE(receiver.add(&client));
     int zero_count = 0;

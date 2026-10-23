@@ -76,10 +76,9 @@ int main(int argc, char** argv) {
 
     aeon::event_socket_set client_sockets;
     int connection_count = 0;
-    std::vector<std::unique_ptr<aeon::event_socket>> clients;
+    std::vector<aeon::event_socket*> clients; // listener owns connections
 
-    // Poll both the listening socket and accepted clients. Applications own
-    // every accepted descriptor; the socket set never frees them.
+    // The listener owns accepted peers. The event set only observes them.
     if (!client_sockets.add(&server)) return EXIT_FAILURE;
     client_sockets.on_socket_listen([&](aeon::event_socket*) {
         auto client = server.accept(); // Nonblocking: listener is readable.
@@ -88,8 +87,8 @@ int main(int argc, char** argv) {
         std::printf("Client %d accepted\n", connection_count);
         client->set_socket_tcp_nodelay();
         client->write("Hello, world!\r\n");
-        client_sockets.add(client.get());
-        clients.push_back(std::move(client));
+        client_sockets.add(client);
+        clients.push_back(client);
     });
 
     // Set callbacks for client events
@@ -115,9 +114,13 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "Socket readiness poll failed\n");
             break;
         }
-        // Do not destroy application-owned sockets while callbacks execute.
+        // Retire closed peers only after poll() has returned and after their
+        // event-set registrations have been removed.
         clients.erase(std::remove_if(clients.begin(), clients.end(),
-            [](const auto& client) { return !client->is_valid_socket(); }), clients.end());
+            [&server](auto* client) {
+                if (client->is_valid_socket()) return false;
+                return server.remove_peer(client);
+            }), clients.end());
     }
 
     // Deregister before destroying sockets; close after poll returns.

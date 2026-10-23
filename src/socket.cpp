@@ -11,6 +11,31 @@
 
 namespace aeon {
 
+namespace internal {
+struct socket_private_state {
+    std::string hostname;
+    socket* parent_server = nullptr;
+};
+} // namespace internal
+
+void socket::set_parent_server(socket* server) {
+    if (!state_) state_ = new internal::socket_private_state;
+    state_->parent_server = server;
+}
+socket* socket::parent_server() const noexcept {
+    return state_ ? state_->parent_server : nullptr;
+}
+
+void socket::set_remote_hostname(const std::string& hostname) {
+    // Do not allocate per socket until a named destination is used.
+    if (!state_) state_ = new internal::socket_private_state;
+    state_->hostname = hostname;
+}
+
+std::string socket::remote_hostname() const {
+    return state_ ? state_->hostname : std::string{};
+}
+
 
 // Static helpers for socket option configuration
 static inline void SetSocketReusAddr(socket_t sock) {
@@ -442,10 +467,12 @@ socket::socket(socket_t existing_fd, bool is_existing_socket) {
     }
 
 #if defined(NET_PLATFORM_LINUX) || defined(NET_PLATFORM_MACOS)
-    this->flags = fcntl(this->sockfd, F_GETFL, 0);
-    if (this->flags < 0) {
-        this->error_code = err_no_socket;
-        this->error_state = state_create;
+    if (this->is_valid_socket()) {
+        this->flags = fcntl(this->sockfd, F_GETFL, 0);
+        if (this->flags < 0) {
+            this->error_code = err_no_socket;
+            this->error_state = state_create;
+        }
     }
 #endif
 
@@ -462,6 +489,7 @@ socket::~socket() {
     if (this->is_valid_socket()) {
         (void)this->close();
     }
+    delete state_;
 }
 
 /**

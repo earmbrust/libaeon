@@ -34,7 +34,7 @@ Other public types include `aeon::server_socket`, `aeon::udp_socket`,
 
 aeon::server_socket server;
 if (server.listen(2300)) {
-    auto client = server.accept(); // std::unique_ptr<aeon::event_socket>
+    auto* client = server.accept(); // borrowed; server owns accepted TCP peer
     if (client) {
         client->write("Hello from server!\n");
     }
@@ -52,7 +52,8 @@ if (server.listen(2301)) {
     char buffer[256]{};
     const int count = server.read(buffer, sizeof(buffer));
     if (count > 0) {
-        server.write(buffer, count); // Reply to sender
+        if (auto* peer = server.get_peer(server.get_remote_address()))
+            peer->write(buffer, count); // Reply using server-owned peer
     }
 }
 ```

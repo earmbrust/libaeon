@@ -50,7 +50,9 @@ is required. SSL/TLS socket classes are conditional on ``ENABLE_SSL``.
 TCP server
 ----------
 
-``server_socket::accept()`` returns a ``std::unique_ptr<aeon::event_socket>``.
+``server_socket::accept()`` returns a borrowed ``aeon::socket*``. The
+server owns accepted peers and closes them when the listener closes. See
+``docs/engineering/server-peer-ownership.md`` for lifetime rules.
 The object is destroyed automatically when its owning pointer leaves scope.
 
 .. code-block:: cpp

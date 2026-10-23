@@ -15,9 +15,9 @@ static_assert(std::is_convertible_v<aeon::server_event_socket*, aeon::socket*>);
 static_assert(!std::is_base_of_v<aeon::client_socket, aeon::client_event_socket>);
 static_assert(!std::is_base_of_v<aeon::server_socket, aeon::server_event_socket>);
 static_assert(std::is_same_v<decltype(std::declval<aeon::server_socket&>().accept()),
-                             std::unique_ptr<aeon::socket>>);
+                             aeon::socket*>);
 static_assert(std::is_same_v<decltype(std::declval<aeon::server_event_socket&>().accept()),
-                             std::unique_ptr<aeon::event_socket>>);
+                             aeon::event_socket*>);
 
 bool descriptor_open(aeon::socket_t fd) {
     int type = 0;
@@ -76,45 +76,37 @@ TEST(TcpOwnership, FailedConnectInvalidatesOwnedDescriptor) {
     EXPECT_TRUE(descriptor_open(previous));
 }
 
-TEST(TcpOwnership, PlainAcceptTransfersDescriptorAndSurvivesListenerDestruction) {
+TEST(TcpOwnership, PlainServerOwnsAcceptedDescriptorUntilDestruction) {
     auto server = std::make_unique<aeon::server_socket>();
     ASSERT_TRUE(server->listen("127.0.0.1", 0));
-    const int port = local_port(*server);
-    ASSERT_GT(port, 0);
     aeon::client_socket client;
-    ASSERT_TRUE(client.connect("127.0.0.1", port));
-    auto accepted = server->accept(true);
+    ASSERT_TRUE(client.connect("127.0.0.1", local_port(*server)));
+    auto* accepted = server->accept(true); // borrowed
     ASSERT_NE(accepted, nullptr);
     const auto fd = accepted->sockfd;
     EXPECT_TRUE(descriptor_open(fd));
-    EXPECT_EQ(accepted->get_remote_ip(), "127.0.0.1");
-    EXPECT_TRUE(accepted->connected);
-    EXPECT_NE(fd, client.sockfd);
-    server.reset();
-    EXPECT_TRUE(descriptor_open(fd));
+    EXPECT_EQ(server->peer_count(), 1);
+    EXPECT_EQ(server->peer_at(0), accepted);
     ASSERT_EQ(client.write("ok", 2), 2);
     char bytes[4]{};
     EXPECT_EQ(accepted->read(bytes, 2), 2);
-    EXPECT_EQ(std::memcmp(bytes, "ok", 2), 0);
-    accepted.reset();
+    server.reset(); // destroys accepted peer too
     EXPECT_FALSE(descriptor_open(fd));
 }
 
-TEST(TcpOwnership, EventAcceptOwnsConnectedDescriptorWithoutSecondSocket) {
+TEST(TcpOwnership, EventServerOwnsAcceptedDescriptorAndCanRetireIt) {
     aeon::server_event_socket server;
     ASSERT_TRUE(server.listen("127.0.0.1", 0));
-    const int port = local_port(server);
-    ASSERT_GT(port, 0);
     aeon::client_socket client;
-    ASSERT_TRUE(client.connect("127.0.0.1", port));
-    auto accepted = server.accept(false);
+    ASSERT_TRUE(client.connect("127.0.0.1", local_port(server)));
+    auto* accepted = server.accept(false);
     ASSERT_NE(accepted, nullptr);
-    auto* as_base = static_cast<aeon::socket*>(accepted.get());
+    auto* as_base = static_cast<aeon::socket*>(accepted);
     const auto fd = as_base->sockfd;
     EXPECT_TRUE(descriptor_open(fd));
-    EXPECT_GT(as_base->get_remote_port(), 0);
-    EXPECT_TRUE(as_base->connected);
-    accepted.reset();
+    EXPECT_EQ(server.peer_count(), 1);
+    EXPECT_TRUE(server.remove_peer(accepted));
+    EXPECT_EQ(server.peer_count(), 0);
     EXPECT_FALSE(descriptor_open(fd));
 }
 
@@ -147,7 +139,7 @@ TEST(TcpOwnership, PlainAcceptCanBeClosedThroughBasePointer) {
     ASSERT_TRUE(client.connect("127.0.0.1", local_port(server)));
     auto accepted = server.accept(false);
     ASSERT_NE(accepted, nullptr);
-    aeon::socket* base = accepted.get();
+    aeon::socket* base = accepted;
     ASSERT_TRUE(base->is_valid_socket());
     const auto descriptor = base->sockfd;
     EXPECT_TRUE(base->close());
@@ -163,7 +155,7 @@ TEST(TcpOwnership, EventAcceptCanBeClosedThroughBasePointer) {
     ASSERT_TRUE(client.connect("127.0.0.1", local_port(server)));
     auto accepted = server.accept(false);
     ASSERT_NE(accepted, nullptr);
-    aeon::socket* base = accepted.get();
+    aeon::socket* base = accepted;
     ASSERT_TRUE(base->is_valid_socket());
     const auto descriptor = base->sockfd;
     EXPECT_TRUE(base->close());

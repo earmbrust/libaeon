@@ -23,7 +23,7 @@ int bound_port(const aeon::socket& socket) {
 struct tcp_pair {
     aeon::server_socket listener;
     aeon::client_socket sender;
-    std::unique_ptr<aeon::socket> receiver;
+    aeon::socket* receiver = nullptr; // listener owns it
 
     bool start() {
         if (!listener.listen("127.0.0.1", 0)) return false;

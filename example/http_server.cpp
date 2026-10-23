@@ -201,7 +201,7 @@ std::size_t http_server::client_count() const {
 
 http_server::peer* http_server::lookup(aeon::event_socket* s) {
     const auto it = std::find_if(peers_.begin(), peers_.end(),
-        [s](const auto& p) { return p->socket.get() == s; });
+        [s](const auto& p) { return p->socket == s; });
     return it == peers_.end() ? nullptr : it->get();
 }
 
@@ -215,9 +215,9 @@ void http_server::accept_ready() {
             continue;
         }
         auto p = std::make_unique<peer>();
-        p->socket = std::move(accepted);
+        p->socket = accepted;
         p->last_activity = clock::now();
-        auto* socket = p->socket.get();
+        auto* socket = p->socket;
         if (sockets_.add(socket)) peers_.push_back(std::move(p));
     }
 }
@@ -246,7 +246,7 @@ bool http_server::send_response(peer& p, int status, const std::string& type,
     response += "\r\n";
     if (!head) response += body;
     if (!p.socket->queue_write(response)) {
-        retire(p.socket.get());
+        retire(p.socket);
         return false;
     }
     if (close) p.closing = true;
@@ -310,11 +310,12 @@ void http_server::receive(aeon::event_socket* s, const char* data, int size) {
 }
 
 void http_server::reap() {
-    peers_.erase(std::remove_if(peers_.begin(), peers_.end(), [](const auto& p) {
-        if (!p->retire) return false;
-        p->socket->close();
-        return true;
-    }), peers_.end());
+    for (auto it = peers_.begin(); it != peers_.end();) {
+        if (!(*it)->retire) { ++it; continue; }
+        // Socket has already been deregistered by retire().
+        listener_.remove_peer((*it)->socket);
+        it = peers_.erase(it);
+    }
 }
 
 int http_server::poll(int timeout_ms) {
@@ -329,7 +330,7 @@ int http_server::poll(int timeout_ms) {
         for (const auto& p : peers_) {
             if (!p->retire && now - p->last_activity >
                 std::chrono::milliseconds(limits_.idle_timeout_ms))
-                retire(p->socket.get());
+                retire(p->socket);
         }
     }
     reap();
@@ -339,7 +340,7 @@ int http_server::poll(int timeout_ms) {
 void http_server::stop() {
     if (polling_) return;
     sockets_.remove_socket(&listener_);
-    for (auto& p : peers_) sockets_.remove_socket(p->socket.get());
+    for (auto& p : peers_) sockets_.remove_socket(p->socket);
     peers_.clear();
     listener_.close();
     running_ = false;

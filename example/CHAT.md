@@ -1,6 +1,6 @@
 # TCP chat example
 
-`chat-server` demonstrates an application-owned, single-threaded TCP chat
+`chat-server` demonstrates an application-driven, single-threaded TCP chat
 service built on `aeon::event_socket_set::poll()` and bounded
 `event_socket::queue_write()` operations. It is a simple educational server,
 not a hardened internet-facing chat service.

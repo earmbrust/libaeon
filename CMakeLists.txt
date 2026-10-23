@@ -325,7 +325,9 @@ enable_testing()
 add_executable(aeon_tests
     tests/test_address.cpp
     tests/test_socket_basics.cpp
+    tests/test_abi_storage.cpp
     tests/test_tcp_ownership.cpp
+    tests/test_server_peer_lifecycle.cpp
     tests/test_event_callbacks.cpp
     tests/test_event_lifecycle.cpp
     tests/test_event_polling.cpp

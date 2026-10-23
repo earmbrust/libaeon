@@ -20,17 +20,17 @@ int local_port(const aeon::socket& owner) {
 struct write_pair {
     aeon::server_event_socket listener;
     aeon::client_socket reader;
-    std::unique_ptr<aeon::event_socket> writer;
+    aeon::event_socket* writer = nullptr; // listener owns it
     aeon::event_socket_set set;
 
     bool start() {
         if (!listener.listen("127.0.0.1", 0)) return false;
         if (!reader.connect("127.0.0.1", local_port(listener))) return false;
         writer = listener.accept(false);
-        return writer && set.add(writer.get()) && reader.set_read_timeout(2000) == 0;
+        return writer && set.add(writer) && reader.set_read_timeout(2000) == 0;
     }
     ~write_pair() {
-        if (writer) set.remove_socket(writer.get());
+        if (writer) set.remove_socket(writer);
     }
 };
 
@@ -80,7 +80,7 @@ TEST(WriteQueue, BinaryDataIsFullyDeliveredWithBothDrainCallbacks) {
     int local = 0, global = 0;
     pair.writer->on_drain([&] { ++local; });
     pair.set.on_socket_drain([&](aeon::event_socket* socket) {
-        EXPECT_EQ(socket, pair.writer.get()); ++global;
+        EXPECT_EQ(socket, pair.writer); ++global;
     });
     ASSERT_TRUE(pair.writer->queue_write(bytes));
     EXPECT_EQ(pair.writer->queued_bytes(), bytes.size());
@@ -150,7 +150,7 @@ TEST(WriteQueue, LocalDrainRemovalSuppressesSetCallback) {
     int local = 0, global = 0;
     pair.writer->on_drain([&] {
         ++local;
-        EXPECT_TRUE(pair.set.remove_socket(pair.writer.get()));
+        EXPECT_TRUE(pair.set.remove_socket(pair.writer));
     });
     pair.set.on_socket_drain([&](aeon::event_socket*) { ++global; });
     ASSERT_TRUE(pair.writer->queue_write("x", 1));
@@ -164,10 +164,10 @@ TEST(WriteQueue, DeregisteredSocketIsNotFlushed) {
     write_pair pair;
     ASSERT_TRUE(pair.start());
     ASSERT_TRUE(pair.writer->queue_write("x", 1));
-    ASSERT_TRUE(pair.set.remove_socket(pair.writer.get()));
+    ASSERT_TRUE(pair.set.remove_socket(pair.writer));
     EXPECT_EQ(pair.set.poll(0), 0);
     EXPECT_EQ(pair.writer->queued_bytes(), 1u);
-    ASSERT_TRUE(pair.set.add(pair.writer.get()));
+    ASSERT_TRUE(pair.set.add(pair.writer));
     ASSERT_GT(pair.set.poll(2000), 0);
     EXPECT_EQ(pair.writer->queued_bytes(), 0u);
     char ch{};

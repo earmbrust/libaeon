@@ -29,7 +29,7 @@ reordered, and this illustrative protocol has no authentication or encryption.
 Do not expose the demo on an untrusted network without transport security,
 identity protection, and rate limiting.
 
-The game introduces `udp_socket::write_to(address, data, size)`, which sends to
+The game uses server-owned `udp_socket` peer objects for targeted replies, which send to
 an explicit recipient without overwriting the socket's remembered reply
 address. It is particularly useful for UDP servers with more than one peer.
-No Aeon background threads, polling API changes, or socket ownership changes.
+No Aeon background threads or polling API changes. The server owns UDP peer objects.
