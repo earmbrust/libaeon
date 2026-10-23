@@ -7,6 +7,7 @@
 #include "socket.hpp"
 
 namespace aeon {
+namespace internal { struct udp_peer_store; }
 class udp_server_socket;
 class udp_server_event_socket;
 
@@ -31,9 +32,17 @@ public:
     udp_socket* parent_socket() const noexcept { return parent_; }
 
 protected:
+    bool udp_connect(const char* hostname, int port);
+    bool udp_connect(const address& remote);
+    bool udp_connect();
+    bool udp_listen(int port);
+    using native_bind_fn = int (*)(socket_t, const sockaddr*, socklen_t);
+    bool udp_listen(int port, native_bind_fn bind_socket);
+
     udp_socket(udp_socket* parent, const address& endpoint);
 
 private:
+    friend struct internal::udp_peer_store;
     friend class udp_server_socket;
     friend class udp_server_event_socket;
     udp_socket* parent_ = nullptr; // server-owned lifetime makes this safe

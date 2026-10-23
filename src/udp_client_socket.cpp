@@ -1,5 +1,4 @@
 #include "udp_client_socket.hpp"
-#include "internal/udp_ops.hpp"
 
 namespace aeon {
 
@@ -13,13 +12,13 @@ udp_client_socket::udp_client_socket(const std::string* hostname, int port) {
 udp_client_socket::~udp_client_socket() = default;
 
 bool udp_client_socket::connect(const char* hostname, int port) {
-    return internal::udp_ops::connect(*this, hostname, port);
+    return udp_connect( hostname, port);
 }
 bool udp_client_socket::connect() {
-    return internal::udp_ops::connect(*this);
+    return udp_connect();
 }
 bool udp_client_socket::connect(const address& target) {
-    return internal::udp_ops::connect(*this, target);
+    return udp_connect( target);
 }
 
 } // namespace aeon

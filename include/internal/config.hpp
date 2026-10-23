@@ -53,6 +53,13 @@
     #include <unistd.h>
 #endif
 
+// Native socket descriptor cleanup.
+#ifdef NET_PLATFORM_WINDOWS
+    #define NET_CLOSE_SOCKET(s) ::closesocket(s)
+#else
+    #define NET_CLOSE_SOCKET(s) ::close(s)
+#endif
+
 // Multi-platform includes
 #include <fcntl.h>
 #include <memory>

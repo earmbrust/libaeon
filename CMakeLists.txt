@@ -203,8 +203,6 @@ set(LIBAEON_SOURCES
     src/address.cpp
     src/resolver.cpp
     src/socket.cpp
-    src/internal/tcp_ops.cpp
-    src/internal/native_poller.cpp
     src/client_socket.cpp
     src/server_socket.cpp
     src/event_socket.cpp
@@ -218,7 +216,6 @@ set(LIBAEON_SOURCES
     src/udp_event_socket.cpp
     src/udp_client_event_socket.cpp
     src/udp_server_event_socket.cpp
-    src/internal/udp_ops.cpp
 )
 
 # Add SSL sources if enabled

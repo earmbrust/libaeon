@@ -4,6 +4,7 @@
 #include <memory>
 #include <vector>
 #include <cstring>
+#include <algorithm>
 
 namespace aeon::internal {
 inline bool same_udp_address(const address& a, const address& b) {
@@ -37,6 +38,43 @@ inline bool same_udp_address(const address& a, const address& b) {
 struct udp_peer_store {
     std::vector<std::unique_ptr<udp_socket>> owned;
     socket_set members; // Non-owning view; owned is destroyed after members.
+    udp_socket* get_or_create(udp_socket* server, const address& remote) {
+        if (!server->is_valid_socket()) return nullptr;
+        if (auto* existing = find(remote)) {
+            if (existing->is_valid_socket()) return existing;
+            remove(existing);
+        }
+        const auto addr = remote.get_sockaddr_storage();
+        if (addr.ss_family != AF_INET && addr.ss_family != AF_INET6) return nullptr;
+        auto next = std::unique_ptr<udp_socket>(new udp_socket(server, remote));
+        auto* borrowed = next.get();
+        owned.push_back(std::move(next));
+        try {
+            if (!members.add(borrowed)) {
+                owned.pop_back();
+                return nullptr;
+            }
+        } catch (...) {
+            owned.pop_back();
+            throw;
+        }
+        return borrowed;
+    }
+    bool remove(udp_socket* peer) {
+        if (!peer) return false;
+        const auto it = std::find_if(owned.begin(), owned.end(),
+            [peer](const auto& entry) { return entry.get() == peer; });
+        if (it == owned.end()) return false;
+        for (unsigned int i = 0; i < static_cast<unsigned int>(members.size()); ++i) {
+            if (members.at(i) == peer) {
+                members.remove(i);
+                break;
+            }
+        }
+        (*it)->close();
+        owned.erase(it);
+        return true;
+    }
     udp_socket* find(const address& target) const {
         for (auto& p : owned)
             if (same_udp_address(p->get_remote_address(), target)) return p.get();

@@ -1,5 +1,4 @@
 #include "server_event_socket.hpp"
-#include "internal/tcp_ops.hpp"
 #include <memory>
 #include <vector>
 #include <algorithm>
@@ -18,12 +17,12 @@ int server_event_socket::set_accept_timeout(int ms) {
     return 0;
 }
 int server_event_socket::bind(const sockaddr* addr, socklen_t len) {
-    return internal::tcp_ops::bind(*this, addr, len);
+    return tcp_bind( addr, len);
 }
 bool server_event_socket::listen() { return listen(port); }
 bool server_event_socket::listen(int port) { return listen("0.0.0.0", port); }
 bool server_event_socket::listen(const char* ip, int port) {
-    if (!internal::tcp_ops::listen(*this, ip, port)) return false;
+    if (!tcp_listen( ip, port)) return false;
     for (auto& p : peers_->peers) p->close();
     if (set_blocking(false) != 0) { socket::close(); return false; }
     fire_on_listen();
@@ -32,7 +31,7 @@ bool server_event_socket::listen(const char* ip, int port) {
 event_socket* server_event_socket::accept() { return accept(false); }
 event_socket* server_event_socket::accept(bool blocking) {
     sockaddr_storage peer{};
-    const socket_t fd = internal::tcp_ops::accept(*this, accept_timeout_ms_, blocking, peer);
+    const socket_t fd = tcp_accept( accept_timeout_ms_, blocking, peer);
     if (fd == invalid_socket) return nullptr;
     class adopted_event_socket final : public event_socket {
     public:

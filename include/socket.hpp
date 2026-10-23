@@ -8,12 +8,11 @@
 
 #include "address.hpp"
 #include "internal/config.hpp"
-#include "internal/platform.hpp"
 #include "internal/export.hpp"
 
 namespace aeon {
 
-    namespace internal { struct tcp_ops; struct udp_ops; struct socket_private_state; }
+    namespace internal { struct socket_private_state; }
 
     /**
      * \brief RAII guard for temporary non-blocking socket mode
@@ -48,8 +47,6 @@ namespace aeon {
     class LIBAEON_API socket {
     public:
         friend class blocking_mode_guard;
-        friend struct internal::tcp_ops;
-        friend struct internal::udp_ops;
         friend class server_socket;
         friend class server_event_socket;
         friend class udp_socket;
@@ -159,6 +156,13 @@ namespace aeon {
         void set_error(int error);
         void clear_buffers();
         void clear_buffer(char* buffer, int size);
+
+        bool tcp_connect(const char* hostname, int port);
+        bool tcp_connect();
+        bool tcp_connect(const address& addr);
+        int tcp_bind(const sockaddr* addr, socklen_t length);
+        bool tcp_listen(const char* ip, int port);
+        socket_t tcp_accept(int timeout_ms, bool blocking, sockaddr_storage& peer);
 
         void configure_socket_for_connect();
         int set_socket_nonblocking(bool nonblocking);

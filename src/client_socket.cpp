@@ -1,5 +1,4 @@
 #include "client_socket.hpp"
-#include "internal/tcp_ops.hpp"
 
 namespace aeon {
 
@@ -15,15 +14,15 @@ client_socket::client_socket(const std::string* hostname, int port)
 client_socket::~client_socket() = default;
 
 bool client_socket::connect(const char* hostname, int port) {
-    return internal::tcp_ops::connect(*this, hostname, port);
+    return tcp_connect( hostname, port);
 }
 
 bool client_socket::connect() {
-    return internal::tcp_ops::connect(*this);
+    return tcp_connect();
 }
 
 bool client_socket::connect(const address& addr) {
-    return internal::tcp_ops::connect(*this, addr);
+    return tcp_connect( addr);
 }
 
 } // namespace aeon

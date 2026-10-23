@@ -1,7 +1,6 @@
 #include <gtest/gtest.h>
 
 #include "aeon.hpp"
-#include "internal/udp_ops.hpp"
 
 #include <cstring>
 
@@ -25,6 +24,11 @@ bool is_open(aeon::socket_t descriptor) {
     return ::getsockopt(descriptor, SOL_SOCKET, SO_TYPE,
                         reinterpret_cast<char*>(&type), &length) == 0;
 }
+
+class udp_bind_test_server : public aeon::udp_server_event_socket {
+public:
+    using aeon::udp_socket::udp_listen;
+};
 
 struct bind_probe {
     static inline int calls = 0;
@@ -74,7 +78,7 @@ struct bind_probe {
 } // namespace
 
 TEST(UdpInternal, FailedNativeBindPreservesPreviouslyBoundSocket) {
-    aeon::udp_server_event_socket server;
+    udp_bind_test_server server;
     ASSERT_TRUE(server.listen(0));
     const auto old_fd = server.sockfd;
     const int old_port = local_port(server);
@@ -83,7 +87,7 @@ TEST(UdpInternal, FailedNativeBindPreservesPreviouslyBoundSocket) {
 
     // Bind failures are injected at Aeon's actual candidate-socket boundary,
     // avoiding OS-specific port-reuse and dual-stack collision semantics.
-    EXPECT_FALSE(aeon::internal::udp_ops::listen(server, 0, &bind_probe::denied));
+    EXPECT_FALSE(server.udp_listen(0, &bind_probe::denied));
     EXPECT_GE(bind_probe::calls, 1);
     EXPECT_FALSE(bind_probe::passed_live_descriptor);
     EXPECT_EQ(bind_probe::calls, bind_probe::ipv6_calls + bind_probe::ipv4_calls);
@@ -107,12 +111,12 @@ TEST(UdpInternal, FailedNativeBindPreservesPreviouslyBoundSocket) {
 }
 
 TEST(UdpInternal, FailedIPv6BindFallsBackToIPv4) {
-    aeon::udp_server_event_socket server;
+    udp_bind_test_server server;
     ASSERT_TRUE(server.listen(0));
     const auto original = server.sockfd;
     bind_probe::reset(original);
 
-    ASSERT_TRUE(aeon::internal::udp_ops::listen(server, 0, &bind_probe::deny_ipv6));
+    ASSERT_TRUE(server.udp_listen(0, &bind_probe::deny_ipv6));
     EXPECT_TRUE(is_open(server.sockfd));
     EXPECT_NE(server.sockfd, original);
     EXPECT_FALSE(is_open(original));
@@ -123,11 +127,11 @@ TEST(UdpInternal, FailedIPv6BindFallsBackToIPv4) {
 }
 
 TEST(UdpInternal, NullBindFunctionPreservesLiveDescriptor) {
-    aeon::udp_server_event_socket server;
+    udp_bind_test_server server;
     ASSERT_TRUE(server.listen(0));
     const auto original = server.sockfd;
     const int port = local_port(server);
-    EXPECT_FALSE(aeon::internal::udp_ops::listen(server, 0, nullptr));
+    EXPECT_FALSE(server.udp_listen(0, nullptr));
     EXPECT_EQ(server.sockfd, original);
     EXPECT_EQ(local_port(server), port);
     EXPECT_TRUE(is_open(original));

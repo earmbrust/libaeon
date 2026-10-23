@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "internal/socket_registry.hpp"
+#include "internal/callback_state.hpp"
 #include "event_socket.hpp"
 
 #include <atomic>

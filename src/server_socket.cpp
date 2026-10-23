@@ -1,5 +1,4 @@
 #include "server_socket.hpp"
-#include "internal/tcp_ops.hpp"
 #include <memory>
 #include <vector>
 #include <algorithm>
@@ -17,20 +16,20 @@ int server_socket::set_accept_timeout(int timeout_ms) {
     return 0;
 }
 int server_socket::bind(const sockaddr* addr, socklen_t length) {
-    return internal::tcp_ops::bind(*this, addr, length);
+    return tcp_bind( addr, length);
 }
 bool server_socket::listen() { return listen(port); }
 bool server_socket::listen(int port) { return listen("0.0.0.0", port); }
 bool server_socket::listen(const char* ip, int port) {
     // Do not leave live peers attached to a replaced listener.
-    const bool ok = internal::tcp_ops::listen(*this, ip, port);
+    const bool ok = tcp_listen( ip, port);
     if (ok) for (auto& p : peers_->peers) p->close();
     return ok;
 }
 socket* server_socket::accept() { return accept(false); }
 socket* server_socket::accept(bool blocking) {
     sockaddr_storage peer{};
-    const socket_t fd = internal::tcp_ops::accept(*this, accept_timeout_ms, blocking, peer);
+    const socket_t fd = tcp_accept( accept_timeout_ms, blocking, peer);
     if (fd == invalid_socket) return nullptr;
     // Unique owner is established immediately; no duplicate close on failures.
     std::unique_ptr<socket> result;
