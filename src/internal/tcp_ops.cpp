@@ -10,13 +10,14 @@ bool tcp_ops::connect(socket& owner, const char* hostname, int port) {
         owner.error_state = state_connect;
         return false;
     }
-    owner.remote_host = hostname;
+    owner.set_remote_hostname(hostname);
     owner.port = port;
     return connect(owner);
 }
 
 bool tcp_ops::connect(socket& owner) {
-    if (owner.remote_host.empty() || !is_valid_port(owner.port)) {
+    const std::string hostname = owner.remote_hostname();
+    if (hostname.empty() || !is_valid_port(owner.port)) {
         owner.error_code = err_no_host;
         owner.error_state = state_resolve;
         return false;
@@ -26,7 +27,7 @@ bool tcp_ops::connect(socket& owner) {
     hints.ai_socktype = SOCK_STREAM;
     addrinfo* results = nullptr;
     const std::string port_string = std::to_string(owner.port);
-    if (::getaddrinfo(owner.remote_host.c_str(), port_string.c_str(),
+    if (::getaddrinfo(hostname.c_str(), port_string.c_str(),
                       &hints, &results) != 0) {
         owner.error_code = err_no_host;
         owner.error_state = state_resolve;

@@ -81,7 +81,7 @@ bool udp_ops::connect(socket& owner, const char* hostname, int port) {
         sockaddr_storage storage{};
         std::memcpy(&storage, current->ai_addr, current->ai_addrlen);
         if (udp_ops::connect(owner, address(storage))) {
-            owner.remote_host = hostname;
+            owner.set_remote_hostname(hostname);
             success = true;
             break;
         }

@@ -18,6 +18,12 @@ int fail(const char* message) {
 
 // Consumer-defined subclasses must be able to call protected, exported
 // event-dispatch methods in Aeon, with callbacks registered by consumers.
+class consumer_hostname_probe final : public aeon::socket {
+public:
+    using aeon::socket::remote_hostname;
+    using aeon::socket::set_remote_hostname;
+};
+
 class client_event_probe final : public aeon::event_socket {
 public:
     void emit_data(const char* data, int count) { fire_on_data(data, count); }
@@ -42,6 +48,13 @@ int main() {
     aeon::socket base;
     if (!base.is_valid_socket()) return fail("native socket construction");
 
+    // Exercise opaque hostname state through exported members of a consumer-
+    // defined subclass, on both shared and static library boundaries.
+    consumer_hostname_probe host;
+    if (!host.remote_hostname().empty()) return fail("empty hostname state");
+    host.set_remote_hostname("localhost");
+    if (host.remote_hostname() != "localhost") return fail("hostname state");
+
     // socket_set's out-of-line constructor, methods and destructor all live
     // on the correct side of the shared-library boundary.
     {
@@ -51,6 +64,11 @@ int main() {
         }
         if (!sockets.remove(0) || sockets.size() != 0) {
             return fail("socket_set::remove/size");
+        }
+        if (!sockets.add(&base) || !sockets.add(&host) ||
+            !sockets.remove(0, 999) || sockets.size() != 0 ||
+            !base.is_valid_socket() || !host.is_valid_socket()) {
+            return fail("socket_set opaque bulk removal");
         }
     }
 

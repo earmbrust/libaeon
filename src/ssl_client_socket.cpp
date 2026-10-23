@@ -97,7 +97,7 @@ namespace aeon {
             this->connected = true;
             this->clear_buffers();
             this->port = addr.get_port();
-            this->remote_host = hostname;
+            this->set_remote_hostname(hostname);
 
             // Now set up SSL/TLS
             if (setup_ssl() != err_none) {
