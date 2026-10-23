@@ -245,7 +245,7 @@ Current test coverage by component:
 - **socket.cpp** - Partial coverage (lifecycle, configuration)
 - **udp_socket.cpp** - Good coverage (send/receive, bidirectional)
 - **resolver.cpp** - Good coverage (address resolution)
-- **ssl_socket.cpp** - Awaiting coverage (add when ENABLE_SSL=ON)
+- **ssl_socket.cpp** - Live loopback TLS integration checks when ENABLE_SSL=ON (shared and static)
 - **TCP streams** - Awaiting coverage (add advanced tests)
 
 ## Future Test Additions
@@ -253,7 +253,7 @@ Current test coverage by component:
 Priority areas for expansion:
 
 1. **TCP Client/Server Tests** - Full connection lifecycle, error handling
-2. **SSL/TLS Tests** - Encrypted connections, certificate validation
+2. **SSL/TLS Tests** - Broader protocol/edge-case coverage beyond M6c live handshake regression tests
 3. **Event Socket Tests** - Select/epoll/IOCP based testing
 4. **Error Condition Tests** - Network failures, timeouts, resource exhaustion
 5. **Performance Tests** - Throughput, latency benchmarks

@@ -378,6 +378,18 @@ add_executable(aeon_cxx20_static tests/m0_cpp_baseline.cpp)
 target_link_libraries(aeon_cxx20_static PRIVATE aeon-static)
 set_target_properties(aeon_cxx20_static PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
 add_test(NAME AeonCxx20Static COMMAND aeon_cxx20_static)
+
+# M6c: real loopback TLS with generated, trusted/mismatched/self-signed certs.
+# No external network or openssl CLI dependency; runs for static and shared.
+if(ENABLE_SSL)
+    find_package(Threads REQUIRED)
+    add_executable(aeon_tls_live_shared tests/tls_live_validation.cpp)
+    target_link_libraries(aeon_tls_live_shared PRIVATE aeon Threads::Threads)
+    add_test(NAME AeonTlsLiveShared COMMAND aeon_tls_live_shared)
+    add_executable(aeon_tls_live_static tests/tls_live_validation.cpp)
+    target_link_libraries(aeon_tls_live_static PRIVATE aeon-static Threads::Threads)
+    add_test(NAME AeonTlsLiveStatic COMMAND aeon_tls_live_static)
+endif()
 endif()
 
 # Example executables

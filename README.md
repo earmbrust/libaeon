@@ -83,7 +83,10 @@ ctest --test-dir build-vs2022 -C Release --output-on-failure
 
 Visual Studio 2026 is also supported with the Visual Studio 18 generator in a
 sufficiently new CMake. To enable TLS, install a matching OpenSSL development
-package and configure with `-DENABLE_SSL=ON`.
+package and configure with `-DENABLE_SSL=ON`. TLS clients enforce
+certificate trust and DNS/IP identity by default; `set_allow_self_signed(true)`
+opts into untrusted self-signed leaf certificates without disabling hostname
+checking. The HTTP example has a separate explicit `--no-verify` escape hatch.
 
 Builds include Google Test unit tests, fetched during CMake configure.
 A public CI matrix builds on Windows, Linux and macOS with several compilers

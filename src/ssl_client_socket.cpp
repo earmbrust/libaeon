@@ -46,25 +46,28 @@ namespace aeon {
             set_error(ssl_error);
             return false;
         }
-
-        return connect(hostname.c_str(), port_num);
+        // connect(hostname.c_str(), ...) would alias the same string that
+        // connect(const char*, ...) updates. Take an independent copy.
+        const std::string requested = hostname;
+        return connect(requested.c_str(), port_num);
     }
 
     bool ssl_client_socket::connect(const char* hostname_arg, int remote_port) {
-        if (hostname_arg == nullptr || remote_port <= 0) {
+        if (hostname_arg == nullptr || hostname_arg[0] == '\0' ||
+            remote_port <= 0 || remote_port > 65535) {
             set_error(ssl_error);
             return false;
         }
 
-        hostname = hostname_arg;
+        const std::string requested = hostname_arg;
+        hostname = requested;
         port_num = remote_port;
 
-        // Use resolver to get address
         try {
             resolver res;
-            address addr = res.resolve_to_address(hostname_arg);
+            address addr = res.resolve_to_address(requested.c_str());
             addr.set_port(static_cast<std::uint16_t>(remote_port));
-            return connect(addr);
+            return connect_to(addr, requested);
         } catch (const std::exception&) {
             set_error(err_no_host);
             return false;
@@ -72,53 +75,62 @@ namespace aeon {
     }
 
     bool ssl_client_socket::connect(const address& addr) {
-        sockaddr_storage target_addr = addr.get_sockaddr_storage();
-        int target_family = addr.is_ipv6() ? AF_INET6 : AF_INET;
-        socklen_t addr_len = addr.is_ipv6() ? sizeof(sockaddr_in6) : sizeof(sockaddr_in);
+        // Direct-address connections verify the numeric address, never a
+        // hostname retained from a previous connection attempt.
+        if ((!addr.is_ipv4() && !addr.is_ipv6()) || addr.get_port() == 0) {
+            set_error(ssl_error);
+            return false;
+        }
+        const std::string requested = addr.get_string();
+        hostname = requested;
+        port_num = addr.get_port();
+        return connect_to(addr, requested);
+    }
 
-        // Create new socket if family doesn't match
-        if (target_family != this->net_family) {
-            if (this->is_valid_socket()) {
-                NET_CLOSE_SOCKET(this->sockfd);
-            }
-            this->sockfd = ::socket(target_family, socket::stream_type, 0);
+    bool ssl_client_socket::connect_to(const address& addr,
+                                       const std::string& expected_identity) {
+        const sockaddr_storage target_addr = addr.get_sockaddr_storage();
+        const int target_family = addr.is_ipv6() ? AF_INET6 : AF_INET;
+        const socklen_t addr_len = addr.is_ipv6() ? sizeof(sockaddr_in6) : sizeof(sockaddr_in);
 
-            if (!this->is_valid_socket()) {
+        // A previous connection or handshake must not leave a live SSL object
+        // or connected descriptor attached to this instance.
+        if (ssl != nullptr || connected) {
+            (void)close();
+        }
+        if (is_valid_socket() && target_family != net_family) {
+            (void)socket::close();
+        }
+        if (!is_valid_socket()) {
+            sockfd = ::socket(target_family, socket::stream_type, 0);
+            if (!is_valid_socket()) {
                 set_error(err_no_socket);
                 return false;
             }
-
-            this->configure_socket_for_connect();
-            this->net_family = target_family;
+            net_family = target_family;
+            configure_socket_for_connect();
         }
 
-        // Standard blocking connect
-        if (::connect(this->sockfd, (struct sockaddr*)&target_addr, addr_len) == 0) {
-            this->connected = true;
-            this->clear_buffers();
-            this->port = addr.get_port();
-            this->set_remote_hostname(hostname);
-
-            // Now set up SSL/TLS
-            if (setup_ssl() != err_none) {
-                close();
-                return false;
-            }
-
-            // Perform SSL handshake
-            if (perform_handshake() != err_none) {
-                close();
-                return false;
-            }
-
-            return true;
+        if (::connect(sockfd, reinterpret_cast<const sockaddr*>(&target_addr), addr_len) != 0) {
+            set_error(GET_NET_SOCKET_ERROR());
+            (void)close();
+            return false;
         }
 
-        set_error(GET_NET_SOCKET_ERROR());
-        this->connected = false;
-        NET_CLOSE_SOCKET(this->sockfd);
-        this->sockfd = invalid_socket;
-        return false;
+        connected = true;
+        clear_buffers();
+        port = addr.get_port();
+        set_remote_hostname(expected_identity);
+
+        if (setup_ssl(expected_identity) != err_none || perform_handshake() != err_none) {
+            const int failure = error_code;
+            (void)close();
+            set_error(failure);
+            return false;
+        }
+
+        set_error(err_none);
+        return true;
     }
 
 } // aeon

@@ -1,7 +1,7 @@
 Getting Started
 ===============
 
-Aeon 2.0 requires C++17 and CMake. Public types and functions use the ``aeon``
+Aeon 2.0 requires C++20 and CMake. Public types and functions use the ``aeon``
 namespace and lowercase ``snake_case`` names.
 
 Build and test
@@ -47,13 +47,26 @@ with ``-DENABLE_SSL=ON``. For example::
 On Windows, an architecture-matched OpenSSL package (for example, from vcpkg)
 is required. SSL/TLS socket classes are conditional on ``ENABLE_SSL``.
 
+``ssl_client_socket`` defaults to **strict verification**: certificate trust
+and the requested DNS name or IP address must both match. The client sends SNI
+for DNS names. Calling ``connect(const address&)`` verifies that numeric IP.
+Use ``set_ca_file()`` to load a private CA. ``set_allow_self_signed(true)``
+explicitly allows a self-signed *leaf* certificate in strict mode but does not
+bypass identity, validity dates or handshake failures. The safer default is
+``false``. ``set_peer_verification(ssl_verify_mode::off)`` disables validation
+and must only be used when this risk is understood.
+
+The ``http-client`` example now verifies HTTPS by default. Its ``--no-verify``
+flag explicitly disables this protection. For local TLS regression tests,
+build with ``ENABLE_SSL=ON`` and ``BUILD_TESTING=ON``; CTest includes real
+loopback handshakes for the shared and static targets.
+
 TCP server
 ----------
 
 ``server_socket::accept()`` returns a borrowed ``aeon::socket*``. The
 server owns accepted peers and closes them when the listener closes. See
 ``docs/engineering/server-peer-ownership.md`` for lifetime rules.
-The object is destroyed automatically when its owning pointer leaves scope.
 
 .. code-block:: cpp
 

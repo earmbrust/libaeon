@@ -71,6 +71,8 @@ namespace aeon {
         virtual ~ssl_client_socket();
 
     private:
+        bool connect_to(const address& addr, const std::string& expected_identity);
+
         std::string hostname;
         int port_num;
     };
