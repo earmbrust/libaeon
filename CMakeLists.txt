@@ -215,7 +215,6 @@ set(LIBAEON_SOURCES
     src/udp_server_socket.cpp
     src/udp_event_socket.cpp
     src/udp_client_event_socket.cpp
-    src/udp_server_event_socket.cpp
 )
 
 # Add SSL sources if enabled
@@ -347,7 +346,6 @@ add_executable(aeon_internal_tests
     tests/test_udp_internal.cpp
     tests/test_callback_state_internal.cpp
     tests/test_socket_registry_internal.cpp
-    tests/test_native_poller_internal.cpp
     tests/test_write_queue_internal.cpp
 )
 target_include_directories(aeon_internal_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)

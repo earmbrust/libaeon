@@ -93,6 +93,22 @@ namespace aeon {
             #define NET_SOCKET_ERROR -1
         #endif
 
+        inline int invalid_descriptor_error() noexcept {
+        #ifdef NET_PLATFORM_WINDOWS
+            return WSAENOTSOCK;
+        #else
+            return EBADF;
+        #endif
+        }
+
+        inline bool would_block_error(int error) noexcept {
+        #ifdef NET_PLATFORM_WINDOWS
+            return error == WSAEWOULDBLOCK;
+        #else
+            return error == EAGAIN || error == EWOULDBLOCK || error == EINTR;
+        #endif
+        }
+
         // Socket state constants
         enum socket_state : int {
             state_resolve = 1,

@@ -463,3 +463,48 @@ TEST(EventPolling, RemovingAnotherReadyRegistrationCancelsPendingDispatch) {
     EXPECT_TRUE(b.receiver->is_valid_socket());
     EXPECT_TRUE(set.remove_socket(a.receiver));
 }
+
+TEST(EventPolling, UdpReadinessIsDeliveredOnlyToTheReadySocket) {
+    aeon::udp_server_event_socket a, b;
+    ASSERT_TRUE(a.listen(0));
+    ASSERT_TRUE(b.listen(0));
+    aeon::event_socket_set events;
+    ASSERT_TRUE(events.add(&a));
+    ASSERT_TRUE(events.add(&b));
+    int a_hits = 0;
+    int b_hits = 0;
+    events.on_socket_datagram([&](aeon::udp_event_socket* source, const char*, int, const aeon::address&) {
+        if (source == &a) ++a_hits;
+        if (source == &b) ++b_hits;
+    });
+    aeon::udp_client_socket sender;
+    ASSERT_TRUE(sender.connect(loopback_of(b), port_of(b)));
+    ASSERT_EQ(sender.write("ready", 5), 5);
+    EXPECT_GT(events.poll(2000), 0);
+    EXPECT_EQ(a_hits, 0);
+    EXPECT_EQ(b_hits, 1);
+    EXPECT_EQ(events.poll(0), 0);
+    EXPECT_TRUE(events.remove_udp_socket(&a));
+    EXPECT_TRUE(events.remove_udp_socket(&b));
+}
+
+TEST(EventPolling, UdpReadinessDoesNotPersistAfterDatagramIsRead) {
+    aeon::udp_server_event_socket listener;
+    ASSERT_TRUE(listener.listen(0));
+    aeon::event_socket_set events;
+    ASSERT_TRUE(events.add(&listener));
+    int received = 0;
+    events.on_socket_datagram([&](aeon::udp_event_socket*, const char*, int size, const aeon::address&) {
+        EXPECT_EQ(size, 1);
+        ++received;
+    });
+    EXPECT_EQ(events.poll(0), 0);
+    aeon::udp_client_socket sender;
+    ASSERT_TRUE(sender.connect(loopback_of(listener), port_of(listener)));
+    ASSERT_EQ(sender.write("x", 1), 1);
+    EXPECT_GT(events.poll(2000), 0);
+    EXPECT_EQ(received, 1);
+    EXPECT_EQ(events.poll(0), 0);
+    EXPECT_EQ(received, 1);
+    EXPECT_TRUE(events.remove_udp_socket(&listener));
+}

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "callback_state.hpp"
-#include "native_poller.hpp"
+#include "internal/config.hpp"
 #include <algorithm>
 #include <cerrno>
 #include <cstddef>

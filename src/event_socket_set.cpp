@@ -5,7 +5,6 @@
  *********************************************************************/
 #include "event_socket_set.hpp"
 #include "internal/callback_state.hpp"
-#include "internal/native_poller.hpp"
 #include "server_event_socket.hpp"
 #include <chrono>
 #include <climits>
@@ -20,23 +19,13 @@
 
 namespace aeon::internal {
 
-int invalid_descriptor_error() noexcept {
-#ifdef NET_PLATFORM_WINDOWS
-    return WSAENOTSOCK;
-#else
-    return EBADF;
-#endif
-}
+struct poll_descriptor {
+    socket_t fd = invalid_socket;
+    short revents = 0;
+    bool watch_writable = false;
+};
 
-int would_block_error(int error) noexcept {
-#ifdef NET_PLATFORM_WINDOWS
-    return error == WSAEWOULDBLOCK;
-#else
-    return error == EAGAIN || error == EWOULDBLOCK || error == EINTR;
-#endif
-}
-
-int socket_pending_error(socket_t fd) {
+static int socket_pending_error(socket_t fd) {
     int code = 0;
 #ifdef NET_PLATFORM_WINDOWS
     int size = sizeof(code);
@@ -48,7 +37,7 @@ int socket_pending_error(socket_t fd) {
     return code;
 }
 
-int poll_readable(std::vector<poll_descriptor>& descriptors, int timeout_ms) {
+static int poll_readable(std::vector<poll_descriptor>& descriptors, int timeout_ms) {
     if (timeout_ms < -1) return -1;
     // revents belongs to this invocation, even on timeout or native error.
     // Callers may reuse descriptors for successive readiness checks.

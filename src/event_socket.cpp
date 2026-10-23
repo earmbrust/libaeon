@@ -5,7 +5,6 @@
  *********************************************************************/
 #include "event_socket.hpp"
 #include "internal/callback_state.hpp"
-#include "internal/native_poller.hpp"
 #include "internal/write_queue.hpp"
 #include <cstring>
 #include <algorithm>
