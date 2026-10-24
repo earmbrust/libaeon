@@ -6,6 +6,7 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -185,4 +186,29 @@ TEST(WriteQueue, CloseDiscardsPendingWithoutFiringDrain) {
     EXPECT_EQ(pair.writer->queued_bytes(), 0u);
     EXPECT_EQ(drains, 0);
     EXPECT_FALSE(pair.writer->queue_write("x", 1));
+}
+
+TEST(WriteQueue, MultiplePollsPreserveBinaryOrderThroughBudgetedFlush) {
+    write_pair pair;
+    ASSERT_TRUE(pair.start());
+    const auto bytes = binary(192 * 1024);
+    ASSERT_TRUE(pair.writer->set_max_queued_bytes(bytes.size()));
+    ASSERT_TRUE(pair.writer->queue_write(bytes));
+    std::string received(bytes.size(), '\0');
+    int read_count = -1;
+    std::thread receiver([&] {
+        read_count = pair.reader.read_until(received.data(), static_cast<int>(received.size()));
+    });
+    bool poll_failed = false;
+    for (int attempts = 0; pair.writer->queued_bytes() && attempts < 20; ++attempts) {
+        if (pair.set.poll(2000) < 0) {
+            poll_failed = true;
+            break;
+        }
+    }
+    receiver.join();
+    EXPECT_FALSE(poll_failed);
+    EXPECT_EQ(pair.writer->queued_bytes(), 0u);
+    EXPECT_EQ(read_count, static_cast<int>(received.size()));
+    EXPECT_EQ(received, bytes);
 }

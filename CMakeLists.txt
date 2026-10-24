@@ -345,8 +345,6 @@ add_test(NAME AeonTests COMMAND aeon_tests)
 add_executable(aeon_internal_tests
     tests/test_udp_internal.cpp
     tests/test_callback_state_internal.cpp
-    tests/test_socket_registry_internal.cpp
-    tests/test_write_queue_internal.cpp
 )
 target_include_directories(aeon_internal_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(aeon_internal_tests PRIVATE aeon-static gtest_main)

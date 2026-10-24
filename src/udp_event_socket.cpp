@@ -2,8 +2,20 @@
 #include "internal/callback_state.hpp"
 #include <utility>
 
+namespace aeon::internal {
+
+struct udp_callback_state {
+    callback_slot<void(const char*, int, const address&)> datagram;
+    callback_slot<void()> connect;
+    callback_slot<void()> close;
+    callback_slot<void()> listen;
+    callback_slot<void(int)> error;
+};
+
+} // namespace aeon::internal
+
 namespace aeon {
-udp_event_socket::udp_event_socket() : callbacks_(new internal::socket_callback_state) {
+udp_event_socket::udp_event_socket() : callbacks_(new internal::udp_callback_state) {
     if (is_valid_socket() && set_blocking(false) != 0) socket::close();
 }
 udp_event_socket::~udp_event_socket() { delete callbacks_; }

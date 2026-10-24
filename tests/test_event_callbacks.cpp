@@ -211,3 +211,18 @@ TEST(EventCallbacks, SetErrorIsIndependentFromData) {
     events.emit_error(&sock, 123);
     EXPECT_EQ(received, 123);
 }
+
+TEST(EventCallbacks, ReplacementDoesNotDestroyExecutingHandler) {
+    tcp_probe probe;
+    int old = 0;
+    int next = 0;
+    probe.on_data([&](const char*, int) {
+        ++old;
+        probe.on_data([&](const char*, int) { ++next; });
+        EXPECT_EQ(old, 1);
+    });
+    probe.emit_data("a", 1);
+    probe.emit_data("b", 1);
+    EXPECT_EQ(old, 1);
+    EXPECT_EQ(next, 1);
+}

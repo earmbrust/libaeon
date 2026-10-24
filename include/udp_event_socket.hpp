@@ -4,7 +4,7 @@
 #include <functional>
 
 namespace aeon {
-namespace internal { struct socket_callback_state; }
+namespace internal { struct udp_callback_state; }
 
 class LIBAEON_API udp_event_socket : public udp_socket {
     friend class event_socket_set;
@@ -39,6 +39,6 @@ protected:
     void fire_on_error(int);
 
 private:
-    internal::socket_callback_state* callbacks_;
+    internal::udp_callback_state* callbacks_;
 };
 } // namespace aeon

@@ -508,3 +508,35 @@ TEST(EventPolling, UdpReadinessDoesNotPersistAfterDatagramIsRead) {
     EXPECT_EQ(received, 1);
     EXPECT_TRUE(events.remove_udp_socket(&listener));
 }
+
+TEST(EventPolling, RemovingAndReaddingRegistrationDuringCallbackSkipsStaleSnapshot) {
+    tcp_fixture a;
+    tcp_fixture b;
+    ASSERT_TRUE(a.start());
+    ASSERT_TRUE(b.start());
+    aeon::event_socket_set set;
+    ASSERT_TRUE(set.add(a.receiver));
+    ASSERT_TRUE(set.add(b.receiver));
+    int first = 0;
+    int second = 0;
+    set.on_socket_data([&](aeon::event_socket* socket, const char*, int) {
+        if (socket == a.receiver) {
+            ++first;
+            EXPECT_TRUE(set.remove_socket(b.receiver));
+            EXPECT_TRUE(set.add(b.receiver));
+        } else {
+            ++second;
+        }
+    });
+    ASSERT_EQ(a.sender.write("a", 1), 1);
+    ASSERT_EQ(b.sender.write("b", 1), 1);
+    ASSERT_TRUE(wait_until_readable(a.receiver->sockfd));
+    ASSERT_TRUE(wait_until_readable(b.receiver->sockfd));
+    EXPECT_EQ(set.poll(2000), 1);
+    EXPECT_EQ(first, 1);
+    EXPECT_EQ(second, 0);
+    EXPECT_EQ(set.poll(2000), 1);
+    EXPECT_EQ(second, 1);
+    EXPECT_TRUE(set.remove_socket(a.receiver));
+    EXPECT_TRUE(set.remove_socket(b.receiver));
+}

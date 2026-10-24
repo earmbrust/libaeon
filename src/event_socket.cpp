@@ -5,11 +5,38 @@
  *********************************************************************/
 #include "event_socket.hpp"
 #include "internal/callback_state.hpp"
-#include "internal/write_queue.hpp"
+#include "internal/config.hpp"
+#include <cerrno>
+#include <deque>
+#include <mutex>
+#include <string>
 #include <cstring>
 #include <algorithm>
 #include <limits>
+#include <memory>
 #include <utility>
+
+namespace aeon::internal {
+
+struct pending_write_state {
+    mutable std::mutex mutex;
+    std::deque<std::string> chunks;
+    std::size_t front_offset = 0;
+    std::size_t bytes = 0;
+    std::size_t limit = 1024 * 1024;
+};
+
+struct socket_callback_state {
+    pending_write_state outgoing;
+    callback_slot<void()> drain;
+    callback_slot<void(const char*, int)> data;
+    callback_slot<void()> connect;
+    callback_slot<void()> close;
+    callback_slot<void()> listen;
+    callback_slot<void(int)> error;
+};
+
+} // namespace aeon::internal
 
 namespace aeon {
 
@@ -81,19 +108,60 @@ event_socket::flush_result event_socket::flush_queued(std::size_t budget) {
         return {0, err, false};
     }
 #endif
-    const auto progress = internal::flush_pending_writes(callbacks_->outgoing, budget,
-        [this](const char* data, int length) -> internal::send_attempt {
-            int flags = 0;
+    auto& out = callbacks_->outgoing;
+    std::lock_guard<std::mutex> guard(out.mutex);
+    const bool was_nonempty = out.bytes != 0;
+    flush_result result{};
+    unsigned int interrupts = 0;
+    while (out.bytes && result.bytes < budget) {
+        const auto& front = out.chunks.front();
+        const auto available = front.size() - out.front_offset;
+        const int requested = static_cast<int>(std::min({available, budget - result.bytes,
+            static_cast<std::size_t>(std::numeric_limits<int>::max())}));
+        int flags = 0;
 #ifdef MSG_NOSIGNAL
-            flags |= MSG_NOSIGNAL;
+        flags |= MSG_NOSIGNAL;
 #endif
 #ifdef MSG_DONTWAIT
-            flags |= MSG_DONTWAIT;
+        flags |= MSG_DONTWAIT;
 #endif
-            const int sent = static_cast<int>(::send(sockfd, data, length, flags));
-            return {sent, sent < 0 ? GET_NET_SOCKET_ERROR() : 0};
-        });
-    return {progress.bytes, progress.error, progress.drained};
+        const int sent = static_cast<int>(::send(sockfd, front.data() + out.front_offset,
+                                                  requested, flags));
+        const int error = sent < 0 ? GET_NET_SOCKET_ERROR() : 0;
+        if (sent < 0) {
+#ifdef NET_PLATFORM_WINDOWS
+            const bool interrupted = error == WSAEINTR;
+#else
+            const bool interrupted = error == EINTR;
+#endif
+            if (interrupted && ++interrupts <= 4) continue;
+            if (interrupted || internal::would_block_error(error)) break;
+            result.error = error ? error : internal::invalid_descriptor_error();
+            out.chunks.clear();
+            out.front_offset = 0;
+            out.bytes = 0;
+            break;
+        }
+        if (sent == 0) break;
+        if (sent > requested) {
+            result.error = internal::invalid_descriptor_error();
+            out.chunks.clear();
+            out.front_offset = 0;
+            out.bytes = 0;
+            break;
+        }
+        interrupts = 0;
+        const auto count = static_cast<std::size_t>(sent);
+        out.front_offset += count;
+        out.bytes -= count;
+        result.bytes += count;
+        if (out.front_offset == front.size()) {
+            out.chunks.pop_front();
+            out.front_offset = 0;
+        }
+    }
+    result.drained = was_nonempty && !out.bytes && !result.error;
+    return result;
 }
 
 void event_socket::fire_on_data(const char* data, int size) {
