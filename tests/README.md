@@ -13,10 +13,10 @@ This project uses **Google Test (gtest)** for unit testing. Google Test is the i
 mkdir build
 cd build
 
-# Configure with CMake (tests are enabled by default)
-cmake ..
+# Configure with CMake (tests are optional)
+cmake -DBUILD_TESTING=ON ..
 
-# Build everything including tests
+# Build libraries and tests
 cmake --build .
 
 # Run tests
@@ -26,8 +26,9 @@ ctest --output-on-failure
 ```
 
 The core TCP/UDP tests and C++20 consumer checks also run with
-``-DLIBAEON_ENABLE_EVENTS=OFF``. Event-specific tests, examples, and the
-queued-write benchmark are only built when event support is enabled.
+`-DLIBAEON_ENABLE_EVENTS=OFF`. Event-specific tests, examples, and the
+queued-write benchmark require event support. Example executables are separate
+from the tests and require `-DLIBAEON_BUILD_EXAMPLES=ON`.
 
 ### With Optional Flags
 

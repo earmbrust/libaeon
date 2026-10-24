@@ -1,9 +1,4 @@
-cmake_minimum_required(VERSION 3.15)
-
-# Set policy for FetchContent timestamp handling (CMake 3.24+)
-if(POLICY CMP0135)
-  cmake_policy(SET CMP0135 NEW)
-endif()
+cmake_minimum_required(VERSION 3.24)
 
 # Fix Python3 detection for Windows + pyenv
 # Google Test doesn't need Python to build, but its CMake tries to find it
@@ -158,6 +153,7 @@ add_definitions(-DVERSION=${PROJECT_VERSION})
 # SSL/TLS support option
 option(ENABLE_SSL "Enable SSL/TLS support with OpenSSL" OFF)
 option(LIBAEON_ENABLE_EVENTS "Build event-driven socket support" ON)
+option(LIBAEON_BUILD_EXAMPLES "Build libAeon example programs" OFF)
 
 if(ENABLE_SSL)
     find_package(OpenSSL REQUIRED)
@@ -193,7 +189,6 @@ set(LIBAEON_SOURCES
     src/client_socket.cpp
     src/server_socket.cpp
     src/socket_set.cpp
-    src/peer_collection.cpp
     src/udp_socket.cpp
     src/udp_client_socket.cpp
     src/udp_server_socket.cpp
@@ -201,7 +196,6 @@ set(LIBAEON_SOURCES
 
 if(LIBAEON_ENABLE_EVENTS)
     list(APPEND LIBAEON_SOURCES
-        src/event_handlers.cpp
         src/event_socket.cpp
         src/client_event_socket.cpp
         src/server_event_socket.cpp
@@ -313,19 +307,22 @@ else()
     endif()
 endif()
 
-# BUILD_TESTING defaults to ON; OFF supports dependency-free library builds.
-# Normal test configurations retain the existing GoogleTest suite and consumers.
+# Build only the libraries by default. CI and local development can enable tests.
+option(BUILD_TESTING "Build libAeon tests" OFF)
 include(CTest)
 if(BUILD_TESTING)
     # Testing with Google Test
     include(FetchContent)
 
+# GoogleTest's subproject normally receives this version from its root CMakeLists.txt.
+set(GOOGLETEST_VERSION 1.14.0)
 FetchContent_Declare(googletest
-  URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
+  URL https://github.com/google/googletest/archive/refs/tags/v${GOOGLETEST_VERSION}.zip
   DOWNLOAD_EXTRACT_TIMESTAMP ON
+  SOURCE_SUBDIR googletest
 )
 
-# For Windows: Prevent overriding the parent project's compiler/linker settings
+# Keep the test runtime consistent with the Windows library build.
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 
 FetchContent_MakeAvailable(googletest)
@@ -370,27 +367,19 @@ target_include_directories(aeon_internal_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(aeon_internal_tests PRIVATE aeon-static gtest_main)
 add_test(NAME AeonInternalTests COMMAND aeon_internal_tests)
 
-# Compiled, independently linked consumers validate the public API and ABI-facing
-# export configuration, not merely compilation of internal unit tests.
+# Two independent C++20 consumers verify public headers, exports, callbacks,
+# and actual shared/static linkage without separate duplicate smoke executables.
 add_executable(aeon_consumer_shared tests/consumer_interface.cpp)
 target_link_libraries(aeon_consumer_shared PRIVATE aeon)
+set_target_properties(aeon_consumer_shared PROPERTIES
+    CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
 add_test(NAME AeonSharedConsumer COMMAND aeon_consumer_shared)
 
 add_executable(aeon_consumer_static tests/consumer_interface.cpp)
 target_link_libraries(aeon_consumer_static PRIVATE aeon-static)
+set_target_properties(aeon_consumer_static PROPERTIES
+    CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
 add_test(NAME AeonStaticConsumer COMMAND aeon_consumer_static)
-
-# Compile and run the public interface in strict C++20 even when implementation
-# builds use C++23. Covers both shared and static export/propagation behavior.
-add_executable(aeon_cxx20_shared tests/m0_cpp_baseline.cpp)
-target_link_libraries(aeon_cxx20_shared PRIVATE aeon)
-set_target_properties(aeon_cxx20_shared PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
-add_test(NAME AeonCxx20Shared COMMAND aeon_cxx20_shared)
-
-add_executable(aeon_cxx20_static tests/m0_cpp_baseline.cpp)
-target_link_libraries(aeon_cxx20_static PRIVATE aeon-static)
-set_target_properties(aeon_cxx20_static PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
-add_test(NAME AeonCxx20Static COMMAND aeon_cxx20_static)
 
 # M6c: real loopback TLS with generated, trusted/mismatched/self-signed certs.
 # No external network or openssl CLI dependency; runs for static and shared.
@@ -405,86 +394,76 @@ if(ENABLE_SSL)
 endif()
 endif()
 
-# Example executables
-add_executable(http-client example/http-client.cpp)
-target_include_directories(http-client PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(http-client aeon)
+# Ordinary example executables are opt-in and do not affect the default build.
+if(LIBAEON_BUILD_EXAMPLES)
+    add_executable(http-client example/http-client.cpp)
+    target_link_libraries(http-client PRIVATE aeon)
 
-add_executable(hello-world example/hello-world.cpp)
-target_include_directories(hello-world PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(hello-world aeon)
+    add_executable(hello-world example/hello-world.cpp)
+    target_link_libraries(hello-world PRIVATE aeon)
 
-if(LIBAEON_ENABLE_EVENTS)
-add_executable(simple-server example/simple-server.cpp)
-target_include_directories(simple-server PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(simple-server aeon)
-endif()
+    add_executable(test-client example/test-client.cpp)
+    target_link_libraries(test-client PRIVATE aeon)
 
-add_executable(test-client example/test-client.cpp)
-target_include_directories(test-client PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(test-client aeon)
+    add_executable(udp-server example/udp-server.cpp)
+    target_link_libraries(udp-server PRIVATE aeon)
 
-add_executable(udp-server example/udp-server.cpp)
-target_include_directories(udp-server PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(udp-server aeon)
+    add_executable(udp-client example/udp-client.cpp)
+    target_link_libraries(udp-client PRIVATE aeon)
 
-add_executable(udp-client example/udp-client.cpp)
-target_include_directories(udp-client PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(udp-client aeon)
-
-if(LIBAEON_ENABLE_EVENTS)
-# Real-world chat example: reusable application core plus executable. Its
-# integration tests exercise the same core in-process, not a mock server.
-add_library(aeon_chat_example STATIC example/chat_server.cpp)
-target_include_directories(aeon_chat_example PUBLIC ${CMAKE_SOURCE_DIR}/example)
-target_link_libraries(aeon_chat_example PUBLIC aeon)
-set_target_properties(aeon_chat_example PROPERTIES
-    CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
-
-add_executable(chat-server example/chat-server.cpp)
-target_link_libraries(chat-server PRIVATE aeon_chat_example)
-
-if(BUILD_TESTING)
-    target_sources(aeon_tests PRIVATE tests/test_chat_server.cpp)
-    target_link_libraries(aeon_tests PRIVATE aeon_chat_example)
-endif()
-
-# UDP Pong: one authoritative, two-player server and an ASCII terminal client.
-add_library(aeon_pong_example STATIC example/pong_server.cpp)
-target_include_directories(aeon_pong_example PUBLIC ${CMAKE_SOURCE_DIR}/example)
-target_link_libraries(aeon_pong_example PUBLIC aeon)
-set_target_properties(aeon_pong_example PROPERTIES
-    CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
-
-add_executable(pong-server example/pong-server.cpp)
-target_link_libraries(pong-server PRIVATE aeon_pong_example)
-
-add_executable(pong-client example/pong-client.cpp)
-target_link_libraries(pong-client PRIVATE aeon)
-
-if(BUILD_TESTING)
     if(LIBAEON_ENABLE_EVENTS)
-        target_sources(aeon_tests PRIVATE tests/test_udp_pong.cpp)
+        add_executable(simple-server example/simple-server.cpp)
+        target_link_libraries(simple-server PRIVATE aeon)
     endif()
-    target_link_libraries(aeon_tests PRIVATE aeon_pong_example)
 endif()
 
-# M5c: minimally scoped HTTP/1.x server with real loopback integration tests.
-add_library(aeon_http_example STATIC example/http_server.cpp)
-target_include_directories(aeon_http_example PUBLIC ${CMAKE_SOURCE_DIR}/example)
-target_link_libraries(aeon_http_example PUBLIC aeon)
-set_target_properties(aeon_http_example PROPERTIES
-    CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+# Integration tests use the real example server implementations even when
+# example executables are disabled. Neither is built by default.
+if(LIBAEON_ENABLE_EVENTS AND (LIBAEON_BUILD_EXAMPLES OR BUILD_TESTING))
+    add_library(aeon_chat_example STATIC example/chat_server.cpp)
+    target_include_directories(aeon_chat_example PUBLIC ${CMAKE_SOURCE_DIR}/example)
+    target_link_libraries(aeon_chat_example PUBLIC aeon)
+    set_target_properties(aeon_chat_example PROPERTIES
+        CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+    if(LIBAEON_BUILD_EXAMPLES)
+        add_executable(chat-server example/chat-server.cpp)
+        target_link_libraries(chat-server PRIVATE aeon_chat_example)
+    endif()
+    if(BUILD_TESTING)
+        target_sources(aeon_tests PRIVATE tests/test_chat_server.cpp)
+        target_link_libraries(aeon_tests PRIVATE aeon_chat_example)
+    endif()
 
-add_executable(http-server example/http-server.cpp)
-target_link_libraries(http-server PRIVATE aeon_http_example)
+    add_library(aeon_pong_example STATIC example/pong_server.cpp)
+    target_include_directories(aeon_pong_example PUBLIC ${CMAKE_SOURCE_DIR}/example)
+    target_link_libraries(aeon_pong_example PUBLIC aeon)
+    set_target_properties(aeon_pong_example PROPERTIES
+        CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+    if(LIBAEON_BUILD_EXAMPLES)
+        add_executable(pong-server example/pong-server.cpp)
+        target_link_libraries(pong-server PRIVATE aeon_pong_example)
+        add_executable(pong-client example/pong-client.cpp)
+        target_link_libraries(pong-client PRIVATE aeon)
+    endif()
+    if(BUILD_TESTING)
+        target_sources(aeon_tests PRIVATE tests/test_udp_pong.cpp)
+        target_link_libraries(aeon_tests PRIVATE aeon_pong_example)
+    endif()
 
-if(BUILD_TESTING)
-    target_sources(aeon_tests PRIVATE tests/test_http_server.cpp)
-    target_link_libraries(aeon_tests PRIVATE aeon_http_example)
+    add_library(aeon_http_example STATIC example/http_server.cpp)
+    target_include_directories(aeon_http_example PUBLIC ${CMAKE_SOURCE_DIR}/example)
+    target_link_libraries(aeon_http_example PUBLIC aeon)
+    set_target_properties(aeon_http_example PROPERTIES
+        CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+    if(LIBAEON_BUILD_EXAMPLES)
+        add_executable(http-server example/http-server.cpp)
+        target_link_libraries(http-server PRIVATE aeon_http_example)
+    endif()
+    if(BUILD_TESTING)
+        target_sources(aeon_tests PRIVATE tests/test_http_server.cpp)
+        target_link_libraries(aeon_tests PRIVATE aeon_http_example)
+    endif()
 endif()
-
-endif() # LIBAEON_ENABLE_EVENTS
 
 # Benchmark is opt-in and does not require GoogleTest or extra dependencies.
 option(LIBAEON_BUILD_BENCHMARKS "Build standalone loopback throughput benchmark" OFF)
@@ -510,6 +489,8 @@ if(LIBAEON_ENABLE_CXX23)
 endif()
 message(STATUS "Event sockets: ${LIBAEON_ENABLE_EVENTS}")
 message(STATUS "Build tests: ${BUILD_TESTING}")
+message(STATUS "Build examples: ${LIBAEON_BUILD_EXAMPLES}")
+message(STATUS "Build benchmarks: ${LIBAEON_BUILD_BENCHMARKS}")
 message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "Platform: ${CMAKE_SYSTEM_NAME}")
 message(STATUS "Processor: ${CMAKE_SYSTEM_PROCESSOR}")

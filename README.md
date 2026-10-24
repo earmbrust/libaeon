@@ -65,12 +65,14 @@ from a zero-length datagram at the protocol level if that matters.
 
 ## Build and test
 
+By default CMake builds only the shared and static libAeon libraries.
+Tests, examples, and benchmarks are enabled separately.
+
 Linux and macOS (GCC / Clang):
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
-ctest --test-dir build --output-on-failure
 ```
 
 Windows (MSVC 2022):
@@ -78,7 +80,6 @@ Windows (MSVC 2022):
 ```powershell
 cmake -S . -B build-vs2022 -G "Visual Studio 17 2022" -A x64
 cmake --build build-vs2022 --config Release
-ctest --test-dir build-vs2022 -C Release --output-on-failure
 ```
 
 Visual Studio 2026 is also supported with the Visual Studio 18 generator in a
@@ -88,7 +89,20 @@ certificate trust and DNS/IP identity by default; `set_allow_self_signed(true)`
 opts into untrusted self-signed leaf certificates without disabling hostname
 checking. The HTTP example has a separate explicit `--no-verify` escape hatch.
 
-Builds include Google Test unit tests, fetched during CMake configure.
+For tests (which download Google Test on first configuration), enable
+`BUILD_TESTING` explicitly:
+
+```sh
+cmake -S . -B build-tests -DBUILD_TESTING=ON
+cmake --build build-tests --parallel
+ctest --test-dir build-tests --output-on-failure
+```
+
+To build the example programs, set `LIBAEON_BUILD_EXAMPLES=ON`. To build
+the event write-queue benchmark, set `LIBAEON_BUILD_BENCHMARKS=ON`; it also
+requires event sockets. All three options default to OFF. CI explicitly
+enables tests and examples where needed.
+
 A public CI matrix builds on Windows, Linux and macOS with several compilers
 and architectures (including ARM and 32-bit targets). See
 [GitHub Actions](https://github.com/earmbrust/libaeon/actions) for current
@@ -100,7 +114,7 @@ Event sockets are enabled by default. Applications that use only the ordinary
 TCP/UDP sockets can disable them to reduce library size:
 
 ```sh
-cmake -S . -B build-core -DCMAKE_BUILD_TYPE=Release -DLIBAEON_ENABLE_EVENTS=OFF -DBUILD_TESTING=OFF
+cmake -S . -B build-core -DCMAKE_BUILD_TYPE=Release -DLIBAEON_ENABLE_EVENTS=OFF
 cmake --build build-core --parallel
 ```
 

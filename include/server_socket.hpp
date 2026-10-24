@@ -1,6 +1,5 @@
 #pragma once
 #include "socket.hpp"
-#include "internal/peer_collection.hpp"
 
 namespace aeon {
 

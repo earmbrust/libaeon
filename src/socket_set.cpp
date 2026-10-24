@@ -6,11 +6,69 @@
 
 #include <aeon.hpp>
 #include <vector>
+#include <algorithm>
+#include <memory>
 #include <utility>
 #include <climits>
 
 namespace aeon {
 namespace internal {
+struct peer_collection::state {
+    std::vector<std::unique_ptr<socket>> owned;
+    socket_set members;
+};
+
+peer_collection::peer_collection() : peers_(new state) {}
+peer_collection::~peer_collection() { delete peers_; }
+
+socket* peer_collection::add_peer(std::unique_ptr<socket> peer) {
+    if (!peer) return nullptr;
+    socket* borrowed = peer.get();
+    peers_->owned.push_back(std::move(peer));
+    try {
+        if (!peers_->members.add(borrowed)) {
+            peers_->owned.pop_back();
+            return nullptr;
+        }
+    } catch (...) {
+        peers_->owned.pop_back();
+        throw;
+    }
+    return borrowed;
+}
+
+bool peer_collection::remove_owned_peer(socket* peer) {
+    if (!peer) return false;
+    auto& owned = peers_->owned;
+    const auto it = std::find_if(owned.begin(), owned.end(),
+        [peer](const auto& entry) { return entry.get() == peer; });
+    if (it == owned.end()) return false;
+    for (unsigned int i = 0; i < static_cast<unsigned int>(peers_->members.size()); ++i) {
+        if (peers_->members.at(i) == peer) {
+            peers_->members.remove(i);
+            break;
+        }
+    }
+    (*it)->close();
+    owned.erase(it);
+    return true;
+}
+
+bool peer_collection::close_owned_peers() {
+    bool changed = false;
+    for (auto& peer : peers_->owned) changed = peer->close() || changed;
+    return changed;
+}
+
+socket_set& peer_collection::peer_members() { return peers_->members; }
+const socket_set& peer_collection::peer_members() const { return peers_->members; }
+int peer_collection::owned_peer_count() const {
+    return static_cast<int>(peers_->owned.size());
+}
+socket* peer_collection::owned_peer_at(unsigned int index) const {
+    return index < peers_->owned.size() ? peers_->owned[index].get() : nullptr;
+}
+
 struct socket_set_state {
     std::vector<socket*> sockets;
     int error_code = err_none;

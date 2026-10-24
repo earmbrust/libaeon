@@ -6,7 +6,6 @@
 #pragma once
 
 #include "socket.hpp"
-#include "internal/event_handlers.hpp"
 #include <functional>
 #include <cstddef>
 

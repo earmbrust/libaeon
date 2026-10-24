@@ -1,6 +1,5 @@
 #pragma once
 #include "udp_event_socket.hpp"
-#include "internal/peer_collection.hpp"
 
 namespace aeon {
 class LIBAEON_API udp_server_event_socket : public udp_event_socket, protected internal::peer_collection {

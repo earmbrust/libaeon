@@ -1,7 +1,6 @@
 #pragma once
 
 #include "udp_socket.hpp"
-#include "internal/event_handlers.hpp"
 #include <functional>
 
 namespace aeon {

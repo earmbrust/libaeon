@@ -67,6 +67,7 @@
 // Common headers
 #include <fcntl.h>
 #include <memory>
+#include <cstddef>
 #include <string>
 #include <vector>
 #include <cstring>
@@ -113,6 +114,55 @@ constexpr int state_accept = 3;
 constexpr int state_connect = 4;
 constexpr int state_bind = 5;
 inline bool is_valid_port(int port) { return port >= 0 && port <= 65535; }
+} // namespace aeon
+
+namespace aeon {
+class socket;
+class udp_socket;
+class address;
+class socket_set;
+
+namespace internal {
+class LIBAEON_API peer_collection {
+protected:
+    peer_collection();
+    ~peer_collection();
+    peer_collection(const peer_collection&) = delete;
+    peer_collection& operator=(const peer_collection&) = delete;
+
+    socket* add_peer(std::unique_ptr<socket> peer);
+    bool remove_owned_peer(socket* peer);
+    bool close_owned_peers();
+    socket_set& peer_members();
+    const socket_set& peer_members() const;
+    int owned_peer_count() const;
+    socket* owned_peer_at(unsigned int index) const;
+    socket* find_udp_peer(const address& remote) const;
+    udp_socket* get_or_create_udp_peer(udp_socket* server, const address& remote);
+
+private:
+    struct state;
+    state* peers_;
+};
+
+#if LIBAEON_HAS_EVENTS
+class LIBAEON_API event_handlers {
+protected:
+    explicit event_handlers(std::size_t count);
+    ~event_handlers();
+    event_handlers(const event_handlers&) = delete;
+    event_handlers& operator=(const event_handlers&) = delete;
+
+    void set_handler(std::size_t slot, std::shared_ptr<const void> handler);
+    std::shared_ptr<const void> get_handler(std::size_t slot) const;
+
+private:
+    struct state;
+    state* callbacks_;
+};
+#endif
+
+} // namespace internal
 } // namespace aeon
 
 #include "address.hpp"

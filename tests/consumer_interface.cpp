@@ -5,9 +5,31 @@
  *********************************************************************/
 
 #include <aeon.hpp>
+#include <array>
+#include <cstddef>
+#include <concepts>
+#include <span>
+#include <string_view>
+#include <type_traits>
 #include <cstring>
 #include <iostream>
 #include <string>
+
+#if defined(_MSVC_LANG)
+static_assert(_MSVC_LANG >= 202002L, "Aeon requires C++20");
+#else
+static_assert(__cplusplus >= 202002L, "Aeon requires C++20");
+#endif
+
+static_assert(std::derived_from<aeon::client_socket, aeon::socket>);
+static_assert(std::derived_from<aeon::server_socket, aeon::socket>);
+#if LIBAEON_HAS_EVENTS
+static_assert(std::derived_from<aeon::event_socket, aeon::socket>);
+#endif
+static_assert(std::derived_from<aeon::udp_socket, aeon::socket>);
+#ifdef ENABLE_SSL
+static_assert(std::derived_from<aeon::ssl_client_socket, aeon::socket>);
+#endif
 
 namespace {
 
@@ -46,6 +68,14 @@ public:
 
 int main() {
     // The exported version symbol must resolve for both linking variants.
+    std::array<std::byte, 4> bytes{};
+    std::span<std::byte> writable(bytes);
+    writable[0] = std::byte{0x42};
+    const std::span<const std::byte> readable = writable;
+    if (readable.size() != 4 || readable[0] != std::byte{0x42}) {
+        return fail("C++20 span");
+    }
+
     const char* version = aeon::get_library_version();
     if (!version || !*version) return fail("exported library version");
 

@@ -6,7 +6,6 @@
 #pragma once
 
 #include "event_socket.hpp"
-#include "internal/event_handlers.hpp"
 #include "udp_event_socket.hpp"
 #include <functional>
 #include <cstddef>
