@@ -7,8 +7,7 @@
 #pragma once
 
 #include "address.hpp"
-#include "internal/config.hpp"
-#include "internal/export.hpp"
+#include "aeon_export.hpp"
 
 namespace aeon {
 

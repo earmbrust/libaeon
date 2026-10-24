@@ -1,3 +1,4 @@
+#include "aeon.hpp"
 #include "client_socket.hpp"
 
 namespace aeon {

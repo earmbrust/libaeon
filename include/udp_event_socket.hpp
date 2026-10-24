@@ -1,12 +1,12 @@
 #pragma once
 
 #include "udp_socket.hpp"
+#include "internal/event_handlers.hpp"
 #include <functional>
 
 namespace aeon {
-namespace internal { struct udp_callback_state; }
 
-class LIBAEON_API udp_event_socket : public udp_socket {
+class LIBAEON_API udp_event_socket : public udp_socket, protected internal::event_handlers {
     friend class event_socket_set;
 public:
     using datagram_handler = std::function<void(const char*, int, const address&)>;
@@ -39,6 +39,6 @@ protected:
     void fire_on_error(int);
 
 private:
-    internal::udp_callback_state* callbacks_;
+
 };
 } // namespace aeon

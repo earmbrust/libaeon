@@ -1,10 +1,9 @@
 #pragma once
 #include "udp_socket.hpp"
-#include "socket_set.hpp"
+#include "internal/peer_collection.hpp"
 
 namespace aeon {
-namespace internal { struct udp_peer_store; }
-class LIBAEON_API udp_server_socket : public udp_socket {
+class LIBAEON_API udp_server_socket : public udp_socket, protected internal::peer_collection {
 public:
     udp_server_socket();
     ~udp_server_socket() override;
@@ -17,9 +16,7 @@ public:
     const socket_set& peers() const;
     // Listening read records a logical peer for the last source address.
     int read(char* buffer, int size) override;
-    int read() override;
-    std::string read(int size) override;
+    using udp_socket::read;
 private:
-    internal::udp_peer_store* peers_;
 };
 } // namespace aeon

@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
-#include "socket.hpp"
 #include "aeon.hpp"
+#include "socket.hpp"
 #include "client_socket.hpp"
 #include "server_socket.hpp"
 #include "udp_socket.hpp"

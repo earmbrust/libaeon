@@ -1,10 +1,9 @@
 #pragma once
 #include "udp_event_socket.hpp"
-#include "socket_set.hpp"
+#include "internal/peer_collection.hpp"
 
 namespace aeon {
-namespace internal { struct udp_peer_store; }
-class LIBAEON_API udp_server_event_socket : public udp_event_socket {
+class LIBAEON_API udp_server_event_socket : public udp_event_socket, protected internal::peer_collection {
 public:
     udp_server_event_socket();
     ~udp_server_event_socket() override;
@@ -12,8 +11,7 @@ public:
     bool listen();
     bool close() override;
     int read(char* buffer, int size) override;
-    int read() override;
-    std::string read(int size) override;
+    using udp_socket::read;
     udp_socket* get_peer(const address& remote);
     bool remove_peer(udp_socket* peer);
     socket_set& peers();
@@ -21,6 +19,5 @@ public:
 protected:
     void register_sender(const address& remote) override;
 private:
-    internal::udp_peer_store* peers_;
 };
 } // namespace aeon

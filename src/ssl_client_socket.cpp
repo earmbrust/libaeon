@@ -6,6 +6,7 @@
 
 #ifdef ENABLE_SSL
 
+#include "aeon.hpp"
 #include "ssl_client_socket.hpp"
 #include "resolver.hpp"
 #include <stdexcept>

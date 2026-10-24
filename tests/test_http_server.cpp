@@ -1,3 +1,4 @@
+#include "aeon.hpp"
 #include <gtest/gtest.h>
 #include "http_server.hpp"
 

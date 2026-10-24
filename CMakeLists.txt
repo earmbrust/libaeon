@@ -157,6 +157,7 @@ add_definitions(-DVERSION=${PROJECT_VERSION})
 
 # SSL/TLS support option
 option(ENABLE_SSL "Enable SSL/TLS support with OpenSSL" OFF)
+option(LIBAEON_ENABLE_EVENTS "Build event-driven socket support" ON)
 
 if(ENABLE_SSL)
     find_package(OpenSSL REQUIRED)
@@ -168,13 +169,10 @@ endif()
 # Platform detection
 if(WIN32)
     message(STATUS "Detected platform: Windows")
-    add_definitions(-D_WIN32)
 elseif(APPLE)
     message(STATUS "Detected platform: macOS")
-    add_definitions(-D__APPLE__)
 elseif(UNIX AND NOT APPLE)
     message(STATUS "Detected platform: Linux")
-    add_definitions(-D__linux__)
 endif()
 
 # Architecture detection and logging
@@ -182,17 +180,6 @@ message(STATUS "Target architecture: ${CMAKE_SYSTEM_PROCESSOR}")
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "ARM|arm|aarch64")
     message(STATUS "ARM architecture detected - optimization may vary")
 endif()
-
-# Configuration header
-include(CheckIncludeFiles)
-CHECK_INCLUDE_FILES(dlfcn.h HAVE_DLFCN_H)
-CHECK_INCLUDE_FILES(inttypes.h HAVE_INTTYPES_H)
-CHECK_INCLUDE_FILES(memory.h HAVE_MEMORY_H)
-CHECK_INCLUDE_FILES(stdbool.h HAVE_STDBOOL_H)
-CHECK_INCLUDE_FILES(stdint.h HAVE_STDINT_H)
-CHECK_INCLUDE_FILES(stdlib.h HAVE_STDLIB_H)
-CHECK_INCLUDE_FILES(strings.h HAVE_STRINGS_H)
-CHECK_INCLUDE_FILES(string.h HAVE_STRING_H)
 
 # Include directories - headers are in include/, sources in src/
 include_directories(include)
@@ -205,17 +192,25 @@ set(LIBAEON_SOURCES
     src/socket.cpp
     src/client_socket.cpp
     src/server_socket.cpp
-    src/event_socket.cpp
-    src/client_event_socket.cpp
-    src/server_event_socket.cpp
     src/socket_set.cpp
-    src/event_socket_set.cpp
+    src/peer_collection.cpp
     src/udp_socket.cpp
     src/udp_client_socket.cpp
     src/udp_server_socket.cpp
-    src/udp_event_socket.cpp
-    src/udp_client_event_socket.cpp
 )
+
+if(LIBAEON_ENABLE_EVENTS)
+    list(APPEND LIBAEON_SOURCES
+        src/event_handlers.cpp
+        src/event_socket.cpp
+        src/client_event_socket.cpp
+        src/server_event_socket.cpp
+        src/event_socket_set.cpp
+        src/udp_event_socket.cpp
+        src/udp_client_event_socket.cpp
+        src/udp_server_event_socket.cpp
+    )
+endif()
 
 # Add SSL sources if enabled
 if(ENABLE_SSL)
@@ -227,12 +222,32 @@ endif()
 
 # Shared library
 add_library(aeon SHARED ${LIBAEON_SOURCES})
-target_compile_definitions(aeon PRIVATE LIBAEON_EXPORTS)
+include(GenerateExportHeader)
+generate_export_header(aeon
+    EXPORT_FILE_NAME "${CMAKE_CURRENT_BINARY_DIR}/generated/aeon_export.hpp"
+    EXPORT_MACRO_NAME LIBAEON_API
+    STATIC_DEFINE LIBAEON_STATIC
+)
+target_include_directories(aeon PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated>
+    $<INSTALL_INTERFACE:include>
+)
 
 # Static library
 add_library(aeon-static STATIC ${LIBAEON_SOURCES})
 set_target_properties(aeon-static PROPERTIES OUTPUT_NAME aeon_static)
 target_compile_definitions(aeon-static PUBLIC LIBAEON_STATIC)
+target_include_directories(aeon-static PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated>
+    $<INSTALL_INTERFACE:include>
+)
+
+set(LIBAEON_HAS_EVENTS ${LIBAEON_ENABLE_EVENTS})
+set(LIBAEON_HAS_SSL ${ENABLE_SSL})
+configure_file(cmake/aeon_features.hpp.in
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/aeon_features.hpp")
 
 # Consumers always require C++20, including when library internals are built
 # with optional C++23 features. Never propagate cxx_std_23 through targets.
@@ -320,20 +335,26 @@ enable_testing()
 # Test executable
 add_executable(aeon_tests
     tests/test_address.cpp
+    tests/test_core_peer_collections.cpp
     tests/test_socket_basics.cpp
     tests/test_abi_storage.cpp
-    tests/test_tcp_ownership.cpp
-    tests/test_server_peer_lifecycle.cpp
-    tests/test_event_callbacks.cpp
-    tests/test_event_lifecycle.cpp
-    tests/test_event_polling.cpp
     tests/test_io_sizes.cpp
-    tests/test_write_queue.cpp
-    tests/test_udp_ownership.cpp
     tests/test_udp.cpp
     tests/test_resolver.cpp
 )
 
+if(LIBAEON_ENABLE_EVENTS)
+    target_sources(aeon_tests PRIVATE
+        tests/test_event_callbacks.cpp
+        tests/test_event_lifecycle.cpp
+        tests/test_event_polling.cpp
+        tests/test_write_queue.cpp
+        tests/test_server_peer_lifecycle.cpp
+        tests/test_tcp_ownership.cpp
+        tests/test_udp_ownership.cpp
+        tests/test_udp_send_to.cpp
+    )
+endif()
 target_include_directories(aeon_tests PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(aeon_tests PRIVATE aeon gtest_main)
 
@@ -344,7 +365,6 @@ add_test(NAME AeonTests COMMAND aeon_tests)
 # implementation seams are testable without adding DLL/public API symbols.
 add_executable(aeon_internal_tests
     tests/test_udp_internal.cpp
-    tests/test_callback_state_internal.cpp
 )
 target_include_directories(aeon_internal_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(aeon_internal_tests PRIVATE aeon-static gtest_main)
@@ -394,9 +414,11 @@ add_executable(hello-world example/hello-world.cpp)
 target_include_directories(hello-world PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(hello-world aeon)
 
+if(LIBAEON_ENABLE_EVENTS)
 add_executable(simple-server example/simple-server.cpp)
 target_include_directories(simple-server PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(simple-server aeon)
+endif()
 
 add_executable(test-client example/test-client.cpp)
 target_include_directories(test-client PRIVATE ${CMAKE_SOURCE_DIR}/include)
@@ -410,6 +432,7 @@ add_executable(udp-client example/udp-client.cpp)
 target_include_directories(udp-client PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(udp-client aeon)
 
+if(LIBAEON_ENABLE_EVENTS)
 # Real-world chat example: reusable application core plus executable. Its
 # integration tests exercise the same core in-process, not a mock server.
 add_library(aeon_chat_example STATIC example/chat_server.cpp)
@@ -440,7 +463,9 @@ add_executable(pong-client example/pong-client.cpp)
 target_link_libraries(pong-client PRIVATE aeon)
 
 if(BUILD_TESTING)
-    target_sources(aeon_tests PRIVATE tests/test_udp_pong.cpp tests/test_udp_send_to.cpp)
+    if(LIBAEON_ENABLE_EVENTS)
+        target_sources(aeon_tests PRIVATE tests/test_udp_pong.cpp)
+    endif()
     target_link_libraries(aeon_tests PRIVATE aeon_pong_example)
 endif()
 
@@ -459,9 +484,11 @@ if(BUILD_TESTING)
     target_link_libraries(aeon_tests PRIVATE aeon_http_example)
 endif()
 
+endif() # LIBAEON_ENABLE_EVENTS
+
 # Benchmark is opt-in and does not require GoogleTest or extra dependencies.
 option(LIBAEON_BUILD_BENCHMARKS "Build standalone loopback throughput benchmark" OFF)
-if(LIBAEON_BUILD_BENCHMARKS)
+if(LIBAEON_BUILD_BENCHMARKS AND LIBAEON_ENABLE_EVENTS)
     add_executable(aeon_write_queue_benchmark benchmarks/write_queue_benchmark.cpp)
     target_link_libraries(aeon_write_queue_benchmark PRIVATE aeon-static)
     set_target_properties(aeon_write_queue_benchmark PROPERTIES
@@ -481,6 +508,7 @@ if(LIBAEON_ENABLE_CXX23)
     message(STATUS "C++23 std::byteswap: ${LIBAEON_HAVE_CXX23_BYTESWAP}")
     message(STATUS "C++23 std::to_underlying: ${LIBAEON_HAVE_CXX23_TO_UNDERLYING}")
 endif()
+message(STATUS "Event sockets: ${LIBAEON_ENABLE_EVENTS}")
 message(STATUS "Build tests: ${BUILD_TESTING}")
 message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "Platform: ${CMAKE_SYSTEM_NAME}")

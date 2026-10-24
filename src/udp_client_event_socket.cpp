@@ -1,3 +1,4 @@
+#include "aeon.hpp"
 #include "udp_client_event_socket.hpp"
 
 namespace aeon {

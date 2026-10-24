@@ -17,7 +17,9 @@ static_assert(__cplusplus >= 202002L, "Aeon requires C++20");
 
 static_assert(std::derived_from<aeon::client_socket, aeon::socket>);
 static_assert(std::derived_from<aeon::server_socket, aeon::socket>);
+#if LIBAEON_HAS_EVENTS
 static_assert(std::derived_from<aeon::event_socket, aeon::socket>);
+#endif
 static_assert(std::derived_from<aeon::udp_socket, aeon::socket>);
 #ifdef ENABLE_SSL
 static_assert(std::derived_from<aeon::ssl_client_socket, aeon::socket>);

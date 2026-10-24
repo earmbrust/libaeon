@@ -1,11 +1,10 @@
 #pragma once
 #include "socket.hpp"
-#include "socket_set.hpp"
+#include "internal/peer_collection.hpp"
 
 namespace aeon {
-namespace internal { struct tcp_peer_store; }
 
-class LIBAEON_API server_socket : public socket {
+class LIBAEON_API server_socket : public socket, protected internal::peer_collection {
 public:
     server_socket();
     ~server_socket() override;
@@ -34,6 +33,5 @@ public:
 
 private:
     int accept_timeout_ms = 0;
-    internal::tcp_peer_store* peers_;
 };
 } // namespace aeon

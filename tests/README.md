@@ -25,6 +25,10 @@ ctest --output-on-failure
 ./aeon_tests
 ```
 
+The core TCP/UDP tests and C++20 consumer checks also run with
+``-DLIBAEON_ENABLE_EVENTS=OFF``. Event-specific tests, examples, and the
+queued-write benchmark are only built when event support is enabled.
+
 ### With Optional Flags
 
 ```bash

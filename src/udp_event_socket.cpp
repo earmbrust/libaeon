@@ -1,50 +1,41 @@
+#include "aeon.hpp"
 #include "udp_event_socket.hpp"
-#include "internal/callback_state.hpp"
 #include <utility>
 
-namespace aeon::internal {
-
-struct udp_callback_state {
-    callback_slot<void(const char*, int, const address&)> datagram;
-    callback_slot<void()> connect;
-    callback_slot<void()> close;
-    callback_slot<void()> listen;
-    callback_slot<void(int)> error;
-};
-
-} // namespace aeon::internal
 
 namespace aeon {
-udp_event_socket::udp_event_socket() : callbacks_(new internal::udp_callback_state) {
+enum { handler_datagram, handler_connect, handler_close, handler_listen, handler_error };
+
+udp_event_socket::udp_event_socket() : internal::event_handlers(5) {
     if (is_valid_socket() && set_blocking(false) != 0) socket::close();
 }
-udp_event_socket::~udp_event_socket() { delete callbacks_; }
+udp_event_socket::~udp_event_socket() = default;
 
-void udp_event_socket::on_datagram(datagram_handler f) { callbacks_->datagram.set(std::move(f)); }
-void udp_event_socket::on_connect(notification_handler f) { callbacks_->connect.set(std::move(f)); }
-void udp_event_socket::on_listen(notification_handler f) { callbacks_->listen.set(std::move(f)); }
-void udp_event_socket::on_close(notification_handler f) { callbacks_->close.set(std::move(f)); }
-void udp_event_socket::on_error(error_handler f) { callbacks_->error.set(std::move(f)); }
+void udp_event_socket::on_datagram(datagram_handler f) { set_handler(handler_datagram, f ? std::make_shared<const datagram_handler>(std::move(f)) : std::shared_ptr<const void>{}); }
+void udp_event_socket::on_connect(notification_handler f) { set_handler(handler_connect, f ? std::make_shared<const notification_handler>(std::move(f)) : std::shared_ptr<const void>{}); }
+void udp_event_socket::on_listen(notification_handler f) { set_handler(handler_listen, f ? std::make_shared<const notification_handler>(std::move(f)) : std::shared_ptr<const void>{}); }
+void udp_event_socket::on_close(notification_handler f) { set_handler(handler_close, f ? std::make_shared<const notification_handler>(std::move(f)) : std::shared_ptr<const void>{}); }
+void udp_event_socket::on_error(error_handler f) { set_handler(handler_error, f ? std::make_shared<const error_handler>(std::move(f)) : std::shared_ptr<const void>{}); }
 
 void udp_event_socket::fire_on_datagram(const char* d, int n, const address& from) {
     register_sender(from);
-    auto f = callbacks_->datagram.snapshot();
+    auto f = std::static_pointer_cast<const datagram_handler>(get_handler(handler_datagram));
     if (f) (*f)(d, n, from); else on_datagram_impl(d, n, from);
 }
 void udp_event_socket::fire_on_connect() {
-    auto f = callbacks_->connect.snapshot();
+    auto f = std::static_pointer_cast<const notification_handler>(get_handler(handler_connect));
     if (f) (*f)(); else on_connect_impl();
 }
 void udp_event_socket::fire_on_listen() {
-    auto f = callbacks_->listen.snapshot();
+    auto f = std::static_pointer_cast<const notification_handler>(get_handler(handler_listen));
     if (f) (*f)(); else on_listen_impl();
 }
 void udp_event_socket::fire_on_close() {
-    auto f = callbacks_->close.snapshot();
+    auto f = std::static_pointer_cast<const notification_handler>(get_handler(handler_close));
     if (f) (*f)(); else on_close_impl();
 }
 void udp_event_socket::fire_on_error(int error) {
-    auto f = callbacks_->error.snapshot();
+    auto f = std::static_pointer_cast<const error_handler>(get_handler(handler_error));
     if (f) (*f)(error); else on_error_impl(error);
 }
 bool udp_event_socket::close() {

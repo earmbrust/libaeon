@@ -6,6 +6,7 @@
 
 #ifdef ENABLE_SSL
 
+#include "aeon.hpp"
 #include "ssl_socket.hpp"
 #include <cstring>
 #include <openssl/x509v3.h>

@@ -1,3 +1,4 @@
+#include "aeon.hpp"
 #include "chat_server.hpp"
 
 #include <atomic>

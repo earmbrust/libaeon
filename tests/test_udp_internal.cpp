@@ -25,7 +25,12 @@ bool is_open(aeon::socket_t descriptor) {
                         reinterpret_cast<char*>(&type), &length) == 0;
 }
 
-class udp_bind_test_server : public aeon::udp_server_event_socket {
+#if LIBAEON_HAS_EVENTS
+using udp_bind_base = aeon::udp_server_event_socket;
+#else
+using udp_bind_base = aeon::udp_server_socket;
+#endif
+class udp_bind_test_server : public udp_bind_base {
 public:
     using aeon::udp_socket::udp_listen;
 };

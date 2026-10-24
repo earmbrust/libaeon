@@ -1,11 +1,10 @@
 #pragma once
 #include "event_socket.hpp"
-#include "socket_set.hpp"
+#include "internal/peer_collection.hpp"
 
 namespace aeon {
-namespace internal { struct event_peer_store; }
 
-class LIBAEON_API server_event_socket : public event_socket {
+class LIBAEON_API server_event_socket : public event_socket, protected internal::peer_collection {
 public:
     server_event_socket();
     explicit server_event_socket(int port);
@@ -30,14 +29,7 @@ public:
     int peer_count() const;
     event_socket* peer_at(unsigned int index) const;
 
-protected:
-    void on_data_impl(const char* buffer, int size) override;
-    void on_listen_impl() override;
-    void on_close_impl() override;
-    void on_error_impl(int error_code) override;
-
 private:
     int accept_timeout_ms_ = 0;
-    internal::event_peer_store* peers_;
 };
 } // namespace aeon

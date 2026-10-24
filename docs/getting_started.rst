@@ -34,6 +34,17 @@ Using Visual Studio 2026 (requires CMake with VS 2026 generator support)::
     cmake --build build-vs2026 --config Release
     ctest --test-dir build-vs2026 -C Release --output-on-failure
 
+Optional event sockets
+~~~~~~~~~~~~~~~~~~~~~
+
+Event-driven sockets are enabled by default. If your application uses only
+ordinary TCP and UDP sockets, configure with
+``-DLIBAEON_ENABLE_EVENTS=OFF`` to exclude event handling and polling code.
+This option is independent of SSL/TLS. ``socket_set`` and server-owned peers
+remain available in either configuration. Include ``<aeon.hpp>`` in your
+application; CMake provides the generated ``aeon_features.hpp`` and
+``aeon_export.hpp`` include path to targets that link Aeon.
+
 Optional SSL/TLS
 ~~~~~~~~~~~~~~~~
 

@@ -17,6 +17,17 @@ concurrency:
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
+  events-disabled:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure core library
+        run: cmake -S . -B build-core -DCMAKE_BUILD_TYPE=Release -DLIBAEON_ENABLE_EVENTS=OFF -DBUILD_TESTING=ON
+      - name: Build core library and tests
+        run: cmake --build build-core --parallel 2
+      - name: Test core library
+        run: ctest --test-dir build-core --output-on-failure
+
   # Every row builds and runs the test suite independently. A failing Linux job
   # must not prevent Windows, macOS or other CPU architectures from being checked.
   build-test:

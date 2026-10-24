@@ -15,11 +15,9 @@ public:
     bool connect(const address& addr);
     bool close() override;
 
-protected:
-    void on_data_impl(const char* buffer, int size) override;
-    void on_connect_impl() override;
-    void on_close_impl() override;
-    void on_error_impl(int error_code) override;
+private:
+    bool finish_connect();
+
 };
 
 } // namespace aeon

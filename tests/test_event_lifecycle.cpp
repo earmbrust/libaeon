@@ -1,3 +1,4 @@
+#include "aeon.hpp"
 #include <gtest/gtest.h>
 #include "event_socket.hpp"
 #include "event_socket_set.hpp"

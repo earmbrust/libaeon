@@ -3,8 +3,8 @@
  * Copyright 2006-2025 (c) Elden Armbrust
  * This software is licensed under the BSD software license.
  *********************************************************************/
+#include "aeon.hpp"
 #include "event_socket_set.hpp"
-#include "internal/callback_state.hpp"
 #include "server_event_socket.hpp"
 #include <chrono>
 #include <climits>
@@ -117,18 +117,10 @@ using udp_socket_registry = basic_socket_registry<udp_event_socket>;
 
 
 
-struct set_callback_state {
-    callback_slot<void(event_socket*)> drain;
+struct set_poll_state {
     std::mutex poll_mutex;
-    callback_slot<void(event_socket*, const char*, int)> data;
-    callback_slot<void(event_socket*)> connect;
-    callback_slot<void(event_socket*)> close;
-    callback_slot<void(event_socket*)> listen;
-    callback_slot<void(event_socket*, int)> error;
     socket_registry sockets;
     udp_socket_registry udp_sockets;
-    callback_slot<void(udp_event_socket*, const char*, int, const address&)> udp_datagram;
-    callback_slot<void(udp_event_socket*, int)> udp_error;
 };
 
 struct poll_descriptor {
@@ -192,7 +184,9 @@ static int poll_readable(std::vector<poll_descriptor>& descriptors, int timeout_
 } // namespace aeon::internal
 
 namespace aeon {
-event_socket_set::event_socket_set() : state_(new internal::set_callback_state) {}
+enum { handler_data, handler_connect, handler_close, handler_listen, handler_error, handler_drain, handler_udp_datagram, handler_udp_error };
+
+event_socket_set::event_socket_set() : internal::event_handlers(8), state_(new internal::set_poll_state) {}
 event_socket_set::~event_socket_set() { delete state_; }
 
 bool event_socket_set::add(event_socket* socket) {
@@ -216,45 +210,45 @@ int event_socket_set::size() const {
     return state_->sockets.size() + state_->udp_sockets.size();
 }
 
-void event_socket_set::on_socket_data(data_handler f) { state_->data.set(std::move(f)); }
-void event_socket_set::on_socket_connect(notification_handler f) { state_->connect.set(std::move(f)); }
-void event_socket_set::on_socket_close(notification_handler f) { state_->close.set(std::move(f)); }
-void event_socket_set::on_socket_listen(notification_handler f) { state_->listen.set(std::move(f)); }
-void event_socket_set::on_socket_error(error_handler f) { state_->error.set(std::move(f)); }
-void event_socket_set::on_socket_drain(notification_handler f) { state_->drain.set(std::move(f)); }
-void event_socket_set::on_socket_datagram(datagram_handler f) { state_->udp_datagram.set(std::move(f)); }
-void event_socket_set::on_udp_socket_error(udp_error_handler f) { state_->udp_error.set(std::move(f)); }
+void event_socket_set::on_socket_data(data_handler f) { set_handler(handler_data, f ? std::make_shared<const data_handler>(std::move(f)) : std::shared_ptr<const void>{}); }
+void event_socket_set::on_socket_connect(notification_handler f) { set_handler(handler_connect, f ? std::make_shared<const notification_handler>(std::move(f)) : std::shared_ptr<const void>{}); }
+void event_socket_set::on_socket_close(notification_handler f) { set_handler(handler_close, f ? std::make_shared<const notification_handler>(std::move(f)) : std::shared_ptr<const void>{}); }
+void event_socket_set::on_socket_listen(notification_handler f) { set_handler(handler_listen, f ? std::make_shared<const notification_handler>(std::move(f)) : std::shared_ptr<const void>{}); }
+void event_socket_set::on_socket_error(error_handler f) { set_handler(handler_error, f ? std::make_shared<const error_handler>(std::move(f)) : std::shared_ptr<const void>{}); }
+void event_socket_set::on_socket_drain(notification_handler f) { set_handler(handler_drain, f ? std::make_shared<const notification_handler>(std::move(f)) : std::shared_ptr<const void>{}); }
+void event_socket_set::on_socket_datagram(datagram_handler f) { set_handler(handler_udp_datagram, f ? std::make_shared<const datagram_handler>(std::move(f)) : std::shared_ptr<const void>{}); }
+void event_socket_set::on_udp_socket_error(udp_error_handler f) { set_handler(handler_udp_error, f ? std::make_shared<const udp_error_handler>(std::move(f)) : std::shared_ptr<const void>{}); }
 
 void event_socket_set::fire_on_socket_data(event_socket* s, const char* d, int n) {
-    auto f = state_->data.snapshot();
+    auto f = std::static_pointer_cast<const data_handler>(get_handler(handler_data));
     if (f) (*f)(s, d, n); else on_socket_data_impl(s, d, n);
 }
 void event_socket_set::fire_on_socket_connect(event_socket* s) {
-    auto f = state_->connect.snapshot();
+    auto f = std::static_pointer_cast<const notification_handler>(get_handler(handler_connect));
     if (f) (*f)(s); else on_socket_connect_impl(s);
 }
 void event_socket_set::fire_on_socket_close(event_socket* s) {
-    auto f = state_->close.snapshot();
+    auto f = std::static_pointer_cast<const notification_handler>(get_handler(handler_close));
     if (f) (*f)(s); else on_socket_close_impl(s);
 }
 void event_socket_set::fire_on_socket_listen(event_socket* s) {
-    auto f = state_->listen.snapshot();
+    auto f = std::static_pointer_cast<const notification_handler>(get_handler(handler_listen));
     if (f) (*f)(s); else on_socket_listen_impl(s);
 }
 void event_socket_set::fire_on_socket_drain(event_socket* s) {
-    auto f = state_->drain.snapshot();
+    auto f = std::static_pointer_cast<const notification_handler>(get_handler(handler_drain));
     if (f) (*f)(s); else on_socket_drain_impl(s);
 }
 void event_socket_set::fire_on_socket_error(event_socket* s, int code) {
-    auto f = state_->error.snapshot();
+    auto f = std::static_pointer_cast<const error_handler>(get_handler(handler_error));
     if (f) (*f)(s, code); else on_socket_error_impl(s, code);
 }
 void event_socket_set::fire_on_socket_datagram(udp_event_socket* s, const char* d, int n, const address& a) {
-    auto f = state_->udp_datagram.snapshot();
+    auto f = std::static_pointer_cast<const datagram_handler>(get_handler(handler_udp_datagram));
     if (f) (*f)(s, d, n, a); else on_socket_datagram_impl(s, d, n, a);
 }
 void event_socket_set::fire_on_udp_socket_error(udp_event_socket* s, int c) {
-    auto f = state_->udp_error.snapshot();
+    auto f = std::static_pointer_cast<const udp_error_handler>(get_handler(handler_udp_error));
     if (f) (*f)(s, c); else on_udp_socket_error_impl(s, c);
 }
 

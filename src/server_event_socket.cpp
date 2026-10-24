@@ -1,14 +1,14 @@
+#include "aeon.hpp"
 #include "server_event_socket.hpp"
 #include <memory>
 #include <vector>
 #include <algorithm>
 
 namespace aeon {
-namespace internal { struct event_peer_store { std::vector<std::unique_ptr<event_socket>> peers; socket_set members; }; }
 
-server_event_socket::server_event_socket() : peers_(new internal::event_peer_store) {}
+server_event_socket::server_event_socket() = default;
 server_event_socket::server_event_socket(int port) : server_event_socket() { listen(port); }
-server_event_socket::~server_event_socket() { close(); delete peers_; }
+server_event_socket::~server_event_socket() { close(); }
 
 int server_event_socket::set_accept_timeout(int ms) {
     if (ms < 0 || ms > 60000) { set_error(err_no_socket); return -1; }
@@ -23,7 +23,7 @@ bool server_event_socket::listen() { return listen(port); }
 bool server_event_socket::listen(int port) { return listen("0.0.0.0", port); }
 bool server_event_socket::listen(const char* ip, int port) {
     if (!tcp_listen( ip, port)) return false;
-    for (auto& p : peers_->peers) p->close();
+    close_owned_peers();
     if (set_blocking(false) != 0) { socket::close(); return false; }
     fire_on_listen();
     return true;
@@ -43,39 +43,17 @@ event_socket* server_event_socket::accept(bool blocking) {
     result->remote_addr = peer;
     result->set_parent_server(this);
     if (result->set_blocking(blocking) != 0) return nullptr;
-    auto* borrowed = result.get();
-    peers_->peers.push_back(std::move(result));
-    try {
-        if (!peers_->members.add(borrowed)) { peers_->peers.pop_back(); return nullptr; }
-    } catch (...) { peers_->peers.pop_back(); throw; }
-    return borrowed;
+    return static_cast<event_socket*>(add_peer(std::move(result)));
 }
 bool server_event_socket::close() {
-    bool changed = event_socket::close();
-    for (auto& p : peers_->peers) changed = p->close() || changed;
-    return changed;
+    const bool changed = event_socket::close();
+    return close_owned_peers() || changed;
 }
-bool server_event_socket::remove_peer(event_socket* peer) {
-    if (!peer) return false;
-    auto& owned = peers_->peers;
-    const auto it = std::find_if(owned.begin(), owned.end(),
-        [peer](const auto& p) { return p.get() == peer; });
-    if (it == owned.end()) return false;
-    for (unsigned int i = 0; i < static_cast<unsigned int>(peers_->members.size()); ++i) {
-        if (peers_->members.at(i) == peer) { peers_->members.remove(i); break; }
-    }
-    (*it)->close();
-    owned.erase(it);
-    return true;
-}
-socket_set& server_event_socket::peers() { return peers_->members; }
-const socket_set& server_event_socket::peers() const { return peers_->members; }
-int server_event_socket::peer_count() const { return static_cast<int>(peers_->peers.size()); }
+bool server_event_socket::remove_peer(event_socket* peer) { return remove_owned_peer(peer); }
+socket_set& server_event_socket::peers() { return peer_members(); }
+const socket_set& server_event_socket::peers() const { return peer_members(); }
+int server_event_socket::peer_count() const { return owned_peer_count(); }
 event_socket* server_event_socket::peer_at(unsigned int index) const {
-    return index < peers_->peers.size() ? peers_->peers[index].get() : nullptr;
+    return static_cast<event_socket*>(owned_peer_at(index));
 }
-void server_event_socket::on_data_impl(const char*, int) {}
-void server_event_socket::on_listen_impl() {}
-void server_event_socket::on_close_impl() {}
-void server_event_socket::on_error_impl(int) {}
 } // namespace aeon

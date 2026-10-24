@@ -6,13 +6,14 @@
 #pragma once
 
 #include "socket.hpp"
+#include "internal/event_handlers.hpp"
 #include <functional>
 #include <cstddef>
 
 namespace aeon {
-namespace internal { struct socket_callback_state; }
+namespace internal { struct pending_write_state; }
 
-class LIBAEON_API event_socket : public socket {
+class LIBAEON_API event_socket : public socket, protected internal::event_handlers {
     friend class event_socket_set;
 public:
     using data_handler = std::function<void(const char*, int)>;
@@ -75,6 +76,6 @@ private:
 
 
 private:
-    internal::socket_callback_state* callbacks_;
+    internal::pending_write_state* outgoing_;
 };
 } // namespace aeon

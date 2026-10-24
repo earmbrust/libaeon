@@ -1,3 +1,4 @@
+#include "aeon.hpp"
 #include "../example/pong_server.hpp"
 #include <gtest/gtest.h>
 #include <algorithm>

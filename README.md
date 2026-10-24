@@ -1,6 +1,6 @@
 # Aeon (`libaeon`)
 
-Aeon is a lightweight, cross-platform **C++17** networking library for TCP,
+Aeon is a lightweight, cross-platform **C++20** networking library for TCP,
 UDP, socket events, IPv4/IPv6 addressing and optional OpenSSL/TLS support.
 **`aeon` is the C++ namespace; `libaeon` is the library file name.**
 
@@ -93,6 +93,23 @@ A public CI matrix builds on Windows, Linux and macOS with several compilers
 and architectures (including ARM and 32-bit targets). See
 [GitHub Actions](https://github.com/earmbrust/libaeon/actions) for current
 results; a configured platform is not automatically a passing platform.
+
+### Optional event sockets
+
+Event sockets are enabled by default. Applications that use only the ordinary
+TCP/UDP sockets can disable them to reduce library size:
+
+```sh
+cmake -S . -B build-core -DCMAKE_BUILD_TYPE=Release -DLIBAEON_ENABLE_EVENTS=OFF -DBUILD_TESTING=OFF
+cmake --build build-core --parallel
+```
+
+This removes event socket implementations, event polling, callbacks, and event-only
+examples from the build. Ordinary socket classes, `socket_set`, and optional
+SSL/TLS remain available. CMake generates `aeon_features.hpp` and
+`aeon_export.hpp` in the build directory; application builds need this directory
+in their include path. Include `<aeon.hpp>` as the public entry point. When
+using an Aeon CMake target, these include paths are supplied automatically.
 
 ## Documentation and examples
 

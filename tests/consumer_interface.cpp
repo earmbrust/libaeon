@@ -24,6 +24,7 @@ public:
     using aeon::socket::set_remote_hostname;
 };
 
+#if LIBAEON_HAS_EVENTS
 class client_event_probe final : public aeon::event_socket {
 public:
     void emit_data(const char* data, int count) { fire_on_data(data, count); }
@@ -37,6 +38,9 @@ public:
     }
     void emit_drain(aeon::event_socket* source) { fire_on_socket_drain(source); }
 };
+
+
+#endif
 
 } // namespace
 
@@ -72,6 +76,7 @@ int main() {
         }
     }
 
+    #if LIBAEON_HAS_EVENTS
     client_event_probe event_socket;
     bool local_callback_ran = false;
     event_socket.on_data([&](const char* data, int count) {
@@ -113,6 +118,8 @@ int main() {
             return fail("event_socket_set::remove/size");
         }
     }
+
+    #endif
 
     // Real UDP loopback round trip with an OS-selected ephemeral port.
     // Prefer the server's actual address family so IPv6-only and IPv4

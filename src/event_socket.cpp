@@ -3,9 +3,8 @@
  * Copyright 2006-2025 (c) Elden Armbrust
  * This software is licensed under the BSD software license.
  *********************************************************************/
+#include "aeon.hpp"
 #include "event_socket.hpp"
-#include "internal/callback_state.hpp"
-#include "internal/config.hpp"
 #include <cerrno>
 #include <deque>
 #include <mutex>
@@ -26,47 +25,41 @@ struct pending_write_state {
     std::size_t limit = 1024 * 1024;
 };
 
-struct socket_callback_state {
-    pending_write_state outgoing;
-    callback_slot<void()> drain;
-    callback_slot<void(const char*, int)> data;
-    callback_slot<void()> connect;
-    callback_slot<void()> close;
-    callback_slot<void()> listen;
-    callback_slot<void(int)> error;
-};
+
 
 } // namespace aeon::internal
 
 namespace aeon {
+enum { handler_data, handler_connect, handler_close, handler_listen, handler_error, handler_drain };
 
-event_socket::event_socket() : socket(), callbacks_(new internal::socket_callback_state) {
+
+event_socket::event_socket() : socket(), internal::event_handlers(6), outgoing_(new internal::pending_write_state) {
     if (is_valid_socket() && set_blocking(false) != 0) socket::close();
 }
 
 event_socket::event_socket(socket_t fd, bool adopt)
-    : socket(fd, adopt), callbacks_(new internal::socket_callback_state) {
+    : socket(fd, adopt), internal::event_handlers(6), outgoing_(new internal::pending_write_state) {
     if (is_valid_socket() && set_blocking(false) != 0) socket::close();
 }
 
-event_socket::~event_socket() { delete callbacks_; }
+event_socket::~event_socket() { delete outgoing_; }
 
-void event_socket::on_data(data_handler f) { callbacks_->data.set(std::move(f)); }
-void event_socket::on_connect(notification_handler f) { callbacks_->connect.set(std::move(f)); }
-void event_socket::on_close(notification_handler f) { callbacks_->close.set(std::move(f)); }
-void event_socket::on_listen(notification_handler f) { callbacks_->listen.set(std::move(f)); }
-void event_socket::on_error(error_handler f) { callbacks_->error.set(std::move(f)); }
-void event_socket::on_drain(notification_handler f) { callbacks_->drain.set(std::move(f)); }
+void event_socket::on_data(data_handler f) { set_handler(handler_data, f ? std::make_shared<const data_handler>(std::move(f)) : std::shared_ptr<const void>{}); }
+void event_socket::on_connect(notification_handler f) { set_handler(handler_connect, f ? std::make_shared<const notification_handler>(std::move(f)) : std::shared_ptr<const void>{}); }
+void event_socket::on_close(notification_handler f) { set_handler(handler_close, f ? std::make_shared<const notification_handler>(std::move(f)) : std::shared_ptr<const void>{}); }
+void event_socket::on_listen(notification_handler f) { set_handler(handler_listen, f ? std::make_shared<const notification_handler>(std::move(f)) : std::shared_ptr<const void>{}); }
+void event_socket::on_error(error_handler f) { set_handler(handler_error, f ? std::make_shared<const error_handler>(std::move(f)) : std::shared_ptr<const void>{}); }
+void event_socket::on_drain(notification_handler f) { set_handler(handler_drain, f ? std::make_shared<const notification_handler>(std::move(f)) : std::shared_ptr<const void>{}); }
 
 std::size_t event_socket::queued_bytes() const {
-    std::lock_guard<std::mutex> guard(callbacks_->outgoing.mutex);
-    return callbacks_->outgoing.bytes;
+    std::lock_guard<std::mutex> guard((*outgoing_).mutex);
+    return (*outgoing_).bytes;
 }
 
 bool event_socket::set_max_queued_bytes(std::size_t limit) {
-    std::lock_guard<std::mutex> guard(callbacks_->outgoing.mutex);
-    if (limit < callbacks_->outgoing.bytes) return false;
-    callbacks_->outgoing.limit = limit;
+    std::lock_guard<std::mutex> guard((*outgoing_).mutex);
+    if (limit < (*outgoing_).bytes) return false;
+    (*outgoing_).limit = limit;
     return true;
 }
 
@@ -77,7 +70,7 @@ bool event_socket::queue_write(const std::string& data) {
 bool event_socket::queue_write(const char* data, std::size_t size) {
     if (!is_valid_socket() || !connected || blocking || (size && !data)) return false;
     if (!size) return true;
-    auto& out = callbacks_->outgoing;
+    auto& out = (*outgoing_);
     std::lock_guard<std::mutex> guard(out.mutex);
     if (size > out.limit - out.bytes) return false;
     // A single large message remains one chunk. Tiny messages share a chunk
@@ -102,13 +95,13 @@ event_socket::flush_result event_socket::flush_queued(std::size_t budget) {
     if (::setsockopt(sockfd, SOL_SOCKET, SO_NOSIGPIPE,
         reinterpret_cast<const char*>(&no_sigpipe), sizeof(no_sigpipe)) != 0) {
         const int err = GET_NET_SOCKET_ERROR();
-        auto& out = callbacks_->outgoing;
+        auto& out = (*outgoing_);
         std::lock_guard<std::mutex> guard(out.mutex);
         out.chunks.clear(); out.front_offset = 0; out.bytes = 0;
         return {0, err, false};
     }
 #endif
-    auto& out = callbacks_->outgoing;
+    auto& out = (*outgoing_);
     std::lock_guard<std::mutex> guard(out.mutex);
     const bool was_nonempty = out.bytes != 0;
     flush_result result{};
@@ -165,31 +158,31 @@ event_socket::flush_result event_socket::flush_queued(std::size_t budget) {
 }
 
 void event_socket::fire_on_data(const char* data, int size) {
-    auto handler = callbacks_->data.snapshot();
+    auto handler = std::static_pointer_cast<const data_handler>(get_handler(handler_data));
     if (handler) (*handler)(data, size);
     else on_data_impl(data, size);
 }
 void event_socket::fire_on_connect() {
-    auto handler = callbacks_->connect.snapshot();
+    auto handler = std::static_pointer_cast<const notification_handler>(get_handler(handler_connect));
     if (handler) (*handler)();
     else on_connect_impl();
 }
 void event_socket::fire_on_close() {
-    auto handler = callbacks_->close.snapshot();
+    auto handler = std::static_pointer_cast<const notification_handler>(get_handler(handler_close));
     if (handler) (*handler)();
     else on_close_impl();
 }
 void event_socket::fire_on_listen() {
-    auto handler = callbacks_->listen.snapshot();
+    auto handler = std::static_pointer_cast<const notification_handler>(get_handler(handler_listen));
     if (handler) (*handler)();
     else on_listen_impl();
 }
 void event_socket::fire_on_drain() {
-    auto handler = callbacks_->drain.snapshot();
+    auto handler = std::static_pointer_cast<const notification_handler>(get_handler(handler_drain));
     if (handler) (*handler)();
 }
 void event_socket::fire_on_error(int error) {
-    auto handler = callbacks_->error.snapshot();
+    auto handler = std::static_pointer_cast<const error_handler>(get_handler(handler_error));
     if (handler) (*handler)(error);
     else on_error_impl(error);
 }
@@ -202,8 +195,8 @@ void event_socket::on_error_impl(int) {}
 
 bool event_socket::close() {
     {
-        std::lock_guard<std::mutex> guard(callbacks_->outgoing.mutex);
-        auto& out = callbacks_->outgoing;
+        std::lock_guard<std::mutex> guard((*outgoing_).mutex);
+        auto& out = (*outgoing_);
         out.chunks.clear();
         out.front_offset = 0;
         out.bytes = 0;
