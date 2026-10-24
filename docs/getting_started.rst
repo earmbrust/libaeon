@@ -1,7 +1,7 @@
 Getting Started
 ===============
 
-Aeon 2.0 requires C++20 and CMake. Public types and functions use the ``aeon``
+Aeon 2.0 requires C++20 and CMake 3.24 or newer. Public types and functions use the ``aeon``
 namespace and lowercase ``snake_case`` names.
 
 Build and test
@@ -14,10 +14,17 @@ From the repository root::
 
     cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
     cmake --build build --parallel
-    ctest --test-dir build --output-on-failure
 
 Install a C++ compiler and CMake first (GCC or Clang on Linux, Xcode Command
-Line Tools on macOS). CMake fetches Google Test when configuring tests.
+Line Tools on macOS). Tests are disabled by default. To build and run them::
+
+    cmake -S . -B build-tests -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+    cmake --build build-tests --parallel
+    ctest --test-dir build-tests --output-on-failure
+
+Google Test is fetched only when testing is enabled. Examples and benchmarks
+are separately opt-in with ``LIBAEON_BUILD_EXAMPLES=ON`` and
+``LIBAEON_BUILD_BENCHMARKS=ON``.
 
 Windows (MSVC)
 ~~~~~~~~~~~~~~
@@ -26,13 +33,17 @@ Using Visual Studio 2022::
 
     cmake -S . -B build-vs2022 -G "Visual Studio 17 2022" -A x64
     cmake --build build-vs2022 --config Release
-    ctest --test-dir build-vs2022 -C Release --output-on-failure
 
 Using Visual Studio 2026 (requires CMake with VS 2026 generator support)::
 
     cmake -S . -B build-vs2026 -G "Visual Studio 18 2026" -A x64
     cmake --build build-vs2026 --config Release
-    ctest --test-dir build-vs2026 -C Release --output-on-failure
+
+To enable and run tests on Visual Studio 2026, use a separate build directory::
+
+    cmake -S . -B build-vs2026-tests -G "Visual Studio 18 2026" -A x64 -DBUILD_TESTING=ON
+    cmake --build build-vs2026-tests --config Release
+    ctest --test-dir build-vs2026-tests -C Release --output-on-failure
 
 Optional event sockets
 ~~~~~~~~~~~~~~~~~~~~~
@@ -51,7 +62,7 @@ Optional SSL/TLS
 Install OpenSSL development libraries for the target architecture and configure
 with ``-DENABLE_SSL=ON``. For example::
 
-    cmake -S . -B build-ssl -DCMAKE_BUILD_TYPE=Release -DENABLE_SSL=ON
+    cmake -S . -B build-ssl -DCMAKE_BUILD_TYPE=Release -DENABLE_SSL=ON -DBUILD_TESTING=ON
     cmake --build build-ssl --parallel
     ctest --test-dir build-ssl --output-on-failure
 
@@ -76,8 +87,9 @@ TCP server
 ----------
 
 ``server_socket::accept()`` returns a borrowed ``aeon::socket*``. The
-server owns accepted peers and closes them when the listener closes. See
-``docs/engineering/server-peer-ownership.md`` for lifetime rules.
+server owns accepted peers and closes them when the listener closes.
+``server_socket::remove_peer()`` retires a peer; borrowed pointers must not be
+used after the peer is removed or the server is destroyed.
 
 .. code-block:: cpp
 
@@ -141,7 +153,9 @@ closure. With a configured timeout, ``read`` returns 0 if no datagram arrives.
         char buffer[256]{};
         const int count = server.read(buffer, sizeof(buffer));
         if (count > 0) {
-            server.write(buffer, count); // Reply to last sender
+            if (auto* peer = server.get_peer(server.get_remote_address())) {
+                peer->write(buffer, count); // Reply through the server-owned peer
+            }
         }
     }
 

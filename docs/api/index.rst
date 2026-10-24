@@ -50,6 +50,15 @@ Event-driven sockets
 .. doxygenclass:: aeon::server_event_socket
    :members:
 
+.. doxygenclass:: aeon::udp_event_socket
+   :members:
+
+.. doxygenclass:: aeon::udp_client_event_socket
+   :members:
+
+.. doxygenclass:: aeon::udp_server_event_socket
+   :members:
+
 Socket sets
 -----------
 

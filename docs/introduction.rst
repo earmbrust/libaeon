@@ -4,7 +4,7 @@ Introduction
 What is Aeon?
 -------------
 
-Aeon (library file ``libaeon``) is a lightweight C++17 networking library.
+Aeon (library file ``libaeon``) is a lightweight C++20 networking library.
 It provides socket abstractions for applications using TCP, UDP and optional
 SSL/TLS on Windows, Linux and macOS. Its public C++ namespace is ``aeon``.
 

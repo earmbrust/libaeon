@@ -1,7 +1,7 @@
 Aeon Documentation
 ==================
 
-Aeon is a lightweight, cross-platform C++17 networking library. The compiled
+Aeon is a lightweight, cross-platform C++20 networking library. The compiled
 library is named ``libaeon`` on platforms that use that filename convention;
 its C++ namespace is ``aeon``.
 

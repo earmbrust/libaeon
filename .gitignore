@@ -19,6 +19,7 @@ aeon.dir/
 *.db
 *.sln
 build/
+/build-*/
 docs/_build/
 CMakeUserPresets.json
 patch/
