@@ -33,17 +33,21 @@ event_socket* server_event_socket::accept(bool blocking) {
     sockaddr_storage peer{};
     const socket_t fd = tcp_accept( accept_timeout_ms_, blocking, peer);
     if (fd == invalid_socket) return nullptr;
-    class adopted_event_socket final : public event_socket {
-    public:
-        adopted_event_socket(socket_t native, bool adopt) : event_socket(native, adopt) {}
-    };
     std::unique_ptr<event_socket> result;
-    try { result = std::make_unique<adopted_event_socket>(fd, true); }
+    try { result = create_accepted_socket(fd); }
     catch (...) { NET_CLOSE_SOCKET(fd); throw; }
+    if (!result) return nullptr; // Factory owns (and closed) fd on failure.
     result->remote_addr = peer;
     result->set_parent_server(this);
     if (result->set_blocking(blocking) != 0) return nullptr;
     return static_cast<event_socket*>(add_peer(std::move(result)));
+}
+std::unique_ptr<event_socket> server_event_socket::create_accepted_socket(socket_t fd) {
+    class adopted_event_socket final : public event_socket {
+    public:
+        adopted_event_socket(socket_t native, bool adopt) : event_socket(native, adopt) {}
+    };
+    return std::make_unique<adopted_event_socket>(fd, true);
 }
 bool server_event_socket::close() {
     const bool changed = event_socket::close();

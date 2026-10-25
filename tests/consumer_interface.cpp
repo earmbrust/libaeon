@@ -221,6 +221,22 @@ int main() {
         tls_derived.set_allow_self_signed(false) != aeon::err_none) {
         return fail("SSL derived-class DLL interface");
     }
+#if LIBAEON_HAS_EVENTS
+    // Both DLL and static consumers construct the exported TLS event types.
+    static_assert(std::derived_from<aeon::ssl_event_socket, aeon::event_socket>);
+    static_assert(std::derived_from<aeon::ssl_server_event_socket, aeon::server_event_socket>);
+    aeon::ssl_event_socket tls_events;
+    if (tls_events.set_peer_verification(aeon::ssl_verify_mode::strict) != aeon::err_none ||
+        tls_events.set_allow_self_signed(false) != aeon::err_none ||
+        tls_events.handshake_complete()) {
+        return fail("TLS event consumer DLL interface");
+    }
+    aeon::ssl_server_event_socket tls_event_listener;
+    if (tls_event_listener.listen("127.0.0.1", 0) ||
+        tls_event_listener.get_error() != aeon::ssl_error_cert) {
+        return fail("TLS event listener credentials validation");
+    }
+#endif
 #endif
 
     std::cout << "Aeon consumer interface PASSED (" << version << ")\n";

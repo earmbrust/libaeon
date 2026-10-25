@@ -189,6 +189,10 @@ private:
 #include "ssl_socket.hpp"
 #include "ssl_client_socket.hpp"
 #include "ssl_server_socket.hpp"
+#if LIBAEON_HAS_EVENTS
+#include "ssl_event_socket.hpp"
+#include "ssl_server_event_socket.hpp"
+#endif
 #endif
 
 namespace aeon {

@@ -339,6 +339,162 @@ int main() {
             worker.join();
             require(connected && roundtrip && passed, "TLS server peer round trip");
         });
+#if LIBAEON_HAS_EVENTS
+        case_test("event-server-requires-credentials", [&] {
+            aeon::ssl_server_event_socket server;
+            require(!server.listen("127.0.0.1", 0), "event server without credentials");
+            require(server.get_error() == aeon::ssl_error_cert, "missing event certificate");
+            require(server.set_certificate_file(good.ca_path.string().c_str()) == 0,
+                    "event certificate");
+            require(!server.listen("127.0.0.1", 0), "event server without key");
+            require(server.set_private_key_file(good.key_path.string().c_str()) == 0,
+                    "event private key");
+        });
+        case_test("event-tls-nonblocking-binary-and-server-ownership", [&] {
+            aeon::ssl_server_event_socket server;
+            require(server.set_certificate_file(good.ca_path.string().c_str()) == 0,
+                    "event server certificate");
+            require(server.set_private_key_file(good.key_path.string().c_str()) == 0,
+                    "event server key");
+            require(server.listen("127.0.0.1", 0), "event server listen");
+            sockaddr_in local{};
+            socklen_t len = sizeof(local);
+            require(::getsockname(server.sockfd, reinterpret_cast<sockaddr*>(&local),
+                                  &len) == 0, "event server port");
+            const int port = ntohs(local.sin_port);
+            aeon::ssl_event_socket client;
+            require(client.set_ca_file(good.ca_path.string().c_str()) == 0,
+                    "event client CA");
+            aeon::event_socket_set poller;
+            aeon::ssl_event_socket* peer = nullptr;
+            require(poller.add(&server), "register event listener");
+            int listener_hits = 0, client_connects = 0, peer_connects = 0;
+            int set_connects = 0, drains = 0, event_errors = 0;
+            poller.on_socket_listen([&](aeon::event_socket* ready) {
+                require(ready == &server, "event listener identity");
+                ++listener_hits;
+                peer = server.accept(false);
+                require(peer != nullptr && peer->parent_server() == &server,
+                        "server-owned TLS event peer");
+                peer->on_connect([&] { ++peer_connects; });
+                peer->on_error([&](int) { ++event_errors; });
+                require(poller.add(peer), "register TLS event peer");
+            });
+            client.on_connect([&] { ++client_connects; });
+            client.on_error([&](int) { ++event_errors; });
+            poller.on_socket_connect([&](aeon::event_socket* ready) {
+                require(ready == &client || ready == peer, "TLS connect identity");
+                ++set_connects;
+            });
+            poller.on_socket_drain([&](aeon::event_socket*) { ++drains; });
+            require(client.connect("127.0.0.1", port), "event TCP connect");
+            require(!client.handshake_complete(), "TLS handshake not yet polled");
+            require(poller.add(&client), "register TLS event client");
+            for (int i = 0; i < 100 && (!peer || !peer->handshake_complete() ||
+                                        !client.handshake_complete()); ++i)
+                require(poller.poll(100) >= 0, "event handshake poll");
+            require(peer && client.handshake_complete() && peer->handshake_complete(),
+                    "TLS handshake complete");
+            require(listener_hits == 1 && client_connects == 1 &&
+                    peer_connects == 1 && set_connects == 2 && !event_errors,
+                    "TLS callbacks exactly once");
+            require(server.peer_count() == 1, "event server peer ownership");
+            std::string payload(4096, 'z');
+            payload[213] = '\0'; payload[2048] = '\x01';
+            std::string received;
+            peer->on_data([&](const char* data, int bytes) { received.append(data, bytes); });
+            require(client.queue_write(payload), "queue encrypted event payload");
+            for (int i = 0; i < 200 && (received.size() < payload.size() ||
+                                         client.queued_bytes()); ++i)
+                require(poller.poll(100) >= 0, "event inbound encrypted poll");
+            require(received == payload && drains == 1,
+                    "queued encrypted binary payload and drain");
+            std::string echo;
+            client.on_data([&](const char* data, int bytes) { echo.append(data, bytes); });
+            require(peer->queue_write(payload), "server queued TLS reply");
+            for (int i = 0; i < 200 && (echo.size() < payload.size() ||
+                                         peer->queued_bytes()); ++i)
+                require(poller.poll(100) >= 0, "event outgoing encrypted poll");
+            require(echo == payload && drains == 2 && !event_errors,
+                    "encrypted reply through event_socket_set");
+            // Calls through the ordinary socket API must still decrypt TLS.
+            require(client.write("DIRECT", 6) == 6, "direct TLS event write");
+            char directly_read[16]{};
+            int directly_received = -1;
+            for (int i = 0; i < 50 && directly_received <= 0; ++i) {
+                directly_received = static_cast<aeon::socket*>(peer)->read(
+                    directly_read, static_cast<int>(sizeof(directly_read)));
+                if (directly_received <= 0)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            }
+            require(directly_received == 6 &&
+                    std::memcmp(directly_read, "DIRECT", 6) == 0,
+                    "virtual socket::read decrypts TLS");
+            require(poller.remove_socket(peer) && poller.remove_socket(&client) &&
+                    poller.remove_socket(&server), "deregister before peer destruction");
+            require(server.remove_peer(peer) && server.peer_count() == 0,
+                    "TLS event peer cleanup");
+        });
+        case_test("event-tls-client-rejects-untrusted-server", [&] {
+            aeon::ssl_server_event_socket server;
+            require(server.set_certificate_file(good.ca_path.string().c_str()) == 0,
+                    "event reject server certificate");
+            require(server.set_private_key_file(good.key_path.string().c_str()) == 0,
+                    "event reject server key");
+            require(server.listen("127.0.0.1", 0), "event reject listen");
+            sockaddr_in local{};
+            socklen_t len = sizeof(local);
+            require(::getsockname(server.sockfd, reinterpret_cast<sockaddr*>(&local),
+                                  &len) == 0, "event reject getsockname");
+            aeon::ssl_event_socket client;
+            require(client.set_ca_file(bad.ca_path.string().c_str()) == 0,
+                    "event client trusts only unrelated certificate");
+            require(client.connect("127.0.0.1", ntohs(local.sin_port)), "reject TCP connect");
+            auto* peer = server.accept(false);
+            require(peer != nullptr, "event reject accept");
+            aeon::event_socket_set poller;
+            require(poller.add(&client) && poller.add(peer), "event reject register");
+            int data_hits = 0, error_hits = 0;
+            client.on_data([&](const char*, int) { ++data_hits; });
+            client.on_error([&](int) { ++error_hits; });
+            for (int i = 0; i < 100 && client.is_valid_socket(); ++i)
+                require(poller.poll(100) >= 0, "event reject poll");
+            require(!client.handshake_complete() && !client.is_valid_socket() &&
+                    client.get_error() == aeon::ssl_error_cert &&
+                    error_hits == 1 && data_hits == 0, "event TLS strict rejection");
+            require(poller.remove_socket(peer) && poller.remove_socket(&client),
+                    "event reject unregister");
+            require(server.remove_peer(peer), "event reject cleanup");
+        });
+        case_test("event-tls-rejects-plaintext-without-data-callback", [&] {
+            aeon::ssl_server_event_socket server;
+            require(server.set_certificate_file(good.ca_path.string().c_str()) == 0,
+                    "plaintext test certificate");
+            require(server.set_private_key_file(good.key_path.string().c_str()) == 0,
+                    "plaintext test key");
+            require(server.listen("127.0.0.1", 0), "plaintext test listen");
+            sockaddr_in local{};
+            socklen_t len = sizeof(local);
+            require(::getsockname(server.sockfd, reinterpret_cast<sockaddr*>(&local),
+                                  &len) == 0, "plaintext event server port");
+            aeon::client_socket raw;
+            require(raw.connect("127.0.0.1", ntohs(local.sin_port)), "plain TCP connect");
+            auto* peer = server.accept(false);
+            require(peer != nullptr, "plain connection accepted for TLS handshake");
+            aeon::event_socket_set poller;
+            require(poller.add(peer), "plain peer register");
+            int data = 0, errors = 0;
+            peer->on_data([&](const char*, int) { ++data; });
+            peer->on_error([&](int) { ++errors; });
+            require(raw.write("NOT TLS!", 8) == 8, "send plaintext probe");
+            for (int i = 0; i < 100 && peer->is_valid_socket(); ++i)
+                require(poller.poll(100) >= 0, "plain rejection poll");
+            require(!peer->handshake_complete() && !peer->is_valid_socket() &&
+                    data == 0 && errors == 1, "TLS never dispatched plaintext");
+            require(poller.remove_socket(peer) && server.remove_peer(peer),
+                    "plain rejection cleanup");
+        });
+#endif
         fs::remove_all(folder);
         std::cout << "M6c/M6f live TLS: all cases passed\n";
         return 0;

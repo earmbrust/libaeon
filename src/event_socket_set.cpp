@@ -281,8 +281,28 @@ int event_socket_set::poll(int timeout_ms) {
         watched.push_back({{}, entry, s->sockfd});
         native.push_back({s->sockfd, 0});
     }
-    const int ready = internal::poll_readable(native, timeout_ms);
-    if (ready <= 0) return ready;
+    // OpenSSL may already have decrypted bytes in its record buffer even when
+    // the underlying descriptor has no new readable data.
+    bool buffered = false;
+    for (size_t i = 0; i < watched.size(); ++i) {
+        if (watched[i].tcp) {
+            auto* s = watched[i].tcp->get_if_active();
+            if (s && s->is_valid_socket() && s->sockfd == watched[i].fd &&
+                s->poll_has_buffered_input()) buffered = true;
+        }
+    }
+    const int ready = internal::poll_readable(native, buffered ? 0 : timeout_ms);
+    if (ready < 0) return ready;
+    if (buffered) {
+        for (size_t i = 0; i < watched.size(); ++i) {
+            if (watched[i].tcp) {
+                auto* s = watched[i].tcp->get_if_active();
+                if (s && s->is_valid_socket() && s->sockfd == watched[i].fd &&
+                    s->poll_has_buffered_input()) native[i].revents |= POLLIN;
+            }
+        }
+    }
+    if (ready == 0 && !buffered) return 0;
     int handled = 0;
     char buffer[socket::max_buffer_size];
     for (size_t i = 0; i < watched.size(); ++i) {
@@ -309,7 +329,26 @@ int event_socket_set::poll(int timeout_ms) {
                 }
                 continue;
             }
-            if (flags & (POLLIN | POLLHUP)) {
+            // TLS handshakes must finish before application I/O is dispatched.
+            const int progress = s->poll_step(flags);
+            if (progress <= 0) {
+                ++handled;
+                if (progress < 0) {
+                    const int err = s->get_error();
+                    s->n = NET_SOCKET_ERROR;
+                    s->fire_on_error(err);
+                    if (watch.tcp->get_if_active()) fire_on_socket_error(s, err);
+                    if (watch.tcp->get_if_active() && s->is_valid_socket()) s->close();
+                }
+                continue;
+            }
+            if (progress == 2) {
+                ++handled;
+                if (watch.tcp->get_if_active() && s->is_valid_socket() &&
+                    s->sockfd == watch.fd) fire_on_socket_connect(s);
+                continue;
+            }
+            if (s->poll_read_ready(flags)) {
                 const int bytes = s->poll_receive(buffer, static_cast<int>(sizeof(buffer)));
                 if (bytes > 0) {
                     ++handled;
@@ -341,7 +380,7 @@ int event_socket_set::poll(int timeout_ms) {
             }
             // Check registration and descriptor again: the read/error handler
             // may have closed, removed or replaced this socket.
-            if ((flags & POLLOUT) && watch.tcp->get_if_active() &&
+            if (s->poll_queue_ready(flags) && watch.tcp->get_if_active() &&
                 s->is_valid_socket() && s->sockfd == watch.fd) {
                 constexpr std::size_t send_budget = 64 * 1024;
                 const auto flushed = s->flush_queued(send_budget);

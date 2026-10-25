@@ -4,6 +4,9 @@
  * This software is licensed under the BSD software license.
  *********************************************************************/
 #include "aeon.hpp"
+#ifndef NET_PLATFORM_WINDOWS
+#include <poll.h>
+#endif
 #include "event_socket.hpp"
 #include <cerrno>
 #include <deque>
@@ -73,6 +76,10 @@ int event_socket::poll_send(const char* data, int size, int flags) {
 }
 
 bool event_socket::poll_wants_write() const { return queued_bytes() != 0; }
+int event_socket::poll_step(short) { return 1; }
+bool event_socket::poll_read_ready(short readiness) const { return (readiness & (POLLIN | POLLHUP)) != 0; }
+bool event_socket::poll_queue_ready(short readiness) const { return (readiness & POLLOUT) != 0; }
+bool event_socket::poll_has_buffered_input() const { return false; }
 
 void event_socket::on_data(data_handler f) { set_handler(handler_data, f ? std::make_shared<const data_handler>(std::move(f)) : std::shared_ptr<const void>{}); }
 void event_socket::on_connect(notification_handler f) { set_handler(handler_connect, f ? std::make_shared<const notification_handler>(std::move(f)) : std::shared_ptr<const void>{}); }

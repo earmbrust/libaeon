@@ -65,6 +65,13 @@ protected:
     virtual int poll_receive(char* buffer, int capacity);
     virtual int poll_send(const char* data, int size, int flags);
     virtual bool poll_wants_write() const;
+    // TLS uses these hooks to progress its nonblocking handshake and resume
+    // SSL_read/SSL_write after either WANT_READ or WANT_WRITE. Plain TCP is unchanged.
+    // poll_step: 1=application data ready, 0=pending, -1=terminal error.
+    virtual int poll_step(short readiness);
+    virtual bool poll_read_ready(short readiness) const;
+    virtual bool poll_queue_ready(short readiness) const;
+    virtual bool poll_has_buffered_input() const;
     virtual void on_data_impl(const char* buffer, int size);
     virtual void on_connect_impl();
     virtual void on_close_impl();

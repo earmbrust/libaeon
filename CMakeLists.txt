@@ -213,6 +213,12 @@ if(ENABLE_SSL)
         src/ssl_client_socket.cpp
         src/ssl_server_socket.cpp
     )
+    if(LIBAEON_ENABLE_EVENTS)
+        list(APPEND LIBAEON_SOURCES
+            src/ssl_event_socket.cpp
+            src/ssl_server_event_socket.cpp
+        )
+    endif()
 endif()
 
 # Shared library
