@@ -1,3 +1,46 @@
+v2.0.0 (unreleased)
+===================
+-refactored the public API to use the aeon namespace and consistent lowercase
+ underscore_style class and method names, while keeping the original object-oriented socket design
+-updated the public C++ baseline to C++20, with optional C++23 implementation support
+-retained IPv4/IPv6 address handling and hostname resolution from the later 1.20-devel work
+-reworked TCP and UDP client/server implementations with explicit native socket ownership,
+ retry-safe connection handling, and safer cleanup on failures
+-preserved connect/read/write/accept timeout support and platform-specific error tracking
+-fixed sized reads to respect caller buffer limits and preserve binary data, including embedded NULs
+-preserved bounds-safe ReadLine behavior under the renamed read_line() interface
+-centralized platform-specific socket handling and retained one-time Windows socket initialization
+-retained the 60-second upper limit for accepted-connection timeouts
+-added server-owned TCP, UDP and event peers with explicit removal and parent association
+-changed accept() to return borrowed server-owned peers instead of transferring ownership to callers
+-kept socket_set as a non-owning collection and restored broadcast support through virtual socket writes
+-changed event_socket_set to non-owning registrations; applications must deregister sockets
+ before destroying them or their owning server
+-replaced legacy OnRead/OnWrite and per-socket Poll interfaces with application-driven
+ event_socket_set polling, callbacks, and virtual event handlers
+-added TCP and UDP event clients and listeners with readiness, data, error and lifecycle callbacks
+-added bounded, binary-safe queued TCP writes, configurable queue limits, partial-send handling,
+ per-poll send budgets and drain notifications
+-added transport-aware event I/O so encrypted event sockets cannot bypass TLS through raw send/recv
+-added optional OpenSSL TLS clients with strict certificate trust and DNS/IP identity verification
+-added explicit self-signed leaf certificate support without bypassing peer identity checking
+-added TLS servers with server-owned encrypted peers, certificate/key validation and handshake timeouts
+-added nonblocking TLS event clients and listeners using the existing event_socket_set callbacks
+ and encrypted write queues
+-fixed nonblocking TLS handshake readiness transitions and added configurable handshake deadlines,
+ including cancellation and timeouts during indefinite poll waits
+-fixed TLS session cleanup on cancelled connections and reconnect attempts
+-fixed Windows TLS DLL exports by exporting individual member functions rather than STL-containing classes
+-added separately selectable SSL and event socket support; plain TCP and UDP remain usable in SSL builds
+-added shared and static library targets with public C++20 consumer checks and optional C++23 internals
+-made tests, examples and benchmarks opt-in so ordinary builds produce only the libraries
+-added regression tests for socket ownership, TCP/UDP event polling, write queues and real TLS
+ handshakes in both shared and static library builds
+-added chat, HTTP and UDP Pong examples, with supporting documentation and integration tests
+-updated the Sphinx, Doxygen and Breathe documentation and expanded cross-platform build/test workflows
+-retained ARM build support, branch-based version detection and explicit platform/compiler configuration
+-removed the deprecated no-argument socket-set Add() overloads and old net::C* interface spellings
+
 v1.19.2
 =======
 -fixed socket set error state initialization in constructors
