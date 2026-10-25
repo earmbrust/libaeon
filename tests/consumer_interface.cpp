@@ -46,6 +46,15 @@ public:
     using aeon::socket::set_remote_hostname;
 };
 
+#ifdef ENABLE_SSL
+// A client-defined TLS subclass must link against protected methods and
+// virtual functions supplied by the shared or static Aeon library.
+class consumer_tls_probe final : public aeon::ssl_socket {
+public:
+    consumer_tls_probe() : ssl_socket(nullptr) {}
+};
+#endif
+
 #if LIBAEON_HAS_EVENTS
 class client_event_probe final : public aeon::event_socket {
 public:
@@ -204,6 +213,13 @@ int main() {
     if (tls_client.set_peer_verification(aeon::ssl_verify_mode::strict) !=
         aeon::err_none) {
         return fail("SSL configuration via public API");
+    }
+    consumer_tls_probe tls_derived;
+    aeon::socket* tls_base = &tls_derived;
+    if (dynamic_cast<consumer_tls_probe*>(tls_base) != &tls_derived ||
+        tls_derived.set_peer_verification(aeon::ssl_verify_mode::strict) != aeon::err_none ||
+        tls_derived.set_allow_self_signed(false) != aeon::err_none) {
+        return fail("SSL derived-class DLL interface");
     }
 #endif
 

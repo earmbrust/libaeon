@@ -19,25 +19,25 @@ namespace aeon {
      * Inherits from ssl_socket and extends client_socket functionality with SSL/TLS.
      * Automatically handles SSL handshake on connect.
      */
-    class LIBAEON_API ssl_client_socket : public ssl_socket {
+    class ssl_client_socket : public ssl_socket {
     public:
         /**
          * \brief Default constructor
          */
-        ssl_client_socket();
+        LIBAEON_API ssl_client_socket();
 
         /**
          * \brief Constructor with hostname and port
          * \param hostname Remote hostname to connect to
          * \param port Remote port to connect to
          */
-        explicit ssl_client_socket(const char* hostname, int port);
+        LIBAEON_API explicit ssl_client_socket(const char* hostname, int port);
 
         /**
          * \brief Constructor with shared SSL context
          * \param shared_ctx Existing SSL_CTX to use (not freed by this socket)
          */
-        explicit ssl_client_socket(SSL_CTX* shared_ctx);
+        LIBAEON_API explicit ssl_client_socket(SSL_CTX* shared_ctx);
 
         /**
          * \brief Constructor with hostname, port, and shared context
@@ -45,13 +45,13 @@ namespace aeon {
          * \param port Remote port to connect to
          * \param shared_ctx Existing SSL_CTX to use (not freed by this socket)
          */
-        explicit ssl_client_socket(const char* hostname, int port, SSL_CTX* shared_ctx);
+        LIBAEON_API explicit ssl_client_socket(const char* hostname, int port, SSL_CTX* shared_ctx);
 
         /**
          * \brief Connect to remote host without hostname/port (use previously set values)
          * \return true if connection and SSL handshake successful, false otherwise
          */
-        bool connect();
+        LIBAEON_API bool connect();
 
         /**
          * \brief Connect to remote host
@@ -59,16 +59,16 @@ namespace aeon {
          * \param port Remote port to connect to
          * \return true if connection and SSL handshake successful, false otherwise
          */
-        bool connect(const char* hostname, int port);
+        LIBAEON_API bool connect(const char* hostname, int port);
 
         /**
          * \brief Connect using address structure
          * \param addr Address object containing connection details
          * \return true if connection and SSL handshake successful, false otherwise
          */
-        bool connect(const address& addr);
+        LIBAEON_API bool connect(const address& addr);
 
-        virtual ~ssl_client_socket();
+        LIBAEON_API virtual ~ssl_client_socket();
 
     private:
         bool connect_to(const address& addr, const std::string& expected_identity);

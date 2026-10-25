@@ -37,7 +37,7 @@ namespace aeon {
      * Inherits from socket and adds OpenSSL/TLS encryption.
      * Should not be instantiated directly; use ssl_client_socket or ssl_server_socket.
      */
-    class LIBAEON_API ssl_socket : public socket {
+    class ssl_socket : public socket {
     protected:
         SSL_CTX* ssl_ctx;
         SSL* ssl;
@@ -48,49 +48,49 @@ namespace aeon {
         std::string key_file;
 
         // Protected constructor for derived classes
-        explicit ssl_socket(SSL_CTX* shared_ctx = nullptr);
+        LIBAEON_API explicit ssl_socket(SSL_CTX* shared_ctx = nullptr);
 
         // Initialize SSL, attach its descriptor and verify the expected peer identity.
-        int setup_ssl(const std::string& expected_identity);
+        LIBAEON_API int setup_ssl(const std::string& expected_identity);
 
         // Perform SSL/TLS handshake
-        int perform_handshake();
+        LIBAEON_API int perform_handshake();
 
         // Clear OpenSSL error queue before operations
-        void clear_ssl_errors();
+        LIBAEON_API void clear_ssl_errors();
 
     public:
-        virtual ~ssl_socket();
+        LIBAEON_API virtual ~ssl_socket();
 
         // Error handling - analogs to OpenSSL's ERR_* functions
-        unsigned long get_ssl_error();
-        std::string get_ssl_error_string();
-        std::string get_ssl_errors_all();
+        LIBAEON_API unsigned long get_ssl_error();
+        LIBAEON_API std::string get_ssl_error_string();
+        LIBAEON_API std::string get_ssl_errors_all();
 
         // Configuration methods (call before connect)
-        int set_certificate_file(const char* path);
-        int set_private_key_file(const char* path);
-        int set_ca_file(const char* path);
-        int set_peer_verification(ssl_verify_mode mode);
+        LIBAEON_API int set_certificate_file(const char* path);
+        LIBAEON_API int set_private_key_file(const char* path);
+        LIBAEON_API int set_ca_file(const char* path);
+        LIBAEON_API int set_peer_verification(ssl_verify_mode mode);
         // Explicitly allow an untrusted self-signed LEAF certificate in strict mode.
         // Peer identity (DNS/IP), certificate validity and handshake are still checked.
-        int set_allow_self_signed(bool allow);
+        LIBAEON_API int set_allow_self_signed(bool allow);
 
         // Close TLS before releasing the owned native socket; safe on failure/retry.
-        bool close() override;
+        LIBAEON_API bool close() override;
 
         // Override read/write to use SSL
-        int write(char* data, int size) override;
-        int write(const char* data, int size) override;
-        int write(char* data) override;
-        int write(const char* data) override;
-        int write(const std::string& data) override;
+        LIBAEON_API int write(char* data, int size) override;
+        LIBAEON_API int write(const char* data, int size) override;
+        LIBAEON_API int write(char* data) override;
+        LIBAEON_API int write(const char* data) override;
+        LIBAEON_API int write(const std::string& data) override;
 
-        int read() override;
-        int read(char* buffer, int size) override;
-        int read_line(char* buffer, int size) override;
-        int read_until(char* buffer, int size) override;
-        std::string read(int size) override;
+        LIBAEON_API int read() override;
+        LIBAEON_API int read(char* buffer, int size) override;
+        LIBAEON_API int read_line(char* buffer, int size) override;
+        LIBAEON_API int read_until(char* buffer, int size) override;
+        LIBAEON_API std::string read(int size) override;
     };
 
 } // aeon
