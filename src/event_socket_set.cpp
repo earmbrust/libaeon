@@ -273,7 +273,7 @@ int event_socket_set::poll(int timeout_ms) {
         auto* s = entry->get_if_active();
         if (!s || !s->is_valid_socket()) continue;
         watched.push_back({entry, {}, s->sockfd});
-        native.push_back({s->sockfd, 0, s->queued_bytes() != 0});
+        native.push_back({s->sockfd, 0, s->poll_wants_write()});
     }
     for (const auto& entry : udp_snapshot) {
         auto* s = entry->get_if_active();
@@ -310,7 +310,7 @@ int event_socket_set::poll(int timeout_ms) {
                 continue;
             }
             if (flags & (POLLIN | POLLHUP)) {
-                const int bytes = static_cast<int>(::recv(watch.fd, buffer, sizeof(buffer), 0));
+                const int bytes = s->poll_receive(buffer, static_cast<int>(sizeof(buffer)));
                 if (bytes > 0) {
                     ++handled;
                     s->n = bytes;

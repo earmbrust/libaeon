@@ -64,6 +64,16 @@ event_socket::event_socket(socket_t fd, bool adopt)
 
 event_socket::~event_socket() { delete outgoing_; }
 
+int event_socket::poll_receive(char* buffer, int capacity) {
+    return static_cast<int>(::recv(sockfd, buffer, capacity, 0));
+}
+
+int event_socket::poll_send(const char* data, int size, int flags) {
+    return static_cast<int>(::send(sockfd, data, size, flags));
+}
+
+bool event_socket::poll_wants_write() const { return queued_bytes() != 0; }
+
 void event_socket::on_data(data_handler f) { set_handler(handler_data, f ? std::make_shared<const data_handler>(std::move(f)) : std::shared_ptr<const void>{}); }
 void event_socket::on_connect(notification_handler f) { set_handler(handler_connect, f ? std::make_shared<const notification_handler>(std::move(f)) : std::shared_ptr<const void>{}); }
 void event_socket::on_close(notification_handler f) { set_handler(handler_close, f ? std::make_shared<const notification_handler>(std::move(f)) : std::shared_ptr<const void>{}); }
@@ -138,8 +148,7 @@ event_socket::flush_result event_socket::flush_queued(std::size_t budget) {
 #ifdef MSG_DONTWAIT
         flags |= MSG_DONTWAIT;
 #endif
-        const int sent = static_cast<int>(::send(sockfd, front.data() + out.front_offset,
-                                                  requested, flags));
+        const int sent = poll_send(front.data() + out.front_offset, requested, flags);
         const int error = sent < 0 ? GET_NET_SOCKET_ERROR() : 0;
         if (sent < 0) {
 #ifdef NET_PLATFORM_WINDOWS
@@ -226,11 +235,13 @@ bool event_socket::close() {
     return closed;
 }
 
-int event_socket::write(const char* data) {
-    if (!data || !is_valid_socket()) return NET_SOCKET_ERROR;
-    auto len = std::strlen(data);
-    if (len == 0) return 0;
-    const int sent = static_cast<int>(send(sockfd, data, static_cast<int>(len), 0));
+int event_socket::write(char* data, int size) {
+    return write(static_cast<const char*>(data), size);
+}
+
+int event_socket::write(const char* data, int size) {
+    if (!is_valid_socket() || !data || size <= 0) return NET_SOCKET_ERROR;
+    const int sent = poll_send(data, size, 0);
     if (sent < 0) {
         error_code = GET_NET_SOCKET_ERROR();
         fire_on_error(error_code);
@@ -238,15 +249,20 @@ int event_socket::write(const char* data) {
     return sent;
 }
 
+int event_socket::write(char* data) {
+    return write(static_cast<const char*>(data));
+}
+
+int event_socket::write(const char* data) {
+    if (!data || !is_valid_socket()) return NET_SOCKET_ERROR;
+    const auto length = std::strlen(data);
+    if (!length) return 0;
+    return write(data, static_cast<int>(length));
+}
+
 int event_socket::write(const std::string& data) {
     if (!is_valid_socket() || data.empty()) return NET_SOCKET_ERROR;
-    const int sent = static_cast<int>(send(sockfd, data.data(),
-                                           static_cast<int>(data.size()), 0));
-    if (sent < 0) {
-        error_code = GET_NET_SOCKET_ERROR();
-        fire_on_error(error_code);
-    }
-    return sent;
+    return write(data.data(), static_cast<int>(data.size()));
 }
 
 } // namespace aeon

@@ -540,3 +540,83 @@ TEST(EventPolling, RemovingAndReaddingRegistrationDuringCallbackSkipsStaleSnapsh
     EXPECT_TRUE(set.remove_socket(a.receiver));
     EXPECT_TRUE(set.remove_socket(b.receiver));
 }
+
+// A subclass must intercept both directions of I/O, including every direct
+// write overload and the queued-write path. No TLS transport may fall through
+// to native recv/send when routed through event_socket_set.
+namespace {
+class event_transport_probe final : public aeon::event_socket {
+public:
+    explicit event_transport_probe(aeon::socket_t fd) : event_socket(fd, true) {}
+    int receives = 0;
+    int sends = 0;
+protected:
+    int poll_receive(char* data, int size) override {
+        ++receives;
+        return event_socket::poll_receive(data, size);
+    }
+    int poll_send(const char* data, int size, int flags) override {
+        ++sends;
+        return event_socket::poll_send(data, size, flags);
+    }
+};
+} // namespace
+
+TEST(EventPolling, TransportHooksCoverReadsDirectWritesAndWriteQueue) {
+    aeon::server_event_socket listener;
+    ASSERT_TRUE(listener.listen("127.0.0.1", 0));
+    aeon::client_socket client;
+    ASSERT_TRUE(client.connect("127.0.0.1", port_of(listener)));
+
+    // Own the accepted descriptor in our derived event socket exactly once.
+    sockaddr_storage remote{};
+    socklen_t length = static_cast<socklen_t>(sizeof(remote));
+    const aeon::socket_t accepted = ::accept(listener.sockfd,
+        reinterpret_cast<sockaddr*>(&remote), &length);
+    ASSERT_NE(accepted, aeon::invalid_socket);
+    event_transport_probe peer(accepted);
+    ASSERT_TRUE(peer.connected);
+    aeon::event_socket_set poller;
+    ASSERT_TRUE(poller.add(&peer));
+    int received = 0;
+    poller.on_socket_data([&](aeon::event_socket* who, const char* data, int size) {
+        EXPECT_EQ(who, &peer);
+        EXPECT_EQ(std::string(data, static_cast<std::size_t>(size)), "ping");
+        received += size;
+    });
+    ASSERT_EQ(client.write("ping", 4), 4);
+    ASSERT_GT(poller.poll(2000), 0);
+    EXPECT_EQ(received, 4);
+    EXPECT_EQ(peer.receives, 1);
+
+    // Test the const sized overload and the queued transport, in order.
+    ASSERT_EQ(peer.write("A", 1), 1);
+    ASSERT_TRUE(peer.queue_write("B", 1));
+    ASSERT_GT(poller.poll(2000), 0);
+    char output[2]{};
+    ASSERT_EQ(client.set_read_timeout(2000), 0);
+    ASSERT_EQ(client.read_until(output, 2), 2);
+    EXPECT_EQ(std::string(output, 2), "AB");
+    EXPECT_GE(peer.sends, 2);
+
+    // Exercise the char* and string overloads through the same hook.
+    char mutable_payload[] = "C";
+    ASSERT_EQ(peer.write(mutable_payload, 1), 1);
+    ASSERT_EQ(peer.write(std::string("D")), 1);
+    char extra[2]{};
+    ASSERT_EQ(client.read_until(extra, 2), 2);
+    EXPECT_EQ(std::string(extra, 2), "CD");
+    ASSERT_EQ(peer.write("E"), 1);
+    char mutable_terminated[] = "F";
+    ASSERT_EQ(peer.write(mutable_terminated), 1);
+    char more[2]{};
+    ASSERT_EQ(client.read_until(more, 2), 2);
+    EXPECT_EQ(std::string(more, 2), "EF");
+    aeon::socket* generic = &peer;
+    ASSERT_EQ(generic->write("G", 1), 1);
+    char last{};
+    ASSERT_EQ(client.read_until(&last, 1), 1);
+    EXPECT_EQ(last, 'G');
+    EXPECT_GE(peer.sends, 7);
+    EXPECT_TRUE(poller.remove_socket(&peer));
+}

@@ -21,8 +21,11 @@ public:
 
     event_socket();
     ~event_socket() override;
-    using socket::write;
-
+    // Every write overload must route through the same transport hook.
+    // Otherwise inherited socket::write(data, size) can bypass TLS.
+    int write(char* data, int size) override;
+    int write(const char* data, int size) override;
+    int write(char* data) override;
     int write(const char* data) override;
     int write(const std::string& data) override;
     bool close() override;
@@ -55,6 +58,13 @@ public:
 
 protected:
     explicit event_socket(socket_t existing_fd, bool adopt);
+
+    // These are the transport boundary for polling, direct writes, and
+    // queued writes. TCP defaults use recv/send; TLS subclasses will
+    // override them so polling never bypasses encryption.
+    virtual int poll_receive(char* buffer, int capacity);
+    virtual int poll_send(const char* data, int size, int flags);
+    virtual bool poll_wants_write() const;
     virtual void on_data_impl(const char* buffer, int size);
     virtual void on_connect_impl();
     virtual void on_close_impl();
