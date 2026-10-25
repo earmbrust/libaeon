@@ -34,6 +34,16 @@ int ssl_server_event_socket::set_private_key_file(const char* pem) {
     set_error(err_none);
     return err_none;
 }
+int ssl_server_event_socket::set_handshake_timeout(int milliseconds) {
+    if (milliseconds < 100 || milliseconds > 60000) {
+        set_error(ssl_error);
+        return ssl_error;
+    }
+    handshake_timeout_ms_ = milliseconds;
+    set_error(err_none);
+    return err_none;
+}
+
 bool ssl_server_event_socket::listen(const char* ip, int port) {
     if (!ctx_ || SSL_CTX_check_private_key(ctx_) != 1) {
         set_error(ssl_error_cert);
@@ -51,7 +61,8 @@ ssl_event_socket* ssl_server_event_socket::accept(bool blocking) {
 }
 std::unique_ptr<event_socket> ssl_server_event_socket::create_accepted_socket(socket_t fd) {
     auto peer = std::unique_ptr<ssl_event_socket>(new ssl_event_socket(fd, ctx_));
-    if (!peer->is_valid_socket() || !peer->session_) {
+    if (!peer->is_valid_socket() || !peer->session_ ||
+        peer->set_handshake_timeout(handshake_timeout_ms_) != err_none) {
         set_error(ssl_error_init);
         return {};
     }

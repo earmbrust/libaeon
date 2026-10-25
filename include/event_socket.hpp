@@ -72,6 +72,9 @@ protected:
     virtual bool poll_read_ready(short readiness) const;
     virtual bool poll_queue_ready(short readiness) const;
     virtual bool poll_has_buffered_input() const;
+    // -1 when no deadline is active; otherwise milliseconds until the
+    // transport's next time-based state transition (0 when due).
+    virtual int poll_timeout_ms() const;
     virtual void on_data_impl(const char* buffer, int size);
     virtual void on_connect_impl();
     virtual void on_close_impl();

@@ -11,6 +11,7 @@
 #include "ssl_event_socket.hpp"
 #include <openssl/x509v3.h>
 #include <algorithm>
+#include <chrono>
 
 namespace aeon {
 namespace {
@@ -82,6 +83,8 @@ bool ssl_event_socket::init_session(bool server) {
     send_need_read_ = false;
     recv_need_write_ = false;
     pending_write_len_ = 0;
+    handshake_deadline_ = std::chrono::steady_clock::now() +
+        std::chrono::milliseconds(handshake_timeout_ms_);
     return true;
 }
 
@@ -139,6 +142,9 @@ bool ssl_event_socket::connect(const char* hostname, int port) {
         return false;
     }
     const std::string requested(hostname);
+    // Explicitly tear down an earlier TLS session before replacing its TCP
+    // descriptor. A failed reconnect must not leave a ready stale session.
+    if (session_ || connected) (void)close();
     // Match existing client_event_socket: TCP connection is synchronous,
     // but TLS handshake is always progressed by event_socket_set::poll().
     (void)set_blocking(true);
@@ -151,12 +157,37 @@ bool ssl_event_socket::connect(const address& addr) {
         return false;
     }
     const std::string identity = addr.get_string();
+    if (session_ || connected) (void)close();
     (void)set_blocking(true);
     if (!tcp_connect(addr)) return false;
     return start_client(identity);
 }
 
 bool ssl_event_socket::handshake_complete() const noexcept { return tls_ready_; }
+
+int ssl_event_socket::set_handshake_timeout(int milliseconds) {
+    if (milliseconds < 100 || milliseconds > 60000) {
+        set_error(ssl_error);
+        return ssl_error;
+    }
+    handshake_timeout_ms_ = milliseconds;
+    if (session_ && !tls_ready_)
+        handshake_deadline_ = std::chrono::steady_clock::now() +
+            std::chrono::milliseconds(milliseconds);
+    set_error(err_none);
+    return err_none;
+}
+
+int ssl_event_socket::poll_timeout_ms() const {
+    if (!session_ || tls_ready_ || !is_valid_socket()) return -1;
+    const auto now = std::chrono::steady_clock::now();
+    if (now >= handshake_deadline_) return 0;
+    // Round up, not down: a deadline less than one millisecond away must
+    // not generate a busy 0ms poll loop.
+    const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+        handshake_deadline_ - now).count();
+    return static_cast<int>(remaining + 1);
+}
 
 bool ssl_event_socket::close() {
     if (session_) {
@@ -178,6 +209,12 @@ bool ssl_event_socket::close() {
 }
 
 int ssl_event_socket::poll_step(short flags) {
+    // Check deadlines even when WSAPoll/poll returned no socket events.
+    if (session_ && !tls_ready_ &&
+        std::chrono::steady_clock::now() >= handshake_deadline_) {
+        set_error(ssl_error_handshake);
+        return -1;
+    }
     if (flags & (POLLERR | POLLNVAL | POLLHUP)) {
         set_error(ssl_error_handshake);
         return -1;

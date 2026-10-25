@@ -18,6 +18,7 @@ public:
     LIBAEON_API ~ssl_server_event_socket() override;
     LIBAEON_API int set_certificate_file(const char* pem);
     LIBAEON_API int set_private_key_file(const char* pem);
+    LIBAEON_API int set_handshake_timeout(int milliseconds);
     using server_event_socket::listen;
     LIBAEON_API bool listen(const char* ip, int port) override;
     LIBAEON_API ssl_event_socket* accept() override;
@@ -28,6 +29,7 @@ protected:
 
 private:
     SSL_CTX* ctx_ = nullptr;
+    int handshake_timeout_ms_ = 5000;
 };
 } // namespace aeon
 #endif

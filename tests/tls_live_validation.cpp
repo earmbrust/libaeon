@@ -466,6 +466,138 @@ int main() {
                     "event reject unregister");
             require(server.remove_peer(peer), "event reject cleanup");
         });
+        case_test("event-tls-server-silent-peer-deadline", [&] {
+            aeon::ssl_server_event_socket listener;
+            require(listener.set_certificate_file(good.ca_path.string().c_str()) == 0,
+                    "deadline server certificate");
+            require(listener.set_private_key_file(good.key_path.string().c_str()) == 0,
+                    "deadline server private key");
+            require(listener.set_handshake_timeout(0) != 0, "reject disabled deadline");
+            require(listener.set_handshake_timeout(150) == 0, "server deadline setting");
+            require(listener.listen("127.0.0.1", 0), "deadline listener");
+            sockaddr_in local{};
+            socklen_t length = sizeof(local);
+            require(::getsockname(listener.sockfd, reinterpret_cast<sockaddr*>(&local),
+                                  &length) == 0, "deadline getsockname");
+            aeon::client_socket raw;
+            require(raw.connect("127.0.0.1", ntohs(local.sin_port)),
+                    "silent TCP connection");
+            auto* peer = listener.accept(false);
+            require(peer != nullptr, "accept silent peer");
+            aeon::event_socket_set poller;
+            require(poller.add(peer), "register silent TLS peer");
+            int errors = 0, closes = 0, data = 0;
+            peer->on_error([&](int reason) {
+                require(reason == aeon::ssl_error_handshake, "deadline error code");
+                ++errors;
+            });
+            peer->on_close([&] { ++closes; });
+            peer->on_data([&](const char*, int) { ++data; });
+            // The watchdog provides a finite escape if poll(-1) incorrectly
+            // ignores the deadline. It touches only the independent raw peer.
+            std::jthread watchdog([&] {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1200));
+                (void)raw.close();
+            });
+            const auto started = std::chrono::steady_clock::now();
+            const int handled = poller.poll(-1);
+            const auto elapsed = std::chrono::steady_clock::now() - started;
+            watchdog.join();
+            require(handled > 0 && elapsed < std::chrono::milliseconds(800),
+                    "infinite poll ignored TLS handshake deadline");
+            require(!peer->is_valid_socket() && !peer->handshake_complete() &&
+                    errors == 1 && closes == 1 && data == 0,
+                    "silent TLS peer times out with one error and close");
+            require(poller.remove_socket(peer) && listener.remove_peer(peer),
+                    "remove timed-out TLS peer");
+        });
+        case_test("event-tls-client-silent-server-deadline-and-cancel", [&] {
+            aeon::server_socket listener;
+            require(listener.listen("127.0.0.1", 0), "plain listener for stalled TLS");
+            sockaddr_in local{};
+            socklen_t length = sizeof(local);
+            require(::getsockname(listener.sockfd, reinterpret_cast<sockaddr*>(&local),
+                                  &length) == 0, "client deadline getsockname");
+            aeon::ssl_event_socket client;
+            require(client.set_handshake_timeout(25) != 0,
+                    "reject too-short client deadline");
+            require(client.set_handshake_timeout(150) == 0,
+                    "client handshake deadline");
+            require(client.connect("127.0.0.1", ntohs(local.sin_port)),
+                    "TLS client TCP connected");
+            aeon::socket* silent = listener.accept(true);
+            require(silent != nullptr, "accept TLS client on plain listener");
+            aeon::event_socket_set poller;
+            require(poller.add(&client), "register pending TLS client");
+            int errors = 0, closes = 0, data = 0;
+            client.on_error([&](int reason) {
+                require(reason == aeon::ssl_error_handshake,
+                        "client deadline error code");
+                ++errors;
+            });
+            client.on_close([&] { ++closes; });
+            client.on_data([&](const char*, int) { ++data; });
+            const auto started = std::chrono::steady_clock::now();
+            for (int n = 0; n < 6 && client.is_valid_socket(); ++n)
+                require(poller.poll(1000) >= 0, "client timeout poll");
+            const auto elapsed = std::chrono::steady_clock::now() - started;
+            require(elapsed < std::chrono::seconds(2) && !client.is_valid_socket() &&
+                    errors == 1 && closes == 1 && data == 0,
+                    "silent server TLS handshake timed out cleanly");
+            require(poller.remove_socket(&client), "remove timed-out client");
+            require(listener.remove_peer(silent), "remove silent peer");
+            {
+                live_server real(good.server_ctx);
+                require(client.set_ca_file(good.ca_path.string().c_str()) == 0,
+                        "reconnect CA after timeout");
+                require(client.connect("127.0.0.1", real.port),
+                        "reconnect TLS socket after deadline");
+                require(poller.add(&client), "register reconnected TLS client");
+                for (int n = 0; n < 100 && !client.handshake_complete(); ++n)
+                    require(poller.poll(100) >= 0, "reconnect TLS poll");
+                require(client.handshake_complete(), "reconnect handshake completed");
+                require(poller.remove_socket(&client), "remove reconnected TLS client");
+                require(client.close(), "close reconnected client");
+            }
+
+            // An explicitly cancelled TLS handshake must not leak its SSL
+            // session or leave a descriptor attached to the object.
+            aeon::ssl_event_socket cancelled;
+            require(cancelled.connect("127.0.0.1", ntohs(local.sin_port)),
+                    "second pending handshake");
+            require(cancelled.close(), "cancel in-progress handshake");
+            require(!cancelled.handshake_complete() && !cancelled.is_valid_socket(),
+                    "cancel tears down pending TLS session");
+            require(!cancelled.close(), "cancel close idempotence");
+        });
+        case_test("event-tls-reconnect-replaces-pending-session", [&] {
+            aeon::server_socket silent_listener;
+            require(silent_listener.listen("127.0.0.1", 0),
+                    "reconnect silent listener");
+            sockaddr_in local{};
+            socklen_t length = sizeof(local);
+            require(::getsockname(silent_listener.sockfd,
+                                  reinterpret_cast<sockaddr*>(&local), &length) == 0,
+                    "reconnect silent port");
+            aeon::ssl_event_socket client;
+            require(client.connect("127.0.0.1", ntohs(local.sin_port)),
+                    "initial pending TCP connection");
+            auto* silent = silent_listener.accept(true);
+            require(silent != nullptr, "first accepted pending peer");
+            live_server real(good.server_ctx);
+            require(client.set_ca_file(good.ca_path.string().c_str()) == 0,
+                    "reconnect trust store");
+            require(client.connect("127.0.0.1", real.port),
+                    "replace pending TLS connection");
+            aeon::event_socket_set poller;
+            require(poller.add(&client), "poll reconnected pending TLS");
+            for (int n = 0; n < 100 && !client.handshake_complete(); ++n)
+                require(poller.poll(100) >= 0, "replacement handshake poll");
+            require(client.handshake_complete(), "replacement TLS handshake");
+            require(poller.remove_socket(&client), "unregister replacement client");
+            require(client.close(), "close replacement TLS connection");
+            require(silent_listener.remove_peer(silent), "retire previous TCP peer");
+        });
         case_test("event-tls-rejects-plaintext-without-data-callback", [&] {
             aeon::ssl_server_event_socket server;
             require(server.set_certificate_file(good.ca_path.string().c_str()) == 0,

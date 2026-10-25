@@ -9,6 +9,7 @@
 #include "event_socket.hpp"
 #include "ssl_socket.hpp" // Public TLS error codes and verification modes.
 #include <openssl/ssl.h>
+#include <chrono>
 
 namespace aeon {
 class ssl_server_event_socket;
@@ -30,6 +31,9 @@ public:
     LIBAEON_API bool connect(const char* hostname, int port);
     LIBAEON_API bool connect(const address& addr);
     LIBAEON_API bool handshake_complete() const noexcept;
+    // The deadline starts with each handshake. Valid range: 100-60000 ms.
+    // Changing the limit during negotiation restarts the deadline from now.
+    LIBAEON_API int set_handshake_timeout(int milliseconds);
     LIBAEON_API bool close() override;
     // Every inherited socket read must decrypt; raw socket::read is forbidden
     // for TLS even when the caller does not use event_socket_set.
@@ -47,6 +51,7 @@ protected:
     LIBAEON_API bool poll_read_ready(short readiness) const override;
     LIBAEON_API bool poll_queue_ready(short readiness) const override;
     LIBAEON_API bool poll_has_buffered_input() const override;
+    LIBAEON_API int poll_timeout_ms() const override;
 
 private:
     // Accept an already-owned descriptor with a retained shared server context.
@@ -63,7 +68,9 @@ private:
     bool need_write_ = false;   // handshake or read needs writable descriptor
     bool send_need_read_ = false;
     bool recv_need_write_ = false;
-    int pending_write_len_ = 0; // retry SSL_write with the original byte count
+    int pending_write_len_ = 0;
+    int handshake_timeout_ms_ = 5000;
+    std::chrono::steady_clock::time_point handshake_deadline_{}; // retry SSL_write with the original byte count
     ssl_verify_mode verify_mode_ = ssl_verify_mode::strict;
     bool allow_self_signed_ = false;
     std::string expected_identity_;

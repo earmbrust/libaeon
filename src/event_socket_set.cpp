@@ -291,7 +291,18 @@ int event_socket_set::poll(int timeout_ms) {
                 s->poll_has_buffered_input()) buffered = true;
         }
     }
-    const int ready = internal::poll_readable(native, buffered ? 0 : timeout_ms);
+    // Bound even an infinite poll by the nearest active transport deadline.
+    // This is essential for silent TLS peers that never send a ClientHello.
+    int effective_timeout = timeout_ms;
+    for (const auto& watch : watched) {
+        if (!watch.tcp) continue;
+        auto* s = watch.tcp->get_if_active();
+        if (!s || !s->is_valid_socket() || s->sockfd != watch.fd) continue;
+        const int due = s->poll_timeout_ms();
+        if (due >= 0 && (effective_timeout == -1 || due < effective_timeout))
+            effective_timeout = due;
+    }
+    const int ready = internal::poll_readable(native, buffered ? 0 : effective_timeout);
     if (ready < 0) return ready;
     if (buffered) {
         for (size_t i = 0; i < watched.size(); ++i) {
@@ -302,13 +313,22 @@ int event_socket_set::poll(int timeout_ms) {
             }
         }
     }
-    if (ready == 0 && !buffered) return 0;
+    bool expired = false;
+    for (const auto& watch : watched) {
+        if (!watch.tcp) continue;
+        auto* s = watch.tcp->get_if_active();
+        if (s && s->is_valid_socket() && s->sockfd == watch.fd &&
+            s->poll_timeout_ms() == 0) expired = true;
+    }
+    if (ready == 0 && !buffered && !expired) return 0;
     int handled = 0;
     char buffer[socket::max_buffer_size];
     for (size_t i = 0; i < watched.size(); ++i) {
         const auto flags = native[i].revents;
-        if (!flags) continue;
         const auto& watch = watched[i];
+        // A handshake can time out without any native readiness event.
+        if (!flags && !(watch.tcp && watch.tcp->get_if_active() &&
+                        watch.tcp->get_if_active()->poll_timeout_ms() == 0)) continue;
         if (watch.tcp) {
             auto* s = watch.tcp->get_if_active();
             if (!s || !s->is_valid_socket() || s->sockfd != watch.fd) continue;
