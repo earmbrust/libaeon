@@ -60,6 +60,7 @@ class client_event_probe final : public aeon::event_socket {
 public:
     void emit_data(const char* data, int count) { fire_on_data(data, count); }
     void emit_drain() { fire_on_drain(); }
+    void emit_write(const char* data, int requested, int sent) { fire_on_write(data, requested, sent); }
 };
 
 class client_event_set_probe final : public aeon::event_socket_set {
@@ -127,6 +128,12 @@ int main() {
     event_socket.on_drain([&] { local_drain = true; });
     event_socket.emit_drain();
     if (!local_drain) return fail("event_socket drain callback");
+    bool local_write = false;
+    event_socket.on_write([&](const char* data, int requested, int sent) {
+        local_write = requested == 5 && sent == 2 && std::memcmp(data, "hello", 5) == 0;
+    });
+    event_socket.emit_write("hello", 5, 2);
+    if (!local_write) return fail("event_socket write callback export");
     if (event_socket.queue_write("x", 1)) return fail("unconnected queue rejected");
     if (event_socket.queued_bytes() != 0 ||
         !event_socket.set_max_queued_bytes(4096)) return fail("queue consumer API");

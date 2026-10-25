@@ -18,6 +18,7 @@ public:
     using data_handler = std::function<void(const char*, int)>;
     using notification_handler = std::function<void()>;
     using error_handler = std::function<void(int)>;
+    using write_handler = std::function<void(const char*, int, int)>;
 
     event_socket();
     ~event_socket() override;
@@ -46,6 +47,10 @@ public:
     bool set_max_queued_bytes(std::size_t limit);
     // Called once when a nonempty queue is completely transmitted.
     void on_drain(notification_handler handler);
+    // Synchronous notification for direct write() calls: original bytes,
+    // requested count and actual count (0 on send failure). The data pointer
+    // is valid only during the callback. Queued writes use on_drain instead.
+    void on_write(write_handler handler);
 
     // One handler per event. Replacing or clearing a handler is synchronized.
     // Dispatch invokes the snapshot outside the registration lock, on the
@@ -80,6 +85,7 @@ protected:
     virtual void on_close_impl();
     virtual void on_listen_impl();
     virtual void on_error_impl(int error_code);
+    virtual void on_write_impl(const char* data, int requested, int sent);
 
     void fire_on_data(const char* buffer, int size);
     void fire_on_connect();
@@ -87,6 +93,7 @@ protected:
     void fire_on_listen();
     void fire_on_error(int error_code);
     void fire_on_drain();
+    void fire_on_write(const char* data, int requested, int sent);
 
 private:
     struct flush_result { std::size_t bytes = 0; int error = 0; bool drained = false; };

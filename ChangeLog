@@ -16,8 +16,10 @@ v2.0.0 (unreleased)
 -kept socket_set as a non-owning collection and restored broadcast support through virtual socket writes
 -changed event_socket_set to non-owning registrations; applications must deregister sockets
  before destroying them or their owning server
--replaced legacy OnRead/OnWrite and per-socket Poll interfaces with application-driven
+-replaced legacy OnRead and per-socket Poll interfaces with application-driven
  event_socket_set polling, callbacks, and virtual event handlers
+-restored direct-write send-result notifications through event_socket::on_write,
+ while keeping on_drain separate for queued-output completion
 -added TCP and UDP event clients and listeners with readiness, data, error and lifecycle callbacks
 -added bounded, binary-safe queued TCP writes, configurable queue limits, partial-send handling,
  per-poll send budgets and drain notifications

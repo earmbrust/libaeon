@@ -212,3 +212,19 @@ TEST(WriteQueue, MultiplePollsPreserveBinaryOrderThroughBudgetedFlush) {
     EXPECT_EQ(read_count, static_cast<int>(received.size()));
     EXPECT_EQ(received, bytes);
 }
+
+TEST(WriteQueue, BufferedOutputDoesNotPretendToBeDirectWriteCompletion) {
+    write_pair pair;
+    ASSERT_TRUE(pair.start());
+    int direct = 0, drained = 0;
+    pair.writer->on_write([&](const char*, int, int) { ++direct; });
+    pair.writer->on_drain([&] { ++drained; });
+    ASSERT_TRUE(pair.writer->queue_write("queued", 6));
+    ASSERT_GT(pair.set.poll(2000), 0);
+    EXPECT_EQ(pair.writer->queued_bytes(), 0u);
+    EXPECT_EQ(direct, 0);
+    EXPECT_EQ(drained, 1);
+    char data[6]{};
+    EXPECT_EQ(pair.reader.read_until(data, 6), 6);
+    EXPECT_EQ(std::string(data, 6), "queued");
+}

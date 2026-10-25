@@ -226,3 +226,106 @@ TEST(EventCallbacks, ReplacementDoesNotDestroyExecutingHandler) {
     EXPECT_EQ(old, 1);
     EXPECT_EQ(next, 1);
 }
+
+// Legacy CEventSocket::OnWrite reported each direct send, including its
+// requested length and the actual result. The new event API retains that
+// information without conflating it with queued-write drain notifications.
+namespace {
+class write_notification_probe final : public aeon::event_socket {
+public:
+    bool fail_send = false;
+    int virtual_writes = 0;
+    int fallback_requested = 0;
+    int fallback_sent = 0;
+protected:
+    int poll_send(const char*, int length, int) override {
+        if (fail_send) {
+#ifdef NET_PLATFORM_WINDOWS
+            WSASetLastError(WSAECONNRESET);
+#else
+            errno = ECONNRESET;
+#endif
+            return -1;
+        }
+        return length > 2 ? 2 : length;
+    }
+    void on_write_impl(const char*, int requested, int sent) override {
+        ++virtual_writes;
+        fallback_requested = requested;
+        fallback_sent = sent;
+    }
+};
+}
+
+TEST(EventCallbacks, DirectWriteReportsRequestedAndActualBytesOnce) {
+    write_notification_probe s;
+    ASSERT_TRUE(s.is_valid_socket());
+    int count = 0, requested = -1, sent = -1;
+    std::string captured;
+    s.on_write([&](const char* data, int want, int got) {
+        ++count; requested = want; sent = got;
+        captured.assign(data, static_cast<std::size_t>(want));
+    });
+    char mutable_data[] = "hello";
+    EXPECT_EQ(s.write(mutable_data), 2);
+    EXPECT_EQ(count, 1);
+    EXPECT_EQ(requested, 5);
+    EXPECT_EQ(sent, 2);
+    EXPECT_EQ(captured, "hello");
+    const char const_data[] = {'a', '\0', 'b'};
+    EXPECT_EQ(s.write(const_data, 3), 2);
+    EXPECT_EQ(count, 2);
+    EXPECT_EQ(requested, 3);
+    EXPECT_EQ(captured, std::string(const_data, 3));
+    EXPECT_EQ(s.write(std::string("A\0B", 3)), 2);
+    EXPECT_EQ(count, 3);
+    aeon::socket* polymorphic = &s;
+    EXPECT_EQ(polymorphic->write("X", 1), 1);
+    EXPECT_EQ(count, 4);
+    EXPECT_EQ(s.virtual_writes, 0);
+    EXPECT_EQ(s.write(""), 0);
+    EXPECT_EQ(s.write("", 0), -1);
+    EXPECT_EQ(count, 4);
+}
+
+TEST(EventCallbacks, DirectWriteFailureReportsZeroAndRetainsErrorNotification) {
+    write_notification_probe s;
+    s.fail_send = true;
+    int requested = 0, sent = -1, errors = 0;
+    s.on_write([&](const char*, int need, int actual) {
+        requested = need; sent = actual;
+    });
+    s.on_error([&](int code) {
+        ++errors;
+#ifdef NET_PLATFORM_WINDOWS
+        EXPECT_EQ(code, WSAECONNRESET);
+#else
+        EXPECT_EQ(code, ECONNRESET);
+#endif
+    });
+    EXPECT_EQ(s.write("abc"), -1);
+    EXPECT_EQ(requested, 3);
+    EXPECT_EQ(sent, 0);
+    EXPECT_EQ(errors, 1);
+}
+
+TEST(EventCallbacks, WriteCallbackSupportsVirtualFallbackAndReplacement) {
+    write_notification_probe s;
+    ASSERT_TRUE(s.is_valid_socket());
+    EXPECT_EQ(s.write("abc"), 2);
+    EXPECT_EQ(s.virtual_writes, 1);
+    EXPECT_EQ(s.fallback_requested, 3);
+    EXPECT_EQ(s.fallback_sent, 2);
+    int first = 0, replacement = 0;
+    s.on_write([&](const char*, int, int) {
+        ++first;
+        s.on_write([&](const char*, int, int) { ++replacement; });
+    });
+    EXPECT_EQ(s.write("abc"), 2);
+    EXPECT_EQ(s.write("abc"), 2);
+    EXPECT_EQ(first, 1);
+    EXPECT_EQ(replacement, 1);
+    s.on_write({});
+    EXPECT_EQ(s.write("y", 1), 1);
+    EXPECT_EQ(s.virtual_writes, 2);
+}

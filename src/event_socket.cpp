@@ -53,15 +53,15 @@ struct pending_write_state {
 } // namespace aeon::internal
 
 namespace aeon {
-enum { handler_data, handler_connect, handler_close, handler_listen, handler_error, handler_drain };
+enum { handler_data, handler_connect, handler_close, handler_listen, handler_error, handler_drain, handler_write };
 
 
-event_socket::event_socket() : socket(), internal::event_handlers(6), outgoing_(new internal::pending_write_state) {
+event_socket::event_socket() : socket(), internal::event_handlers(7), outgoing_(new internal::pending_write_state) {
     if (is_valid_socket() && set_blocking(false) != 0) socket::close();
 }
 
 event_socket::event_socket(socket_t fd, bool adopt)
-    : socket(fd, adopt), internal::event_handlers(6), outgoing_(new internal::pending_write_state) {
+    : socket(fd, adopt), internal::event_handlers(7), outgoing_(new internal::pending_write_state) {
     if (is_valid_socket() && set_blocking(false) != 0) socket::close();
 }
 
@@ -88,6 +88,7 @@ void event_socket::on_close(notification_handler f) { set_handler(handler_close,
 void event_socket::on_listen(notification_handler f) { set_handler(handler_listen, f ? std::make_shared<const notification_handler>(std::move(f)) : std::shared_ptr<const void>{}); }
 void event_socket::on_error(error_handler f) { set_handler(handler_error, f ? std::make_shared<const error_handler>(std::move(f)) : std::shared_ptr<const void>{}); }
 void event_socket::on_drain(notification_handler f) { set_handler(handler_drain, f ? std::make_shared<const notification_handler>(std::move(f)) : std::shared_ptr<const void>{}); }
+void event_socket::on_write(write_handler f) { set_handler(handler_write, f ? std::make_shared<const write_handler>(std::move(f)) : std::shared_ptr<const void>{}); }
 
 std::size_t event_socket::queued_bytes() const {
     std::lock_guard<std::mutex> guard((*outgoing_).mutex);
@@ -218,6 +219,11 @@ void event_socket::fire_on_drain() {
     auto handler = std::static_pointer_cast<const notification_handler>(get_handler(handler_drain));
     if (handler) (*handler)();
 }
+void event_socket::fire_on_write(const char* data, int requested, int sent) {
+    auto handler = std::static_pointer_cast<const write_handler>(get_handler(handler_write));
+    if (handler) (*handler)(data, requested, sent);
+    else on_write_impl(data, requested, sent);
+}
 void event_socket::fire_on_error(int error) {
     auto handler = std::static_pointer_cast<const error_handler>(get_handler(handler_error));
     if (handler) (*handler)(error);
@@ -229,6 +235,7 @@ void event_socket::on_connect_impl() {}
 void event_socket::on_close_impl() {}
 void event_socket::on_listen_impl() {}
 void event_socket::on_error_impl(int) {}
+void event_socket::on_write_impl(const char*, int, int) {}
 
 bool event_socket::close() {
     {
@@ -254,6 +261,7 @@ int event_socket::write(const char* data, int size) {
         error_code = GET_NET_SOCKET_ERROR();
         fire_on_error(error_code);
     }
+    fire_on_write(data, size, sent < 0 ? 0 : sent);
     return sent;
 }
 
@@ -265,11 +273,13 @@ int event_socket::write(const char* data) {
     if (!data || !is_valid_socket()) return NET_SOCKET_ERROR;
     const auto length = std::strlen(data);
     if (!length) return 0;
+    if (length > static_cast<std::size_t>(std::numeric_limits<int>::max())) return NET_SOCKET_ERROR;
     return write(data, static_cast<int>(length));
 }
 
 int event_socket::write(const std::string& data) {
-    if (!is_valid_socket() || data.empty()) return NET_SOCKET_ERROR;
+    if (!is_valid_socket() || data.empty() ||
+        data.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())) return NET_SOCKET_ERROR;
     return write(data.data(), static_cast<int>(data.size()));
 }
 
