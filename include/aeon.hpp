@@ -188,6 +188,7 @@ private:
 #ifdef ENABLE_SSL
 #include "ssl_socket.hpp"
 #include "ssl_client_socket.hpp"
+#include "ssl_server_socket.hpp"
 #endif
 
 namespace aeon {

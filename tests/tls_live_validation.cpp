@@ -29,10 +29,11 @@ struct ephemeral_certificate {
     X509* cert = nullptr;
     SSL_CTX* server_ctx = nullptr;
     std::filesystem::path ca_path;
+    std::filesystem::path key_path;
 
     explicit ephemeral_certificate(const std::filesystem::path& path, const char* san,
                                    bool expired = false)
-        : ca_path(path) {
+        : ca_path(path), key_path(path.string() + ".key") {
         EVP_PKEY_CTX* generator = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
         require(generator != nullptr, "EVP_PKEY_CTX_new_id");
         const bool generated = EVP_PKEY_keygen_init(generator) == 1 &&
@@ -69,6 +70,12 @@ struct ephemeral_certificate {
         const bool written = PEM_write_bio_X509(pem, cert) == 1;
         BIO_free(pem);
         require(written, "write CA file");
+        BIO* private_pem = BIO_new_file(key_path.string().c_str(), "wb");
+        require(private_pem != nullptr, "create private key file");
+        const bool private_written = PEM_write_bio_PrivateKey(
+            private_pem, key, nullptr, nullptr, 0, nullptr, nullptr) == 1;
+        BIO_free(private_pem);
+        require(private_written, "write private key file");
 
         server_ctx = SSL_CTX_new(TLS_server_method());
         require(server_ctx != nullptr, "SSL_CTX_new server");
@@ -277,8 +284,63 @@ int main() {
             }
             SSL_CTX_free(shared);
         });
+        case_test("server-requires-certificate", [&] {
+            aeon::ssl_server_socket server;
+            require(!server.listen("127.0.0.1", 0), "TLS listener without identity");
+            require(server.get_error() == aeon::ssl_error_cert, "missing identity error");
+            require(server.set_certificate_file(good.ca_path.string().c_str()) == 0,
+                    "server certificate");
+            require(!server.listen("127.0.0.1", 0), "TLS listener without key");
+            require(server.set_private_key_file(good.key_path.string().c_str()) == 0,
+                    "server key");
+            require(server.set_handshake_timeout(0) != 0, "unbounded handshake accepted");
+            require(server.set_handshake_timeout(1500) == 0, "handshake timeout");
+        });
+        case_test("native-server-owned-tls-peer-and-broadcast", [&] {
+            aeon::ssl_server_socket server;
+            require(server.set_certificate_file(good.ca_path.string().c_str()) == 0,
+                    "server cert");
+            require(server.set_private_key_file(good.key_path.string().c_str()) == 0,
+                    "server key");
+            require(server.listen("127.0.0.1", 0), "TLS server listen");
+            require(server.set_accept_timeout(2000) == 0, "TLS accept timeout");
+            sockaddr_storage local{};
+            socklen_t len = static_cast<socklen_t>(sizeof(local));
+            require(::getsockname(server.sockfd, reinterpret_cast<sockaddr*>(&local),
+                                  &len) == 0, "TLS getsockname");
+            const auto port = ntohs(reinterpret_cast<const sockaddr_in*>(&local)->sin_port);
+            bool passed = false;
+            std::jthread worker([&] {
+#ifndef NET_PLATFORM_WINDOWS
+                sigset_t blocked{};
+                sigemptyset(&blocked);
+                sigaddset(&blocked, SIGPIPE);
+                (void)pthread_sigmask(SIG_BLOCK, &blocked, nullptr);
+#endif
+                aeon::ssl_socket* peer = server.accept(true);
+                if (!peer || peer->parent_server() != &server || server.peer_count() != 1)
+                    return;
+                char input[8]{};
+                if (peer->read(input, sizeof(input)) != 4 ||
+                    std::memcmp(input, "PING", 4) != 0) return;
+                if (server.peers().broadcast("PONG", 4) != 1) return;
+                passed = server.remove_peer(peer) && server.peer_count() == 0;
+            });
+            aeon::ssl_client_socket client;
+            require(client.set_ca_file(good.ca_path.string().c_str()) == 0,
+                    "TLS server client CA");
+            const bool connected = client.connect("127.0.0.1", port);
+            bool roundtrip = false;
+            if (connected && client.write("PING", 4) == 4) {
+                char response[8]{};
+                roundtrip = client.read(response, sizeof(response)) == 4 &&
+                            std::memcmp(response, "PONG", 4) == 0;
+            }
+            worker.join();
+            require(connected && roundtrip && passed, "TLS server peer round trip");
+        });
         fs::remove_all(folder);
-        std::cout << "M6c live TLS: all cases passed\n";
+        std::cout << "M6c/M6f live TLS: all cases passed\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "M6c TLS test FAILED: " << e.what() << '\n';

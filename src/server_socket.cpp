@@ -26,6 +26,9 @@ bool server_socket::listen(const char* ip, int port) {
     if (ok) close_owned_peers();
     return ok;
 }
+std::unique_ptr<socket> server_socket::create_accepted_socket(socket_t fd) {
+    return std::make_unique<socket>(fd, true);
+}
 socket* server_socket::accept() { return accept(false); }
 socket* server_socket::accept(bool blocking) {
     sockaddr_storage peer{};
@@ -33,8 +36,11 @@ socket* server_socket::accept(bool blocking) {
     if (fd == invalid_socket) return nullptr;
     // Unique owner is established immediately; no duplicate close on failures.
     std::unique_ptr<socket> result;
-    try { result = std::make_unique<socket>(fd, true); }
+    try { result = create_accepted_socket(fd); }
     catch (...) { NET_CLOSE_SOCKET(fd); throw; }
+    // A failed subclass handshake returns no peer; its temporary owned
+    // transport has already been closed by the subclass factory.
+    if (!result) return nullptr;
     result->remote_addr = peer;
     result->set_parent_server(this);
     if (result->set_blocking(blocking) != 0) return nullptr;

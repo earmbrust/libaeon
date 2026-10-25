@@ -21,7 +21,8 @@ if (client.connect("127.0.0.1", 2300)) {
 }
 ```
 
-Other public types include `aeon::server_socket`, `aeon::udp_socket`,
+Other public types include `aeon::ssl_server_socket` (in SSL-enabled builds),
+`aeon::server_socket`, `aeon::udp_socket`,
 `aeon::udp_client_socket`, `aeon::udp_server_socket`, `aeon::event_socket`,
 `aeon::socket_set`, `aeon::event_socket_set`, `aeon::address` and
 `aeon::resolver`. SSL-enabled builds also expose `aeon::ssl_socket` and
@@ -40,6 +41,28 @@ if (server.listen(2300)) {
     }
 }
 ```
+
+### TLS server (SSL-enabled builds)
+
+The TLS server reuses the normal TCP listener and owns accepted encrypted
+peers. Supply a PEM certificate chain and matching private key before listening:
+
+```cpp
+#ifdef ENABLE_SSL
+aeon::ssl_server_socket tls;
+if (tls.set_certificate_file("server.pem") == aeon::err_none &&
+    tls.set_private_key_file("server-key.pem") == aeon::err_none &&
+    tls.listen(8443)) {
+    if (aeon::ssl_socket* peer = tls.accept(true)) {
+        peer->write("secure response\n");
+    }
+}
+#endif
+```
+
+TLS acceptance performs a blocking handshake before returning an accepted
+peer, with a configurable per-read handshake timeout (5 seconds by default).
+Plain TCP servers and clients remain available in the same SSL-enabled build.
 
 ### UDP receive with a timeout
 

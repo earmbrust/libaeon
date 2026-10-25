@@ -1,5 +1,6 @@
 #pragma once
 #include "socket.hpp"
+#include <memory>
 
 namespace aeon {
 
@@ -14,12 +15,12 @@ public:
     int bind(const sockaddr* addr, socklen_t addrlen);
     bool listen();
     bool listen(int port);
-    bool listen(const char* address, int port);
+    virtual bool listen(const char* address, int port);
 
     // Borrowed pointers. The listener owns every accepted peer until destruction.
     // close() closes peers, but retains their objects until destruction.
-    socket* accept();
-    socket* accept(bool blocking);
+    virtual socket* accept();
+    virtual socket* accept(bool blocking);
     bool close() override;
     // Explicitly retire one registered peer. External non-owning poll sets
     // must be unregistered first. Borrowed pointers become invalid.
@@ -29,6 +30,11 @@ public:
     const socket_set& peers() const;
     int peer_count() const;
     socket* peer_at(unsigned int index) const;
+
+protected:
+    // Single ownership boundary for all accepted TCP peers. Implementations
+    // must adopt fd immediately and close it if peer construction fails.
+    virtual std::unique_ptr<socket> create_accepted_socket(socket_t fd);
 
 private:
     int accept_timeout_ms = 0;

@@ -79,6 +79,33 @@ bool numeric_ip(const std::string& name) {
         ssl = nullptr;
     }
 
+    ssl_socket::ssl_socket(socket_t accepted_fd, SSL_CTX* server_ctx)
+        : socket(accepted_fd, true),
+          ssl_ctx(server_ctx), ssl(nullptr), owns_ctx(false),
+          allow_self_signed(false), verify_mode(ssl_verify_mode::off) {}
+
+    int ssl_socket::perform_server_handshake() {
+        if (!ssl_ctx || !is_valid_socket()) {
+            set_error(ssl_error_init);
+            return ssl_error_init;
+        }
+        clear_ssl_errors();
+        ssl = SSL_new(ssl_ctx);
+        if (!ssl || SSL_set_fd(ssl, static_cast<int>(sockfd)) != 1) {
+            set_error(ssl_error_init);
+            return ssl_error_init;
+        }
+        SSL_set_accept_state(ssl);
+        const int result = SSL_accept(ssl);
+        if (result != 1) {
+            (void)SSL_get_error(ssl, result);
+            set_error(ssl_error_handshake);
+            return ssl_error_handshake;
+        }
+        set_error(err_none);
+        return err_none;
+    }
+
     ssl_socket::~ssl_socket() {
         // Virtual dispatch in the base socket destructor no longer reaches us.
         // Release SSL while the transport is still available.

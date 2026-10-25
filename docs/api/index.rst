@@ -90,6 +90,9 @@ optional API even when the documentation build itself does not link OpenSSL.
 .. doxygenclass:: aeon::ssl_client_socket
    :members:
 
+.. doxygenclass:: aeon::ssl_server_socket
+   :members:
+
 .. doxygenenum:: aeon::ssl_verify_mode
 
 Library version

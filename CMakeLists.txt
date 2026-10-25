@@ -211,6 +211,7 @@ if(ENABLE_SSL)
     list(APPEND LIBAEON_SOURCES
         src/ssl_socket.cpp
         src/ssl_client_socket.cpp
+        src/ssl_server_socket.cpp
     )
 endif()
 

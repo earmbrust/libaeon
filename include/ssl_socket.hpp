@@ -49,6 +49,9 @@ namespace aeon {
 
         // Protected constructor for derived classes
         LIBAEON_API explicit ssl_socket(SSL_CTX* shared_ctx = nullptr);
+        // Adopt an accepted descriptor without creating a second socket.
+        LIBAEON_API ssl_socket(socket_t accepted_fd, SSL_CTX* server_ctx);
+        LIBAEON_API int perform_server_handshake();
 
         // Initialize SSL, attach its descriptor and verify the expected peer identity.
         LIBAEON_API int setup_ssl(const std::string& expected_identity);
