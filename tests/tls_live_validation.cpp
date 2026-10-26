@@ -435,6 +435,110 @@ int main() {
             require(server.remove_peer(peer) && server.peer_count() == 0,
                     "TLS event peer cleanup");
         });
+        case_test("event-tls-queued-before-direct-and-orderly-close", [&] {
+            aeon::ssl_server_event_socket server;
+            require(server.set_certificate_file(good.ca_path.string().c_str()) == 0,
+                    "queue test certificate");
+            require(server.set_private_key_file(good.key_path.string().c_str()) == 0,
+                    "queue test key");
+            require(server.listen("127.0.0.1", 0), "queue test listener");
+            sockaddr_in local{};
+            socklen_t len = sizeof(local);
+            require(::getsockname(server.sockfd, reinterpret_cast<sockaddr*>(&local),
+                                  &len) == 0, "queue listener port");
+            aeon::ssl_event_socket client;
+            require(client.set_ca_file(good.ca_path.string().c_str()) == 0, "queue CA");
+            require(client.connect("127.0.0.1", ntohs(local.sin_port)), "queue TCP connect");
+            auto* peer = server.accept(false);
+            require(peer != nullptr, "queue accepted peer");
+            aeon::event_socket_set poller;
+            require(poller.add(&client) && poller.add(peer), "queue register");
+            for (int n = 0; n < 100 && (!client.handshake_complete() ||
+                                        !peer->handshake_complete()); ++n)
+                require(poller.poll(100) >= 0, "queue handshake poll");
+            require(client.handshake_complete() && peer->handshake_complete(),
+                    "queue handshake complete");
+            int drained = 0, direct_fail = 0, orderly_close = 0, peer_close = 0;
+            int data_error = 0;
+            std::string received;
+            client.on_drain([&] { ++drained; });
+            client.on_write([&](const char*, int requested, int sent) {
+                if (requested == 6 && sent == 0) ++direct_fail;
+            });
+            client.on_error([&](int) { ++data_error; });
+            client.on_close([&] { ++orderly_close; });
+            peer->on_close([&] { ++peer_close; });
+            peer->on_data([&](const char* data, int bytes) { received.append(data, bytes); });
+            require(client.queue_write("QUEUED"), "queue accepted");
+            require(client.write("DIRECT", 6) < 0,
+                    "direct write must not pass pending TLS queue");
+            require(direct_fail == 1 && client.queued_bytes() == 6,
+                    "direct write failure reported without losing queued data");
+            for (int n = 0; n < 100 &&
+                 (client.queued_bytes() || received.size() < 6); ++n)
+                require(poller.poll(100) >= 0, "queue drain poll");
+            require(received == "QUEUED" && drained == 1,
+                    "queued data retained exact order");
+            require(client.write("DIRECT", 6) == 6, "direct write after drain");
+            for (int n = 0; n < 100 && received.size() < 12; ++n)
+                require(poller.poll(100) >= 0, "post-drain direct poll");
+            require(received == "QUEUEDDIRECT", "TLS queue/direct byte ordering");
+            require(peer->close(), "close peer with TLS close_notify");
+            for (int n = 0; n < 100 && client.is_valid_socket(); ++n)
+                require(poller.poll(100) >= 0, "TLS close_notify poll");
+            require(!client.is_valid_socket() && orderly_close == 1 && peer_close == 1,
+                    "orderly close notified exactly once");
+            require(data_error == 1, "only intentional rejected direct write raises error");
+            require(poller.remove_socket(&client) && poller.remove_socket(peer),
+                    "deregister queue test peers");
+            require(server.remove_peer(peer), "remove queue test peer");
+        });
+        case_test("event-tls-truncated-stream-error-closes-once", [&] {
+            aeon::ssl_server_event_socket server;
+            require(server.set_certificate_file(good.ca_path.string().c_str()) == 0,
+                    "truncation test certificate");
+            require(server.set_private_key_file(good.key_path.string().c_str()) == 0,
+                    "truncation test key");
+            require(server.listen("127.0.0.1", 0), "truncation listener");
+            sockaddr_in local{};
+            socklen_t len = sizeof(local);
+            require(::getsockname(server.sockfd, reinterpret_cast<sockaddr*>(&local),
+                                  &len) == 0, "truncation listener port");
+            aeon::ssl_event_socket client;
+            require(client.set_ca_file(good.ca_path.string().c_str()) == 0, "truncation CA");
+            require(client.connect("127.0.0.1", ntohs(local.sin_port)),
+                    "truncation TCP connect");
+            auto* peer = server.accept(false);
+            require(peer != nullptr, "truncation accepted peer");
+            aeon::event_socket_set poller;
+            require(poller.add(&client) && poller.add(peer), "truncation registration");
+            for (int n = 0; n < 100 && (!client.handshake_complete() ||
+                                        !peer->handshake_complete()); ++n)
+                require(poller.poll(100) >= 0, "truncation handshake poll");
+            require(client.handshake_complete() && peer->handshake_complete(),
+                    "truncation handshake complete");
+            int errors = 0, closes = 0;
+            client.on_error([&](int) { ++errors; });
+            client.on_close([&] { ++closes; });
+            // Terminate TCP without sending TLS close_notify.
+            const aeon::socket_t native = peer->sockfd;
+            require(NET_CLOSE_SOCKET(native) == 0, "truncate native TCP stream");
+            // The test intentionally skips TLS close_notify. Transfer the
+            // now-invalid native descriptor out of the owned peer first so
+            // its destructor cannot close the descriptor a second time.
+            peer->sockfd = aeon::invalid_socket;
+            peer->connected = false;
+            (void)peer->close();
+            for (int n = 0; n < 100 && client.is_valid_socket(); ++n)
+                require(poller.poll(100) >= 0, "truncation poll");
+            require(!client.is_valid_socket() && errors == 1 && closes == 1,
+                    "fatal truncated TLS stream reports one error and one close");
+            require(poller.poll(0) >= 0 && errors == 1 && closes == 1,
+                    "closed TLS stream never repeats error callbacks");
+            require(poller.remove_socket(&client) && poller.remove_socket(peer),
+                    "truncation deregistration");
+            require(server.remove_peer(peer), "truncation peer removal");
+        });
         case_test("event-tls-client-rejects-untrusted-server", [&] {
             aeon::ssl_server_event_socket server;
             require(server.set_certificate_file(good.ca_path.string().c_str()) == 0,

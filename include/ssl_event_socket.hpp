@@ -10,6 +10,7 @@
 #include "ssl_socket.hpp" // Public TLS error codes and verification modes.
 #include <openssl/ssl.h>
 #include <chrono>
+#include <cstdint>
 
 namespace aeon {
 class ssl_server_event_socket;
@@ -46,18 +47,21 @@ public:
 protected:
     LIBAEON_API int poll_receive(char* buffer, int capacity) override;
     LIBAEON_API int poll_send(const char* data, int size, int flags) override;
+    LIBAEON_API int poll_send_queued(const char* data, int size, int flags) override;
     LIBAEON_API bool poll_wants_write() const override;
     LIBAEON_API int poll_step(short readiness) override;
     LIBAEON_API bool poll_read_ready(short readiness) const override;
     LIBAEON_API bool poll_queue_ready(short readiness) const override;
     LIBAEON_API bool poll_has_buffered_input() const override;
     LIBAEON_API int poll_timeout_ms() const override;
+    LIBAEON_API bool poll_error_terminal() const override;
 
 private:
     // Accept an already-owned descriptor with a retained shared server context.
     ssl_event_socket(socket_t accepted_fd, SSL_CTX* server_ctx);
     bool init_session(bool server);
     bool start_client(const std::string& expected_identity);
+    int send_tls(const char* data, int size, bool queued);
     static void set_would_block();
     static void set_transport_error();
 
@@ -69,6 +73,10 @@ private:
     bool send_need_read_ = false;
     bool recv_need_write_ = false;
     int pending_write_len_ = 0;
+    bool ssl_failed_ = false;
+    bool peer_notified_close_ = false;
+    bool pending_write_queued_ = false;
+    std::uint64_t pending_write_hash_ = 0;
     int handshake_timeout_ms_ = 5000;
     std::chrono::steady_clock::time_point handshake_deadline_{}; // retry SSL_write with the original byte count
     ssl_verify_mode verify_mode_ = ssl_verify_mode::strict;

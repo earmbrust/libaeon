@@ -387,6 +387,8 @@ int event_socket_set::poll(int timeout_ms) {
                         s->n = NET_SOCKET_ERROR;
                         s->fire_on_error(err);
                         if (watch.tcp->get_if_active()) fire_on_socket_error(s, err);
+                        if (watch.tcp->get_if_active() && s->is_valid_socket() &&
+                            s->sockfd == watch.fd && s->poll_error_terminal()) s->close();
                     }
                 }
             } else if (flags & (POLLERR | POLLNVAL)) {
@@ -400,8 +402,8 @@ int event_socket_set::poll(int timeout_ms) {
             }
             // Check registration and descriptor again: the read/error handler
             // may have closed, removed or replaced this socket.
-            if (s->poll_queue_ready(flags) && watch.tcp->get_if_active() &&
-                s->is_valid_socket() && s->sockfd == watch.fd) {
+            if (watch.tcp->get_if_active() && s->is_valid_socket() &&
+                s->sockfd == watch.fd && s->poll_queue_ready(flags)) {
                 constexpr std::size_t send_budget = 64 * 1024;
                 const auto flushed = s->flush_queued(send_budget);
                 if (flushed.bytes || flushed.drained || flushed.error) ++handled;
@@ -410,6 +412,8 @@ int event_socket_set::poll(int timeout_ms) {
                     s->n = NET_SOCKET_ERROR;
                     s->fire_on_error(flushed.error);
                     if (watch.tcp->get_if_active()) fire_on_socket_error(s, flushed.error);
+                    if (watch.tcp->get_if_active() && s->is_valid_socket() &&
+                        s->sockfd == watch.fd && s->poll_error_terminal()) s->close();
                 } else if (flushed.drained) {
                     s->fire_on_drain();
                     if (watch.tcp->get_if_active()) fire_on_socket_drain(s);

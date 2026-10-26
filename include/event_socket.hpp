@@ -69,6 +69,9 @@ protected:
     // override them so polling never bypasses encryption.
     virtual int poll_receive(char* buffer, int capacity);
     virtual int poll_send(const char* data, int size, int flags);
+    // Buffered sends have a distinct transport entry point so TLS can keep
+    // an OpenSSL WANT_READ/WANT_WRITE retry tied to the correct byte stream.
+    virtual int poll_send_queued(const char* data, int size, int flags);
     virtual bool poll_wants_write() const;
     // TLS uses these hooks to progress its nonblocking handshake and resume
     // SSL_read/SSL_write after either WANT_READ or WANT_WRITE. Plain TCP is unchanged.
@@ -80,6 +83,8 @@ protected:
     // -1 when no deadline is active; otherwise milliseconds until the
     // transport's next time-based state transition (0 when due).
     virtual int poll_timeout_ms() const;
+    // Plain socket errors retain legacy behavior; TLS I/O failures are fatal.
+    virtual bool poll_error_terminal() const;
     virtual void on_data_impl(const char* buffer, int size);
     virtual void on_connect_impl();
     virtual void on_close_impl();

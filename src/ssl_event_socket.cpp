@@ -30,6 +30,16 @@ bool is_numeric_ip(const std::string& text) {
     return inet_pton(AF_INET, text.c_str(), &v4) == 1 ||
            inet_pton(AF_INET6, text.c_str(), &v6) == 1;
 }
+// OpenSSL requires the same plaintext on every retry after WANT_READ/WRITE,
+// even when SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER permits a new address.
+std::uint64_t bytes_hash(const char* data, int size) {
+    std::uint64_t hash = UINT64_C(14695981039346656037);
+    for (int i = 0; i < size; ++i) {
+        hash ^= static_cast<unsigned char>(data[i]);
+        hash *= UINT64_C(1099511628211);
+    }
+    return hash;
+}
 }
 
 ssl_event_socket::ssl_event_socket() : ctx_(SSL_CTX_new(TLS_client_method())) {
@@ -83,6 +93,10 @@ bool ssl_event_socket::init_session(bool server) {
     send_need_read_ = false;
     recv_need_write_ = false;
     pending_write_len_ = 0;
+    pending_write_queued_ = false;
+    pending_write_hash_ = 0;
+    ssl_failed_ = false;
+    peer_notified_close_ = false;
     handshake_deadline_ = std::chrono::steady_clock::now() +
         std::chrono::milliseconds(handshake_timeout_ms_);
     return true;
@@ -193,7 +207,7 @@ bool ssl_event_socket::close() {
     if (session_) {
         // Nonblocking close: do not wait for a peer's close_notify.
         // No application data may be sent after transport teardown begins.
-        if (tls_ready_ && is_valid_socket()) {
+        if (tls_ready_ && !ssl_failed_ && !peer_notified_close_ && is_valid_socket()) {
             ERR_clear_error();
             (void)SSL_shutdown(session_);
         }
@@ -202,6 +216,10 @@ bool ssl_event_socket::close() {
     }
     tls_ready_ = false;
     pending_write_len_ = 0;
+    pending_write_queued_ = false;
+    pending_write_hash_ = 0;
+    ssl_failed_ = false;
+    peer_notified_close_ = false;
     need_write_ = false;
     send_need_read_ = false;
     recv_need_write_ = false;
@@ -215,12 +233,21 @@ int ssl_event_socket::poll_step(short flags) {
         set_error(ssl_error_handshake);
         return -1;
     }
+    if (!session_) { set_error(ssl_error_init); return -1; }
+    if (tls_ready_) {
+        // POLLHUP can arrive alongside a TLS close_notify. Allow SSL_read to
+        // distinguish an orderly TLS close from truncated ciphertext.
+        if (flags & (POLLERR | POLLNVAL)) {
+            ssl_failed_ = true;
+            set_error(ssl_error_io);
+            return -1;
+        }
+        return 1;
+    }
     if (flags & (POLLERR | POLLNVAL | POLLHUP)) {
         set_error(ssl_error_handshake);
         return -1;
     }
-    if (!session_) { set_error(ssl_error_init); return -1; }
-    if (tls_ready_) return 1;
     if ((need_write_ && !(flags & POLLOUT)) ||
         (!need_write_ && !(flags & (POLLIN | POLLHUP)))) return 0;
     ERR_clear_error();
@@ -253,54 +280,96 @@ int ssl_event_socket::poll_receive(char* data, int size) {
     const int result = SSL_read(session_, data, size);
     if (result > 0) { recv_need_write_ = false; return result; }
     const int code = SSL_get_error(session_, result);
-    if (code == SSL_ERROR_ZERO_RETURN) return 0;
+    if (code == SSL_ERROR_ZERO_RETURN) {
+        // The peer sent a TLS close_notify; don't try to write a second alert
+        // after its transport may already have closed.
+        peer_notified_close_ = true;
+        return 0;
+    }
     if (code == SSL_ERROR_WANT_READ || code == SSL_ERROR_WANT_WRITE) {
         recv_need_write_ = code == SSL_ERROR_WANT_WRITE;
         set_would_block();
         return -1;
     }
+    ssl_failed_ = true;
     set_error(ssl_error_io);
     set_transport_error();
     return -1;
 }
 int ssl_event_socket::poll_send(const char* data, int size, int) {
-    if (!tls_ready_ || !session_) { set_transport_error(); return -1; }
-    // Retry the same number of bytes after WANT_READ/WANT_WRITE, even when
-    // other producers append data to the outgoing queue in the meantime.
-    if (pending_write_len_ && size < pending_write_len_) {
-        set_error(ssl_error_io);
+    return send_tls(data, size, false);
+}
+int ssl_event_socket::poll_send_queued(const char* data, int size, int) {
+    return send_tls(data, size, true);
+}
+int ssl_event_socket::send_tls(const char* data, int size, bool queued) {
+    if (!tls_ready_ || !session_ || !data || size <= 0) {
         set_transport_error();
         return -1;
+    }
+    // Direct writes must not jump ahead of already accepted queued bytes.
+    // In particular, OpenSSL must never retry a queued write using a direct
+    // write's buffer (or the other way around) after WANT_READ/WANT_WRITE.
+    if (!queued && !pending_write_len_ && queued_bytes() != 0) {
+        set_would_block();
+        return -1;
+    }
+    if (pending_write_len_) {
+        if (queued != pending_write_queued_) {
+            set_would_block();
+            return -1;
+        }
+        if (size < pending_write_len_ ||
+            (!queued && size != pending_write_len_) ||
+            bytes_hash(data, pending_write_len_) != pending_write_hash_) {
+            set_error(ssl_error_io);
+            set_transport_error();
+            return -1;
+        }
     }
     const int requested = pending_write_len_ ? pending_write_len_ : size;
     ERR_clear_error();
     const int result = SSL_write(session_, data, requested);
     if (result > 0) {
         pending_write_len_ = 0;
+        pending_write_queued_ = false;
+        pending_write_hash_ = 0;
         send_need_read_ = false;
         return result;
     }
     const int code = SSL_get_error(session_, result);
     if (code == SSL_ERROR_WANT_READ || code == SSL_ERROR_WANT_WRITE) {
-        if (!pending_write_len_) pending_write_len_ = requested;
+        if (!pending_write_len_) {
+            pending_write_len_ = requested;
+            pending_write_queued_ = queued;
+            pending_write_hash_ = bytes_hash(data, requested);
+        }
         send_need_read_ = code == SSL_ERROR_WANT_READ;
         set_would_block();
         return -1;
     }
     pending_write_len_ = 0;
+    pending_write_queued_ = false;
+    pending_write_hash_ = 0;
+    send_need_read_ = false;
+    ssl_failed_ = true;
     set_error(ssl_error_io);
     set_transport_error();
     return -1;
 }
 bool ssl_event_socket::poll_wants_write() const {
     if (!tls_ready_) return need_write_;
-    return recv_need_write_ || (!send_need_read_ && queued_bytes() != 0);
+    // A pending direct SSL_write belongs to the caller. Never wake the poller
+    // just to consume its incomplete record with buffered output.
+    return recv_need_write_ || (!send_need_read_ &&
+        !(pending_write_len_ && !pending_write_queued_) && queued_bytes() != 0);
 }
 bool ssl_event_socket::poll_read_ready(short readiness) const {
     return (!send_need_read_ && (readiness & (POLLIN | POLLHUP))) ||
            (recv_need_write_ && (readiness & POLLOUT));
 }
 bool ssl_event_socket::poll_queue_ready(short readiness) const {
+    if (pending_write_len_ && !pending_write_queued_) return false;
     return queued_bytes() != 0 &&
         (send_need_read_ ? (readiness & POLLIN) : (readiness & POLLOUT));
 }
@@ -343,6 +412,7 @@ std::string ssl_event_socket::read(int size) {
     result.resize(static_cast<size_t>(count));
     return result;
 }
+bool ssl_event_socket::poll_error_terminal() const { return true; }
 bool ssl_event_socket::poll_has_buffered_input() const {
     return tls_ready_ && session_ && SSL_pending(session_) > 0;
 }

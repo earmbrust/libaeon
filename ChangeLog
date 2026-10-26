@@ -1,5 +1,9 @@
 v2.0.0 (unreleased)
 ===================
+-fixed TLS event write retries to preserve the original bytes across WANT_READ/WANT_WRITE,
+ preventing direct writes from overtaking queued data or resuming the wrong encrypted record
+-fixed orderly TLS close detection and terminal encrypted I/O failure cleanup so errors
+ and close notifications are not repeatedly dispatched
 -refactored the public API to use the aeon namespace and consistent lowercase
  underscore_style class and method names, while keeping the original object-oriented socket design
 -updated the public C++ baseline to C++20, with optional C++23 implementation support
