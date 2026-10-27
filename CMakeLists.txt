@@ -223,15 +223,9 @@ endif()
 
 # Shared library
 add_library(aeon SHARED ${LIBAEON_SOURCES})
-include(GenerateExportHeader)
-generate_export_header(aeon
-    EXPORT_FILE_NAME "${CMAKE_CURRENT_BINARY_DIR}/generated/aeon_export.hpp"
-    EXPORT_MACRO_NAME LIBAEON_API
-    STATIC_DEFINE LIBAEON_STATIC
-)
+target_compile_definitions(aeon PRIVATE LIBAEON_BUILDING_DLL)
 target_include_directories(aeon PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated>
     $<INSTALL_INTERFACE:include>
 )
 
@@ -241,14 +235,16 @@ set_target_properties(aeon-static PROPERTIES OUTPUT_NAME aeon_static)
 target_compile_definitions(aeon-static PUBLIC LIBAEON_STATIC)
 target_include_directories(aeon-static PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated>
     $<INSTALL_INTERFACE:include>
 )
 
-set(LIBAEON_HAS_EVENTS ${LIBAEON_ENABLE_EVENTS})
-set(LIBAEON_HAS_SSL ${ENABLE_SSL})
-configure_file(cmake/aeon_features.hpp.in
-    "${CMAKE_CURRENT_BINARY_DIR}/generated/aeon_features.hpp")
+# Publish the built feature set to CMake consumers without generated headers.
+foreach(target IN ITEMS aeon aeon-static)
+    target_compile_definitions(${target} PUBLIC
+        LIBAEON_HAS_EVENTS=$<BOOL:${LIBAEON_ENABLE_EVENTS}>
+        LIBAEON_HAS_SSL=$<BOOL:${ENABLE_SSL}>
+    )
+endforeach()
 
 # Consumers always require C++20, including when library internals are built
 # with optional C++23 features. Never propagate cxx_std_23 through targets.

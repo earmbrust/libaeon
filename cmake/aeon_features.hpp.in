@@ -1,4 +1,0 @@
-#pragma once
-
-#cmakedefine01 LIBAEON_HAS_EVENTS
-#cmakedefine01 LIBAEON_HAS_SSL

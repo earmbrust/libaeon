@@ -19,10 +19,17 @@ concurrency:
 jobs:
   events-disabled:
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        ssl: ['OFF', 'ON']
     steps:
       - uses: actions/checkout@v4
+      - name: Install TLS build dependency
+        if: matrix.ssl == 'ON'
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
       - name: Configure core library
-        run: cmake -S . -B build-core -DCMAKE_BUILD_TYPE=Release -DLIBAEON_ENABLE_EVENTS=OFF -DBUILD_TESTING=ON -DLIBAEON_BUILD_EXAMPLES=OFF
+        run: cmake -S . -B build-core -DCMAKE_BUILD_TYPE=Release -DLIBAEON_ENABLE_EVENTS=OFF -DENABLE_SSL=${{ matrix.ssl }} -DBUILD_TESTING=ON -DLIBAEON_BUILD_EXAMPLES=OFF
       - name: Build core library and tests
         run: cmake --build build-core --parallel 2
       - name: Test core library

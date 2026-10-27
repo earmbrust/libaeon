@@ -143,10 +143,16 @@ cmake --build build-core --parallel
 
 This removes event socket implementations, event polling, callbacks, and event-only
 examples from the build. Ordinary socket classes, `socket_set`, and optional
-SSL/TLS remain available. CMake generates `aeon_features.hpp` and
-`aeon_export.hpp` in the build directory; application builds need this directory
-in their include path. Include `<aeon.hpp>` as the public entry point. When
-using an Aeon CMake target, these include paths are supplied automatically.
+SSL/TLS remain available. Include `<aeon.hpp>` as the public entry point.
+The public headers are source-controlled; no generated headers are required.
+
+Aeon CMake targets propagate `LIBAEON_HAS_EVENTS` and `LIBAEON_HAS_SSL`
+(as 0 or 1) and `ENABLE_SSL` when TLS is enabled. The static target also
+propagates `LIBAEON_STATIC` to disable Windows DLL imports. When linking
+without an Aeon CMake target, define the options matching the binary:
+`LIBAEON_HAS_EVENTS=0` when events are disabled, `LIBAEON_HAS_SSL=1` or
+`ENABLE_SSL` when TLS is enabled, and `LIBAEON_STATIC` for a static library.
+Unspecified feature switches default to events on and TLS off.
 
 ## Documentation and examples
 

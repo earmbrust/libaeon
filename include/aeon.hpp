@@ -6,11 +6,37 @@
 
 #pragma once
 
-#include "aeon_features.hpp"
-#include "aeon_export.hpp"
+// CMake targets provide feature switches. Manual consumers default to the
+// standard build profile unless they select the options used by their library.
+#ifndef LIBAEON_HAS_EVENTS
+#define LIBAEON_HAS_EVENTS 1
+#endif
+
+#ifndef LIBAEON_HAS_SSL
+#ifdef ENABLE_SSL
+#define LIBAEON_HAS_SSL 1
+#else
+#define LIBAEON_HAS_SSL 0
+#endif
+#endif
 
 #if LIBAEON_HAS_SSL && !defined(ENABLE_SSL)
 #define ENABLE_SSL 1
+#endif
+
+// Export shared-library symbols; static consumers disable DLL imports.
+#if defined(LIBAEON_STATIC)
+#define LIBAEON_API
+#elif defined(_WIN32) || defined(_WIN64)
+#if defined(LIBAEON_BUILDING_DLL)
+#define LIBAEON_API __declspec(dllexport)
+#else
+#define LIBAEON_API __declspec(dllimport)
+#endif
+#elif defined(__GNUC__) && (__GNUC__ >= 4)
+#define LIBAEON_API __attribute__((visibility("default")))
+#else
+#define LIBAEON_API
 #endif
 
 // Platform detection

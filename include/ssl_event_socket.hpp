@@ -4,7 +4,6 @@
  * This software is licensed under the BSD software license.
  *********************************************************************/
 #pragma once
-#include "aeon_features.hpp"
 #if defined(ENABLE_SSL) && LIBAEON_HAS_EVENTS
 #include "event_socket.hpp"
 #include "ssl_socket.hpp" // Public TLS error codes and verification modes.

@@ -5,6 +5,16 @@
  *********************************************************************/
 
 #include <aeon.hpp>
+
+#if !defined(LIBAEON_HAS_EVENTS) || !defined(LIBAEON_HAS_SSL)
+#error Aeon CMake targets must publish their feature configuration
+#endif
+#if LIBAEON_HAS_SSL && !defined(ENABLE_SSL)
+#error TLS-enabled Aeon targets must publish ENABLE_SSL
+#endif
+#if !LIBAEON_HAS_SSL && defined(ENABLE_SSL)
+#error TLS-disabled Aeon targets must not publish ENABLE_SSL
+#endif
 #include <array>
 #include <cstddef>
 #include <concepts>
