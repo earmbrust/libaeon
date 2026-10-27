@@ -50,8 +50,11 @@ bool peer_collection::remove_owned_peer(socket* peer) {
             break;
         }
     }
-    (*it)->close();
+    // Detach before firing user callbacks. A close handler may retire other
+    // peers, which would invalidate the iterator into owned.
+    std::unique_ptr<socket> retired = std::move(*it);
     owned.erase(it);
+    retired->close();
     return true;
 }
 

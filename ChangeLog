@@ -1,5 +1,7 @@
 v2.0.0 (unreleased)
 ===================
+-fixed peer retirement when close callbacks remove other peers or reenter retirement
+-kept peer ownership and collection state consistent when close callbacks throw
 -fixed server-owned peer shutdown when close callbacks remove other peers or reenter listener close
 -restored listener close traversal after exceptions in peer callbacks
 -fixed TLS event write retries to preserve the original bytes across WANT_READ/WANT_WRITE,

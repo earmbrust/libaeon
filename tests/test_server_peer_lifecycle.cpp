@@ -169,6 +169,111 @@ TEST(ServerPeerLifecycle, ThrowingPeerCloseLeavesRemainingPeersClosable) {
     EXPECT_FALSE(second->is_valid_socket());
 }
 
+TEST(ServerPeerLifecycle, RetiringPeerCanRetireAnotherFromCloseCallback) {
+    aeon::server_event_socket server;
+    ASSERT_TRUE(server.listen("127.0.0.1", 0));
+    const int port = bound_port(server);
+    ASSERT_GT(port, 0);
+    aeon::client_socket a, b, c;
+    ASSERT_TRUE(a.connect("127.0.0.1", port));
+    auto* first = server.accept(false);
+    ASSERT_NE(first, nullptr);
+    ASSERT_TRUE(b.connect("127.0.0.1", port));
+    auto* second = server.accept(false);
+    ASSERT_NE(second, nullptr);
+    ASSERT_TRUE(c.connect("127.0.0.1", port));
+    auto* third = server.accept(false);
+    ASSERT_NE(third, nullptr);
+
+    int first_closed = 0, second_closed = 0;
+    first->on_close([&] {
+        ++first_closed;
+        EXPECT_FALSE(server.remove_peer(first)); // Already being retired.
+        EXPECT_TRUE(server.remove_peer(second));
+    });
+    second->on_close([&] { ++second_closed; });
+
+    EXPECT_TRUE(server.remove_peer(first));
+    EXPECT_EQ(first_closed, 1);
+    EXPECT_EQ(second_closed, 1);
+    EXPECT_EQ(server.peer_count(), 1);
+    EXPECT_EQ(server.peers().size(), 1);
+    EXPECT_EQ(server.peer_at(0), third);
+    EXPECT_TRUE(third->is_valid_socket());
+    EXPECT_TRUE(server.close());
+}
+
+TEST(ServerPeerLifecycle, ThrowingRetirementCallbackLeavesCollectionConsistent) {
+    aeon::server_event_socket server;
+    ASSERT_TRUE(server.listen("127.0.0.1", 0));
+    const int port = bound_port(server);
+    ASSERT_GT(port, 0);
+    aeon::client_socket a, b;
+    ASSERT_TRUE(a.connect("127.0.0.1", port));
+    auto* first = server.accept(false);
+    ASSERT_NE(first, nullptr);
+    ASSERT_TRUE(b.connect("127.0.0.1", port));
+    auto* second = server.accept(false);
+    ASSERT_NE(second, nullptr);
+    first->on_close([] { throw std::runtime_error("retirement callback"); });
+
+    EXPECT_THROW(server.remove_peer(first), std::runtime_error);
+    EXPECT_EQ(server.peer_count(), 1);
+    EXPECT_EQ(server.peers().size(), 1);
+    EXPECT_EQ(server.peer_at(0), second);
+    EXPECT_TRUE(second->is_valid_socket());
+    EXPECT_TRUE(server.close());
+    EXPECT_FALSE(second->is_valid_socket());
+}
+
+TEST(ServerPeerLifecycle, PollCallbackCanRetireAnotherDeregisteredPeer) {
+    aeon::server_event_socket listener;
+    ASSERT_TRUE(listener.listen("127.0.0.1", 0));
+    const int port = bound_port(listener);
+    ASSERT_GT(port, 0);
+    aeon::client_socket a, b;
+    ASSERT_TRUE(a.connect("127.0.0.1", port));
+    auto* first = listener.accept(false);
+    ASSERT_NE(first, nullptr);
+    ASSERT_TRUE(b.connect("127.0.0.1", port));
+    auto* second = listener.accept(false);
+    ASSERT_NE(second, nullptr);
+
+    aeon::event_socket_set events;
+    ASSERT_TRUE(events.add(first));
+    ASSERT_TRUE(events.add(second));
+    int first_reads = 0, second_reads = 0;
+    first->on_data([&](const char*, int n) {
+        first_reads += n;
+        EXPECT_TRUE(events.remove_socket(second));
+        EXPECT_TRUE(listener.remove_peer(second));
+    });
+    second->on_data([&](const char*, int) { ++second_reads; });
+
+    ASSERT_EQ(a.write("A", 1), 1);
+    ASSERT_EQ(b.write("B", 1), 1);
+    auto readable = [](aeon::socket_t fd) {
+        fd_set bits;
+        FD_ZERO(&bits);
+        FD_SET(fd, &bits);
+        timeval timeout{2, 0};
+#ifdef NET_PLATFORM_WINDOWS
+        return ::select(0, &bits, nullptr, nullptr, &timeout) == 1;
+#else
+        return ::select(static_cast<int>(fd) + 1, &bits, nullptr, nullptr, &timeout) == 1;
+#endif
+    };
+    ASSERT_TRUE(readable(first->sockfd));
+    ASSERT_TRUE(readable(second->sockfd));
+    EXPECT_GT(events.poll(2000), 0);
+    EXPECT_EQ(first_reads, 1);
+    EXPECT_EQ(second_reads, 0);
+    EXPECT_EQ(events.size(), 1);
+    EXPECT_EQ(listener.peer_count(), 1);
+    EXPECT_TRUE(events.remove_socket(first));
+    EXPECT_TRUE(listener.close());
+}
+
 TEST(ServerPeerLifecycle, UdpEventRegistersSenderBeforeCallback) {
     aeon::udp_server_event_socket server;
     ASSERT_TRUE(server.listen(0));

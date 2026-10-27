@@ -359,6 +359,7 @@ if(LIBAEON_ENABLE_EVENTS)
         tests/test_udp_send_to.cpp
     )
 endif()
+target_include_directories(aeon_tests BEFORE PRIVATE "${googletest_SOURCE_DIR}/googletest/include")
 target_include_directories(aeon_tests PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(aeon_tests PRIVATE aeon gtest_main)
 
@@ -370,6 +371,7 @@ add_test(NAME AeonTests COMMAND aeon_tests)
 add_executable(aeon_internal_tests
     tests/test_udp_internal.cpp
 )
+target_include_directories(aeon_internal_tests BEFORE PRIVATE "${googletest_SOURCE_DIR}/googletest/include")
 target_include_directories(aeon_internal_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(aeon_internal_tests PRIVATE aeon-static gtest_main)
 add_test(NAME AeonInternalTests COMMAND aeon_internal_tests)
