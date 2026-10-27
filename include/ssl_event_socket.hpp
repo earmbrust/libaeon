@@ -35,6 +35,13 @@ public:
     // The deadline starts with each handshake. Valid range: 100-60000 ms.
     // Changing the limit during negotiation restarts the deadline from now.
     LIBAEON_API int set_handshake_timeout(int milliseconds);
+    // Opt-in, poll-driven shutdown: stop new writes, drain queued application
+    // data, send close_notify, and wait for peer close_notify until the deadline.
+    // Does not block; registered event_socket_set::poll() drives completion.
+    // Returns false if TLS is not ready or a direct SSL_write retry is pending.
+    // Explicit close() still immediately discards queued output.
+    LIBAEON_API bool begin_graceful_shutdown(int timeout_ms = 5000);
+    LIBAEON_API bool graceful_shutdown_pending() const noexcept;
     LIBAEON_API bool close() override;
     // Every inherited socket read must decrypt; raw socket::read is forbidden
     // for TLS even when the caller does not use event_socket_set.
@@ -49,6 +56,7 @@ protected:
     LIBAEON_API int poll_send(const char* data, int size, int flags) override;
     LIBAEON_API int poll_send_queued(const char* data, int size, int flags) override;
     LIBAEON_API bool poll_wants_write() const override;
+    LIBAEON_API bool poll_accepts_queued_write() const override;
     LIBAEON_API int poll_step(short readiness) override;
     LIBAEON_API bool poll_read_ready(short readiness) const override;
     LIBAEON_API bool poll_queue_ready(short readiness) const override;
@@ -75,6 +83,11 @@ private:
     int pending_write_len_ = 0;
     bool ssl_failed_ = false;
     bool peer_notified_close_ = false;
+    bool shutdown_requested_ = false;
+    bool shutdown_notify_sent_ = false;
+    bool shutdown_need_write_ = false;
+    bool shutdown_need_read_ = false;
+    std::chrono::steady_clock::time_point shutdown_deadline_{};
     bool pending_write_queued_ = false;
     std::uint64_t pending_write_hash_ = 0;
     int handshake_timeout_ms_ = 5000;

@@ -362,6 +362,12 @@ int event_socket_set::poll(int timeout_ms) {
                 }
                 continue;
             }
+            if (progress == 3) {
+                ++handled;
+                s->close();
+                if (watch.tcp->get_if_active()) fire_on_socket_close(s);
+                continue;
+            }
             if (progress == 2) {
                 ++handled;
                 if (watch.tcp->get_if_active() && s->is_valid_socket() &&

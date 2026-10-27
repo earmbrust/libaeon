@@ -35,6 +35,8 @@ v2.0.0 (unreleased)
  and encrypted write queues
 -fixed nonblocking TLS handshake readiness transitions and added configurable handshake deadlines,
  including cancellation and timeouts during indefinite poll waits
+-added opt-in, poll-driven graceful TLS event shutdown with queued data draining,
+ close_notify exchange, and a configurable completion deadline
 -fixed TLS session cleanup on cancelled connections and reconnect attempts
 -fixed Windows TLS DLL exports by exporting individual member functions rather than STL-containing classes
 -added separately selectable SSL and event socket support; plain TCP and UDP remain usable in SSL builds

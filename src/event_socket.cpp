@@ -79,6 +79,7 @@ int event_socket::poll_send_queued(const char* data, int size, int flags) {
 }
 
 bool event_socket::poll_wants_write() const { return queued_bytes() != 0; }
+bool event_socket::poll_accepts_queued_write() const { return true; }
 int event_socket::poll_step(short) { return 1; }
 bool event_socket::poll_read_ready(short readiness) const { return (readiness & (POLLIN | POLLHUP)) != 0; }
 bool event_socket::poll_queue_ready(short readiness) const { return (readiness & POLLOUT) != 0; }
@@ -111,7 +112,8 @@ bool event_socket::queue_write(const std::string& data) {
 }
 
 bool event_socket::queue_write(const char* data, std::size_t size) {
-    if (!is_valid_socket() || !connected || blocking || (size && !data)) return false;
+    if (!is_valid_socket() || !connected || blocking || (size && !data) ||
+        !poll_accepts_queued_write()) return false;
     if (!size) return true;
     auto& out = (*outgoing_);
     std::lock_guard<std::mutex> guard(out.mutex);

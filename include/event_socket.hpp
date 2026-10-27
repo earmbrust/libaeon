@@ -73,6 +73,7 @@ protected:
     // an OpenSSL WANT_READ/WANT_WRITE retry tied to the correct byte stream.
     virtual int poll_send_queued(const char* data, int size, int flags);
     virtual bool poll_wants_write() const;
+    virtual bool poll_accepts_queued_write() const;
     // TLS uses these hooks to progress its nonblocking handshake and resume
     // SSL_read/SSL_write after either WANT_READ or WANT_WRITE. Plain TCP is unchanged.
     // poll_step: 1=application data ready, 0=pending, -1=terminal error.

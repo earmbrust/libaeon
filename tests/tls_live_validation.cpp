@@ -730,6 +730,150 @@ int main() {
             require(poller.remove_socket(peer) && server.remove_peer(peer),
                     "plain rejection cleanup");
         });
+        case_test("event-tls-graceful-drains-queue-and-exchanges-alerts", [&] {
+            aeon::ssl_server_event_socket server;
+            require(server.set_certificate_file(good.ca_path.string().c_str()) == 0,
+                    "graceful server cert");
+            require(server.set_private_key_file(good.key_path.string().c_str()) == 0,
+                    "graceful server key");
+            require(server.listen("127.0.0.1", 0), "graceful listener");
+            sockaddr_in local{};
+            socklen_t len = sizeof(local);
+            require(::getsockname(server.sockfd, reinterpret_cast<sockaddr*>(&local), &len) == 0,
+                    "graceful local port");
+            aeon::ssl_event_socket client;
+            require(client.set_ca_file(good.ca_path.string().c_str()) == 0,
+                    "graceful trust");
+            require(client.connect("127.0.0.1", ntohs(local.sin_port)),
+                    "graceful TCP connect");
+            auto* peer = server.accept(false);
+            require(peer != nullptr, "graceful accept");
+            aeon::event_socket_set poller;
+            require(poller.add(&client) && poller.add(peer), "graceful register");
+            for (int n = 0; n < 100 &&
+                 (!client.handshake_complete() || !peer->handshake_complete()); ++n)
+                require(poller.poll(100) >= 0, "graceful TLS handshake poll");
+            require(client.handshake_complete() && peer->handshake_complete(),
+                    "graceful established TLS");
+            std::string sent(95 * 1024, 'Q');
+            sent[8123] = '\0';
+            sent[14001] = '\x03';
+            std::string received;
+            int client_closes = 0, peer_closes = 0, errors = 0, drains = 0;
+            std::string order;
+            peer->on_data([&](const char* p, int n) { received.append(p, n); });
+            client.on_close([&] { ++client_closes; order += 'c'; });
+            peer->on_close([&] { ++peer_closes; });
+            client.on_error([&](int) { ++errors; });
+            peer->on_error([&](int) { ++errors; });
+            client.on_drain([&] { ++drains; order += 'd'; });
+            require(client.queue_write(sent), "enqueue before graceful close");
+            require(client.begin_graceful_shutdown(4000), "request graceful shutdown");
+            require(client.graceful_shutdown_pending(), "shutdown pending");
+            require(!client.queue_write("later", 5), "reject write after shutdown request");
+            require(!client.begin_graceful_shutdown(), "shutdown request idempotence");
+            for (int n = 0; n < 1200 &&
+                 (client.is_valid_socket() || peer->is_valid_socket()); ++n)
+                require(poller.poll(100) >= 0, "graceful close polling");
+            require(!client.is_valid_socket() && !peer->is_valid_socket(),
+                    "both TLS peers closed after alert exchange");
+            require(received == sent && drains == 1, "queued bytes drained before alert");
+            require(client_closes == 1 && peer_closes == 1 && errors == 0 &&
+                    order == "dc", "queue drain precedes orderly close callback");
+            require(!client.graceful_shutdown_pending(), "closed shutdown no longer pending");
+            require(poller.remove_socket(&client) && poller.remove_socket(peer),
+                    "graceful unregister peers");
+            require(server.remove_peer(peer), "graceful remove owned peer");
+        });
+        case_test("event-tls-immediate-close-cancels-queued-shutdown", [&] {
+            aeon::ssl_server_event_socket server;
+            require(server.set_certificate_file(good.ca_path.string().c_str()) == 0,
+                    "abort server cert");
+            require(server.set_private_key_file(good.key_path.string().c_str()) == 0,
+                    "abort server key");
+            require(server.listen("127.0.0.1", 0), "abort server listen");
+            sockaddr_in local{};
+            socklen_t len = sizeof(local);
+            require(::getsockname(server.sockfd, reinterpret_cast<sockaddr*>(&local), &len) == 0,
+                    "abort local port");
+            aeon::ssl_event_socket client;
+            require(client.set_ca_file(good.ca_path.string().c_str()) == 0,
+                    "abort trust");
+            require(client.connect("127.0.0.1", ntohs(local.sin_port)),
+                    "abort TCP connect");
+            auto* peer = server.accept(false);
+            require(peer != nullptr, "abort accept");
+            aeon::event_socket_set poller;
+            require(poller.add(&client) && poller.add(peer), "abort register");
+            for (int n = 0; n < 100 &&
+                 (!client.handshake_complete() || !peer->handshake_complete()); ++n)
+                require(poller.poll(100) >= 0, "abort handshake poll");
+            require(client.handshake_complete() && peer->handshake_complete(),
+                    "abort established TLS");
+            int closes = 0;
+            client.on_close([&] { ++closes; });
+            require(client.queue_write(std::string(8192, 'Z')), "abort queue");
+            require(client.begin_graceful_shutdown(), "abort start graceful");
+            require(client.close(), "abort immediate close");
+            require(!client.is_valid_socket() && client.queued_bytes() == 0 &&
+                    !client.graceful_shutdown_pending() && closes == 1,
+                    "immediate close discards queue and cancels shutdown");
+            require(!client.close() && closes == 1, "immediate close idempotence");
+            require(poller.remove_socket(&client) && poller.remove_socket(peer),
+                    "abort unregister");
+            require(server.remove_peer(peer), "abort retire peer");
+        });
+        case_test("event-tls-graceful-expiry-and-cancel", [&] {
+            aeon::ssl_server_event_socket server;
+            require(server.set_certificate_file(good.ca_path.string().c_str()) == 0,
+                    "deadline server certificate");
+            require(server.set_private_key_file(good.key_path.string().c_str()) == 0,
+                    "deadline server key");
+            require(server.listen("127.0.0.1", 0), "deadline listener");
+            sockaddr_in local{};
+            socklen_t len = sizeof(local);
+            require(::getsockname(server.sockfd, reinterpret_cast<sockaddr*>(&local), &len) == 0,
+                    "deadline local port");
+            aeon::ssl_event_socket client;
+            require(client.set_ca_file(good.ca_path.string().c_str()) == 0,
+                    "deadline trust");
+            require(client.connect("127.0.0.1", ntohs(local.sin_port)),
+                    "deadline TCP connect");
+            auto* peer = server.accept(false);
+            require(peer != nullptr, "deadline accept");
+            aeon::event_socket_set poller;
+            require(poller.add(&client) && poller.add(peer), "deadline register");
+            require(!client.begin_graceful_shutdown(),
+                    "cannot shut down before TLS handshake completes");
+            for (int n = 0; n < 100 &&
+                 (!client.handshake_complete() || !peer->handshake_complete()); ++n)
+                require(poller.poll(100) >= 0, "deadline TLS handshake poll");
+            require(client.handshake_complete() && peer->handshake_complete(),
+                    "deadline established TLS");
+            require(!client.begin_graceful_shutdown(0), "reject disabled deadline");
+            require(!client.begin_graceful_shutdown(60001), "reject excessive deadline");
+            // The peer stays alive but is intentionally not polled to answer
+            // our alert. Even poll(-1) must honor the shutdown deadline.
+            require(poller.remove_socket(peer), "deadline pause peer dispatch");
+            int errors = 0, closes = 0;
+            std::string order;
+            client.on_error([&](int error) {
+                require(error == aeon::ssl_error_io, "shutdown timeout error");
+                ++errors;
+                order += 'e';
+            });
+            client.on_close([&] { ++closes; order += 'c'; });
+            require(client.begin_graceful_shutdown(150), "deadline request");
+            const auto started = std::chrono::steady_clock::now();
+            for (int n = 0; n < 5 && client.is_valid_socket(); ++n)
+                require(poller.poll(-1) >= 0, "deadline infinite poll");
+            const auto elapsed = std::chrono::steady_clock::now() - started;
+            require(!client.is_valid_socket() && elapsed < std::chrono::seconds(2) &&
+                    errors == 1 && closes == 1 && order == "ec",
+                    "shutdown timeout errors before closing, exactly once");
+            require(poller.remove_socket(&client), "deadline unregister client");
+            require(server.remove_peer(peer), "deadline remove unpolled peer");
+        });
 #endif
         fs::remove_all(folder);
         std::cout << "M6c/M6f live TLS: all cases passed\n";

@@ -97,6 +97,10 @@ bool ssl_event_socket::init_session(bool server) {
     pending_write_hash_ = 0;
     ssl_failed_ = false;
     peer_notified_close_ = false;
+    shutdown_requested_ = false;
+    shutdown_notify_sent_ = false;
+    shutdown_need_write_ = false;
+    shutdown_need_read_ = false;
     handshake_deadline_ = std::chrono::steady_clock::now() +
         std::chrono::milliseconds(handshake_timeout_ms_);
     return true;
@@ -179,6 +183,29 @@ bool ssl_event_socket::connect(const address& addr) {
 
 bool ssl_event_socket::handshake_complete() const noexcept { return tls_ready_; }
 
+bool ssl_event_socket::begin_graceful_shutdown(int timeout_ms) {
+    if (timeout_ms < 100 || timeout_ms > 60000 || !tls_ready_ || !session_ ||
+        !is_valid_socket() || ssl_failed_ || peer_notified_close_ ||
+        // A direct SSL_write retry belongs to the caller, not the poller.
+        (pending_write_len_ != 0 && !pending_write_queued_)) {
+        set_error(ssl_error_io);
+        return false;
+    }
+    if (shutdown_requested_) return false;
+    shutdown_requested_ = true;
+    shutdown_notify_sent_ = false;
+    shutdown_need_write_ = false;
+    shutdown_need_read_ = false;
+    shutdown_deadline_ = std::chrono::steady_clock::now() +
+        std::chrono::milliseconds(timeout_ms);
+    set_error(err_none);
+    return true;
+}
+
+bool ssl_event_socket::graceful_shutdown_pending() const noexcept {
+    return shutdown_requested_;
+}
+
 int ssl_event_socket::set_handshake_timeout(int milliseconds) {
     if (milliseconds < 100 || milliseconds > 60000) {
         set_error(ssl_error);
@@ -193,7 +220,15 @@ int ssl_event_socket::set_handshake_timeout(int milliseconds) {
 }
 
 int ssl_event_socket::poll_timeout_ms() const {
-    if (!session_ || tls_ready_ || !is_valid_socket()) return -1;
+    if (!session_ || !is_valid_socket()) return -1;
+    if (tls_ready_ && shutdown_requested_) {
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= shutdown_deadline_) return 0;
+        const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+            shutdown_deadline_ - now).count();
+        return static_cast<int>(remaining + 1);
+    }
+    if (tls_ready_) return -1;
     const auto now = std::chrono::steady_clock::now();
     if (now >= handshake_deadline_) return 0;
     // Round up, not down: a deadline less than one millisecond away must
@@ -207,7 +242,8 @@ bool ssl_event_socket::close() {
     if (session_) {
         // Nonblocking close: do not wait for a peer's close_notify.
         // No application data may be sent after transport teardown begins.
-        if (tls_ready_ && !ssl_failed_ && !peer_notified_close_ && is_valid_socket()) {
+        if (tls_ready_ && !ssl_failed_ && !peer_notified_close_ &&
+            !shutdown_notify_sent_ && is_valid_socket()) {
             ERR_clear_error();
             (void)SSL_shutdown(session_);
         }
@@ -220,6 +256,10 @@ bool ssl_event_socket::close() {
     pending_write_hash_ = 0;
     ssl_failed_ = false;
     peer_notified_close_ = false;
+    shutdown_requested_ = false;
+    shutdown_notify_sent_ = false;
+    shutdown_need_write_ = false;
+    shutdown_need_read_ = false;
     need_write_ = false;
     send_need_read_ = false;
     recv_need_write_ = false;
@@ -235,6 +275,50 @@ int ssl_event_socket::poll_step(short flags) {
     }
     if (!session_) { set_error(ssl_error_init); return -1; }
     if (tls_ready_) {
+        if (shutdown_requested_) {
+            if (std::chrono::steady_clock::now() >= shutdown_deadline_) {
+#ifdef NET_PLATFORM_WINDOWS
+                WSASetLastError(WSAETIMEDOUT);
+#else
+                errno = ETIMEDOUT;
+#endif
+                set_error(ssl_error_io);
+                return -1;
+            }
+            if (flags & (POLLERR | POLLNVAL)) {
+                ssl_failed_ = true;
+                set_error(ssl_error_io);
+                return -1;
+            }
+            // Do not send close_notify while any queued application record
+            // still needs to be written. The queue is flushed by the poller.
+            if (queued_bytes() != 0) return 1;
+            if (shutdown_need_read_ && !(flags & POLLIN)) return 0;
+            if (shutdown_need_write_ && !(flags & POLLOUT)) return 0;
+            if (!shutdown_need_read_ && !shutdown_need_write_ &&
+                shutdown_notify_sent_ && !(flags & POLLIN)) return 0;
+            if (!shutdown_need_read_ && !shutdown_need_write_ &&
+                !shutdown_notify_sent_ && !(flags & POLLOUT)) return 0;
+            ERR_clear_error();
+            const int done = SSL_shutdown(session_);
+            if (done == 1) return 3; // poller closes and reports orderly shutdown
+            if (done == 0) { // our close_notify was sent; await peer response
+                shutdown_notify_sent_ = true;
+                shutdown_need_write_ = false;
+                shutdown_need_read_ = true;
+                return 0;
+            }
+            const int reason = SSL_get_error(session_, done);
+            if (reason == SSL_ERROR_WANT_READ || reason == SSL_ERROR_WANT_WRITE) {
+                shutdown_notify_sent_ = (SSL_get_shutdown(session_) & SSL_SENT_SHUTDOWN) != 0;
+                shutdown_need_write_ = reason == SSL_ERROR_WANT_WRITE;
+                shutdown_need_read_ = reason == SSL_ERROR_WANT_READ;
+                return 0;
+            }
+            ssl_failed_ = true;
+            set_error(ssl_error_io);
+            return -1;
+        }
         // POLLHUP can arrive alongside a TLS close_notify. Allow SSL_read to
         // distinguish an orderly TLS close from truncated ciphertext.
         if (flags & (POLLERR | POLLNVAL)) {
@@ -281,10 +365,19 @@ int ssl_event_socket::poll_receive(char* data, int size) {
     if (result > 0) { recv_need_write_ = false; return result; }
     const int code = SSL_get_error(session_, result);
     if (code == SSL_ERROR_ZERO_RETURN) {
-        // The peer sent a TLS close_notify; don't try to write a second alert
-        // after its transport may already have closed.
         peer_notified_close_ = true;
-        return 0;
+        // Respond to peer-initiated close_notify through the event poller.
+        // Closing the descriptor immediately would omit our own TLS alert.
+        if (!shutdown_requested_) {
+            shutdown_requested_ = true;
+            shutdown_notify_sent_ = false;
+            shutdown_need_write_ = false;
+            shutdown_need_read_ = false;
+            shutdown_deadline_ = std::chrono::steady_clock::now() +
+                std::chrono::milliseconds(5000);
+        }
+        set_would_block();
+        return -1;
     }
     if (code == SSL_ERROR_WANT_READ || code == SSL_ERROR_WANT_WRITE) {
         recv_need_write_ = code == SSL_ERROR_WANT_WRITE;
@@ -303,7 +396,8 @@ int ssl_event_socket::poll_send_queued(const char* data, int size, int) {
     return send_tls(data, size, true);
 }
 int ssl_event_socket::send_tls(const char* data, int size, bool queued) {
-    if (!tls_ready_ || !session_ || !data || size <= 0) {
+    if (!tls_ready_ || !session_ || !data || size <= 0 ||
+        (shutdown_requested_ && !queued)) {
         set_transport_error();
         return -1;
     }
@@ -359,10 +453,16 @@ int ssl_event_socket::send_tls(const char* data, int size, bool queued) {
 }
 bool ssl_event_socket::poll_wants_write() const {
     if (!tls_ready_) return need_write_;
+    if (shutdown_requested_ && queued_bytes() == 0)
+        return shutdown_need_write_ ||
+            (!shutdown_notify_sent_ && !shutdown_need_read_);
     // A pending direct SSL_write belongs to the caller. Never wake the poller
     // just to consume its incomplete record with buffered output.
     return recv_need_write_ || (!send_need_read_ &&
         !(pending_write_len_ && !pending_write_queued_) && queued_bytes() != 0);
+}
+bool ssl_event_socket::poll_accepts_queued_write() const {
+    return !shutdown_requested_;
 }
 bool ssl_event_socket::poll_read_ready(short readiness) const {
     return (!send_need_read_ && (readiness & (POLLIN | POLLHUP))) ||
