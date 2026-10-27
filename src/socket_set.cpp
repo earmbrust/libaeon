@@ -16,6 +16,7 @@ namespace internal {
 struct peer_collection::state {
     std::vector<std::unique_ptr<socket>> owned;
     socket_set members;
+    bool closing_peers = false;
 };
 
 peer_collection::peer_collection() : peers_(new state) {}
@@ -55,8 +56,24 @@ bool peer_collection::remove_owned_peer(socket* peer) {
 }
 
 bool peer_collection::close_owned_peers() {
+    if (peers_->closing_peers) return false;
+    peers_->closing_peers = true;
     bool changed = false;
-    for (auto& peer : peers_->owned) changed = peer->close() || changed;
+    try {
+        // A peer's close handler can retire another peer, invalidating a
+        // range-based vector iterator. Recheck the current slot each time.
+        std::size_t index = 0;
+        while (index < peers_->owned.size()) {
+            socket* peer = peers_->owned[index].get();
+            changed = peer->close() || changed;
+            if (index < peers_->owned.size() && peers_->owned[index].get() == peer)
+                ++index;
+        }
+    } catch (...) {
+        peers_->closing_peers = false;
+        throw;
+    }
+    peers_->closing_peers = false;
     return changed;
 }
 

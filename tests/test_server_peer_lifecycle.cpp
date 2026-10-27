@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include <type_traits>
+#include <stdexcept>
 
 namespace {
 int bound_port(const aeon::socket& s) {
@@ -104,6 +105,68 @@ TEST(ServerPeerLifecycle, UdpPeersShareOnlyTheParentTransport) {
     EXPECT_FALSE(pb->is_valid_socket());
     EXPECT_EQ(pa->write("no", 2), NET_SOCKET_ERROR);
     EXPECT_EQ(server.peers().size(), 2); // closed but retained objects
+}
+
+TEST(ServerPeerLifecycle, ListenerCloseSurvivesPeerRemovalAndReentrantClose) {
+    aeon::server_event_socket listener;
+    ASSERT_TRUE(listener.listen("127.0.0.1", 0));
+    const int port = bound_port(listener);
+    ASSERT_GT(port, 0);
+
+    aeon::client_socket a, b, c;
+    ASSERT_TRUE(a.connect("127.0.0.1", port));
+    auto* first = listener.accept(false);
+    ASSERT_NE(first, nullptr);
+    ASSERT_TRUE(b.connect("127.0.0.1", port));
+    auto* second = listener.accept(false);
+    ASSERT_NE(second, nullptr);
+    ASSERT_TRUE(c.connect("127.0.0.1", port));
+    auto* third = listener.accept(false);
+    ASSERT_NE(third, nullptr);
+
+    int first_closed = 0, second_closed = 0, third_closed = 0;
+    first->on_close([&] {
+        ++first_closed;
+        EXPECT_FALSE(listener.close()); // Reentrant close must not recurse.
+        EXPECT_TRUE(listener.remove_peer(second));
+    });
+    second->on_close([&] { ++second_closed; });
+    third->on_close([&] { ++third_closed; });
+
+    EXPECT_TRUE(listener.close());
+    EXPECT_EQ(first_closed, 1);
+    EXPECT_EQ(second_closed, 1);
+    EXPECT_EQ(third_closed, 1);
+    EXPECT_EQ(listener.peer_count(), 2);
+    EXPECT_EQ(listener.peers().size(), 2);
+    EXPECT_FALSE(first->is_valid_socket());
+    EXPECT_FALSE(third->is_valid_socket());
+    EXPECT_FALSE(listener.close());
+}
+
+TEST(ServerPeerLifecycle, ThrowingPeerCloseLeavesRemainingPeersClosable) {
+    aeon::server_event_socket listener;
+    ASSERT_TRUE(listener.listen("127.0.0.1", 0));
+    const int port = bound_port(listener);
+    ASSERT_GT(port, 0);
+    aeon::client_socket a, b;
+    ASSERT_TRUE(a.connect("127.0.0.1", port));
+    auto* first = listener.accept(false);
+    ASSERT_NE(first, nullptr);
+    ASSERT_TRUE(b.connect("127.0.0.1", port));
+    auto* second = listener.accept(false);
+    ASSERT_NE(second, nullptr);
+
+    int second_closed = 0;
+    first->on_close([] { throw std::runtime_error("test close callback"); });
+    second->on_close([&] { ++second_closed; });
+
+    EXPECT_THROW(listener.close(), std::runtime_error);
+    EXPECT_FALSE(first->is_valid_socket());
+    EXPECT_TRUE(second->is_valid_socket());
+    EXPECT_TRUE(listener.close());
+    EXPECT_EQ(second_closed, 1);
+    EXPECT_FALSE(second->is_valid_socket());
 }
 
 TEST(ServerPeerLifecycle, UdpEventRegistersSenderBeforeCallback) {
