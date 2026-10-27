@@ -620,3 +620,154 @@ TEST(EventPolling, TransportHooksCoverReadsDirectWritesAndWriteQueue) {
     EXPECT_GE(peer.sends, 7);
     EXPECT_TRUE(poller.remove_socket(&peer));
 }
+
+TEST(EventPolling, ListenerCallbackCanRetireOtherReadyPeers) {
+    aeon::server_event_socket listener;
+    ASSERT_TRUE(listener.listen("127.0.0.1", 0));
+    const int port = port_of(listener);
+    ASSERT_GT(port, 0);
+
+    aeon::client_socket a, b, pending;
+    ASSERT_TRUE(a.connect("127.0.0.1", port));
+    auto* first = listener.accept(false);
+    ASSERT_NE(first, nullptr);
+    ASSERT_TRUE(b.connect("127.0.0.1", port));
+    auto* second = listener.accept(false);
+    ASSERT_NE(second, nullptr);
+
+    aeon::event_socket_set set;
+    ASSERT_TRUE(set.add(&listener));
+    ASSERT_TRUE(set.add(first));
+    ASSERT_TRUE(set.add(second));
+    int listens = 0, peer_reads = 0;
+    set.on_socket_listen([&](aeon::event_socket* ready) {
+        EXPECT_EQ(ready, &listener);
+        ++listens;
+        EXPECT_TRUE(set.remove_socket(first));
+        EXPECT_TRUE(listener.remove_peer(first));
+        EXPECT_TRUE(set.remove_socket(second));
+        EXPECT_TRUE(listener.remove_peer(second));
+        EXPECT_TRUE(set.remove_socket(&listener));
+        EXPECT_TRUE(listener.close());
+    });
+    set.on_socket_data([&](aeon::event_socket*, const char*, int) { ++peer_reads; });
+
+    ASSERT_EQ(a.write("a", 1), 1);
+    ASSERT_EQ(b.write("b", 1), 1);
+    ASSERT_TRUE(pending.connect("127.0.0.1", port));
+    ASSERT_TRUE(wait_until_readable(listener.sockfd));
+    ASSERT_TRUE(wait_until_readable(first->sockfd));
+    ASSERT_TRUE(wait_until_readable(second->sockfd));
+    EXPECT_EQ(set.poll(2000), 1);
+    EXPECT_EQ(listens, 1);
+    EXPECT_EQ(peer_reads, 0);
+    EXPECT_EQ(set.size(), 0);
+    EXPECT_EQ(listener.peer_count(), 0);
+    EXPECT_EQ(set.poll(0), 0);
+}
+
+TEST(EventPolling, PeerCloseCallbackCanRetireLaterReadyPeer) {
+    aeon::server_event_socket listener;
+    ASSERT_TRUE(listener.listen("127.0.0.1", 0));
+    const int port = port_of(listener);
+    ASSERT_GT(port, 0);
+    aeon::client_socket a, b;
+    ASSERT_TRUE(a.connect("127.0.0.1", port));
+    auto* first = listener.accept(false);
+    ASSERT_NE(first, nullptr);
+    ASSERT_TRUE(b.connect("127.0.0.1", port));
+    auto* second = listener.accept(false);
+    ASSERT_NE(second, nullptr);
+
+    aeon::event_socket_set set;
+    ASSERT_TRUE(set.add(first));
+    ASSERT_TRUE(set.add(second));
+    int closes = 0, second_reads = 0;
+    first->on_close([&] {
+        ++closes;
+        EXPECT_TRUE(set.remove_socket(second));
+        EXPECT_TRUE(listener.remove_peer(second));
+    });
+    set.on_socket_data([&](aeon::event_socket*, const char*, int) { ++second_reads; });
+
+    ASSERT_TRUE(a.close());
+    ASSERT_EQ(b.write("b", 1), 1);
+    ASSERT_TRUE(wait_until_readable(first->sockfd));
+    ASSERT_TRUE(wait_until_readable(second->sockfd));
+    EXPECT_EQ(set.poll(2000), 1);
+    EXPECT_EQ(closes, 1);
+    EXPECT_EQ(second_reads, 0);
+    EXPECT_EQ(set.size(), 1);
+    EXPECT_EQ(listener.peer_count(), 1);
+    EXPECT_TRUE(set.remove_socket(first));
+    EXPECT_TRUE(listener.close());
+}
+
+TEST(EventPolling, TcpCallbackCanDestroyDeregisteredReadyUdpSocket) {
+    tcp_fixture tcp;
+    ASSERT_TRUE(tcp.start());
+    auto udp = std::make_unique<aeon::udp_server_event_socket>();
+    ASSERT_TRUE(udp->listen(0));
+    aeon::udp_client_socket sender;
+    ASSERT_TRUE(sender.connect(loopback_of(*udp), port_of(*udp)));
+
+    aeon::event_socket_set set;
+    ASSERT_TRUE(set.add(tcp.receiver));
+    ASSERT_TRUE(set.add(udp.get()));
+    int tcp_reads = 0, udp_reads = 0;
+    tcp.receiver->on_data([&](const char*, int) {
+        ++tcp_reads;
+        EXPECT_TRUE(set.remove_udp_socket(udp.get()));
+        udp.reset();
+    });
+    set.on_socket_datagram([&](aeon::udp_event_socket*, const char*, int,
+                               const aeon::address&) { ++udp_reads; });
+
+    ASSERT_EQ(tcp.sender.write("t", 1), 1);
+    ASSERT_EQ(sender.write("u", 1), 1);
+    ASSERT_TRUE(wait_until_readable(tcp.receiver->sockfd));
+    ASSERT_TRUE(wait_until_readable(udp->sockfd));
+    EXPECT_EQ(set.poll(2000), 1);
+    EXPECT_EQ(tcp_reads, 1);
+    EXPECT_EQ(udp_reads, 0);
+    EXPECT_EQ(set.size(), 1);
+    EXPECT_TRUE(set.remove_socket(tcp.receiver));
+}
+
+TEST(EventPolling, UdpRemoveAndReaddSkipsOldReadySnapshot) {
+    aeon::udp_server_event_socket first, second;
+    ASSERT_TRUE(first.listen(0));
+    ASSERT_TRUE(second.listen(0));
+    aeon::udp_client_socket a, b;
+    ASSERT_TRUE(a.connect(loopback_of(first), port_of(first)));
+    ASSERT_TRUE(b.connect(loopback_of(second), port_of(second)));
+
+    aeon::event_socket_set set;
+    ASSERT_TRUE(set.add(&first));
+    ASSERT_TRUE(set.add(&second));
+    int first_reads = 0, second_reads = 0, set_second_reads = 0;
+    first.on_datagram([&](const char*, int, const aeon::address&) {
+        ++first_reads;
+        EXPECT_TRUE(set.remove_udp_socket(&second));
+        EXPECT_TRUE(set.add(&second));
+    });
+    second.on_datagram([&](const char*, int, const aeon::address&) { ++second_reads; });
+    set.on_socket_datagram([&](aeon::udp_event_socket* socket, const char*, int,
+                               const aeon::address&) {
+        if (socket == &second) ++set_second_reads;
+    });
+
+    ASSERT_EQ(a.write("a", 1), 1);
+    ASSERT_EQ(b.write("b", 1), 1);
+    ASSERT_TRUE(wait_until_readable(first.sockfd));
+    ASSERT_TRUE(wait_until_readable(second.sockfd));
+    EXPECT_EQ(set.poll(2000), 1);
+    EXPECT_EQ(first_reads, 1);
+    EXPECT_EQ(second_reads, 0);
+    EXPECT_EQ(set_second_reads, 0);
+    EXPECT_EQ(set.poll(2000), 1);
+    EXPECT_EQ(second_reads, 1);
+    EXPECT_EQ(set_second_reads, 1);
+    EXPECT_TRUE(set.remove_udp_socket(&first));
+    EXPECT_TRUE(set.remove_udp_socket(&second));
+}

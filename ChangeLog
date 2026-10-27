@@ -1,5 +1,6 @@
 v2.0.0 (unreleased)
 ===================
+-expanded event poller lifetime regression tests for listener shutdown, peer retirement, and stale TCP/UDP registrations
 -fixed peer retirement when close callbacks remove other peers or reenter retirement
 -kept peer ownership and collection state consistent when close callbacks throw
 -fixed server-owned peer shutdown when close callbacks remove other peers or reenter listener close
