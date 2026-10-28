@@ -310,7 +310,7 @@ int main() {
                                   &len) == 0, "TLS getsockname");
             const auto port = ntohs(reinterpret_cast<const sockaddr_in*>(&local)->sin_port);
             bool passed = false;
-            std::jthread worker([&] {
+            std::thread worker([&] {
 #ifndef NET_PLATFORM_WINDOWS
                 sigset_t blocked{};
                 sigemptyset(&blocked);
@@ -326,18 +326,23 @@ int main() {
                 if (server.peers().broadcast("PONG", 4) != 1) return;
                 passed = server.remove_peer(peer) && server.peer_count() == 0;
             });
-            aeon::ssl_client_socket client;
-            require(client.set_ca_file(good.ca_path.string().c_str()) == 0,
-                    "TLS server client CA");
-            const bool connected = client.connect("127.0.0.1", port);
-            bool roundtrip = false;
-            if (connected && client.write("PING", 4) == 4) {
-                char response[8]{};
-                roundtrip = client.read(response, sizeof(response)) == 4 &&
-                            std::memcmp(response, "PONG", 4) == 0;
+            try {
+                aeon::ssl_client_socket client;
+                require(client.set_ca_file(good.ca_path.string().c_str()) == 0,
+                        "TLS server client CA");
+                const bool connected = client.connect("127.0.0.1", port);
+                bool roundtrip = false;
+                if (connected && client.write("PING", 4) == 4) {
+                    char response[8]{};
+                    roundtrip = client.read(response, sizeof(response)) == 4 &&
+                                std::memcmp(response, "PONG", 4) == 0;
+                }
+                worker.join();
+                require(connected && roundtrip && passed, "TLS server peer round trip");
+            } catch (...) {
+                if (worker.joinable()) worker.join();
+                throw;
             }
-            worker.join();
-            require(connected && roundtrip && passed, "TLS server peer round trip");
         });
 #if LIBAEON_HAS_EVENTS
         case_test("event-server-requires-credentials", [&] {
@@ -599,14 +604,27 @@ int main() {
             peer->on_data([&](const char*, int) { ++data; });
             // The watchdog provides a finite escape if poll(-1) incorrectly
             // ignores the deadline. It touches only the independent raw peer.
-            std::jthread watchdog([&] {
+            std::thread watchdog([&] {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1200));
                 (void)raw.close();
             });
-            const auto started = std::chrono::steady_clock::now();
-            const int handled = poller.poll(-1);
-            const auto elapsed = std::chrono::steady_clock::now() - started;
+            int handled = 0;
+            std::chrono::steady_clock::duration elapsed{};
+            try {
+                const auto started = std::chrono::steady_clock::now();
+                handled = poller.poll(-1);
+                elapsed = std::chrono::steady_clock::now() - started;
+            } catch (...) {
+                watchdog.join();
+                throw;
+            }
             watchdog.join();
+            if (handled <= 0 || elapsed >= std::chrono::milliseconds(800)) {
+                std::cerr << "TLS handshake deadline: handled=" << handled
+                          << " elapsed_ms="
+                          << std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count()
+                          << '\n';
+            }
             require(handled > 0 && elapsed < std::chrono::milliseconds(800),
                     "infinite poll ignored TLS handshake deadline");
             require(!peer->is_valid_socket() && !peer->handshake_complete() &&

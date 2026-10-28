@@ -291,19 +291,32 @@ int event_socket_set::poll(int timeout_ms) {
                 s->poll_has_buffered_input()) buffered = true;
         }
     }
-    // Bound even an infinite poll by the nearest active transport deadline.
-    // This is essential for silent TLS peers that never send a ClientHello.
-    int effective_timeout = timeout_ms;
-    for (const auto& watch : watched) {
-        if (!watch.tcp) continue;
-        auto* s = watch.tcp->get_if_active();
-        if (!s || !s->is_valid_socket() || s->sockfd != watch.fd) continue;
-        const int due = s->poll_timeout_ms();
-        if (due >= 0 && (effective_timeout == -1 || due < effective_timeout))
-            effective_timeout = due;
+    // An infinite poll with a transport deadline must not return early when
+    // the native wait ends just before that deadline expires.
+    int ready = 0;
+    bool expired = false;
+    for (;;) {
+        int effective_timeout = timeout_ms;
+        for (const auto& watch : watched) {
+            if (!watch.tcp) continue;
+            auto* s = watch.tcp->get_if_active();
+            if (!s || !s->is_valid_socket() || s->sockfd != watch.fd) continue;
+            const int due = s->poll_timeout_ms();
+            if (due >= 0 && (effective_timeout == -1 || due < effective_timeout))
+                effective_timeout = due;
+        }
+        ready = internal::poll_readable(native, buffered ? 0 : effective_timeout);
+        if (ready < 0) return ready;
+        expired = false;
+        for (const auto& watch : watched) {
+            if (!watch.tcp) continue;
+            auto* s = watch.tcp->get_if_active();
+            if (s && s->is_valid_socket() && s->sockfd == watch.fd &&
+                s->poll_timeout_ms() == 0) expired = true;
+        }
+        if (ready != 0 || buffered || expired || timeout_ms != -1 ||
+            effective_timeout == -1) break;
     }
-    const int ready = internal::poll_readable(native, buffered ? 0 : effective_timeout);
-    if (ready < 0) return ready;
     if (buffered) {
         for (size_t i = 0; i < watched.size(); ++i) {
             if (watched[i].tcp) {
@@ -312,13 +325,6 @@ int event_socket_set::poll(int timeout_ms) {
                     s->poll_has_buffered_input()) native[i].revents |= POLLIN;
             }
         }
-    }
-    bool expired = false;
-    for (const auto& watch : watched) {
-        if (!watch.tcp) continue;
-        auto* s = watch.tcp->get_if_active();
-        if (s && s->is_valid_socket() && s->sockfd == watch.fd &&
-            s->poll_timeout_ms() == 0) expired = true;
     }
     if (ready == 0 && !buffered && !expired) return 0;
     int handled = 0;

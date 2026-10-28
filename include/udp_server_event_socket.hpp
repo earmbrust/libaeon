@@ -10,7 +10,9 @@ public:
     bool listen();
     bool close() override;
     int read(char* buffer, int size) override;
+    /// \cond
     using udp_socket::read;
+    /// \endcond
     udp_socket* get_peer(const address& remote);
     bool remove_peer(udp_socket* peer);
     socket_set& peers();

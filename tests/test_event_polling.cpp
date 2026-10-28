@@ -54,7 +54,8 @@ struct tcp_fixture {
     aeon::event_socket* receiver = nullptr; // listener owns it
 
     bool start() {
-        if (!listener.listen("127.0.0.1", 0)) return false;
+        if (!listener.listen("127.0.0.1", 0) ||
+            listener.set_accept_timeout(2000) != 0) return false;
         const int port = port_of(listener);
         if (port <= 0 || !sender.connect("127.0.0.1", port)) return false;
         receiver = listener.accept(false);
@@ -301,6 +302,7 @@ TEST(EventPolling, ClosedRegisteredSocketsAreSkipped) {
 TEST(EventPolling, MoreThanOneHundredTcpClientsAndUdpShareOnePoller) {
     aeon::server_event_socket server;
     ASSERT_TRUE(server.listen("127.0.0.1", 0));
+    ASSERT_EQ(server.set_accept_timeout(2000), 0);
     const int port = port_of(server);
     ASSERT_GT(port, 0);
     aeon::udp_server_event_socket udp;

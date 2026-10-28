@@ -15,7 +15,9 @@ public:
     const socket_set& peers() const;
     // Listening read records a logical peer for the last source address.
     int read(char* buffer, int size) override;
+    /// \cond
     using udp_socket::read;
+    /// \endcond
 private:
 };
 } // namespace aeon

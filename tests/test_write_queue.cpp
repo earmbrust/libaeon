@@ -25,7 +25,8 @@ struct write_pair {
     aeon::event_socket_set set;
 
     bool start() {
-        if (!listener.listen("127.0.0.1", 0)) return false;
+        if (!listener.listen("127.0.0.1", 0) ||
+            listener.set_accept_timeout(2000) != 0) return false;
         if (!reader.connect("127.0.0.1", local_port(listener))) return false;
         writer = listener.accept(false);
         return writer && set.add(writer) && reader.set_read_timeout(2000) == 0;
