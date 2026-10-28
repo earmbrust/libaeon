@@ -1,8 +1,9 @@
 v2.0.0 (unreleased)
 ===================
+-fixed POSIX blocking-mode restoration after nonblocking socket operations
 -configured SO_NOSIGPIPE on libAeon TLS sockets for macOS
 -improved peer-notified orderly TLS shutdown handling
--known issue: macOS TLS live tests can still terminate with SIGPIPE; a separate socket-level fix is pending
+-configured SO_NOSIGPIPE on accepted macOS TCP sockets and verified the TLS and event regressions
 -stabilized event accept-readiness regression fixtures on macOS
 -fixed infinite event poll returns shortly before TLS deadlines and stabilized cross-platform regression tests
 -removed generated public headers and propagated build features through CMake targets

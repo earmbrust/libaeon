@@ -104,10 +104,25 @@ TEST(TcpOwnership, PlainServerOwnsAcceptedDescriptorUntilDestruction) {
 TEST(TcpOwnership, EventServerOwnsAcceptedDescriptorAndCanRetireIt) {
     aeon::server_event_socket server;
     ASSERT_TRUE(server.listen("127.0.0.1", 0));
+    ASSERT_EQ(server.accept(false), nullptr); // No pending connection.
     aeon::client_socket client;
     ASSERT_TRUE(client.connect("127.0.0.1", local_port(server)));
+
+    fd_set readable;
+    FD_ZERO(&readable);
+    FD_SET(server.sockfd, &readable);
+    timeval timeout{2, 0};
+#ifdef NET_PLATFORM_WINDOWS
+    const int ready = ::select(0, &readable, nullptr, nullptr, &timeout);
+#else
+    const int ready = ::select(server.sockfd + 1, &readable, nullptr, nullptr, &timeout);
+#endif
+    ASSERT_EQ(ready, 1) << "listener readiness failed, native error "
+                        << (ready < 0 ? GET_NET_SOCKET_ERROR() : 0);
+    ASSERT_TRUE(FD_ISSET(server.sockfd, &readable));
     auto* accepted = server.accept(false);
-    ASSERT_NE(accepted, nullptr);
+    ASSERT_NE(accepted, nullptr) << "accept failed, library error " << server.get_error()
+                                 << ", native error " << GET_NET_SOCKET_ERROR();
     auto* as_base = static_cast<aeon::socket*>(accepted);
     const auto fd = as_base->sockfd;
     EXPECT_TRUE(descriptor_open(fd));

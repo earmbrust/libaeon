@@ -954,7 +954,8 @@ int socket::set_socket_nonblocking(bool nonblocking) {
     int flags = fcntl(this->sockfd, F_GETFL, 0);
     if (flags < 0) return -1;
     
-    int result = fcntl(this->sockfd, F_SETFL, nonblocking ? (flags | O_NONBLOCK) : flags);
+    int result = fcntl(this->sockfd, F_SETFL,
+                       nonblocking ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK));
 #endif
 
     if (result != 0) {
