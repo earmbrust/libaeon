@@ -1272,6 +1272,16 @@ socket_t socket::tcp_accept(int timeout_ms, bool blocking,
         return invalid_socket;
     }
     // Configure the accepted descriptor before transferring ownership.
+#ifdef NET_PLATFORM_MACOS
+    const int no_sigpipe = 1;
+    if (::setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE,
+                     reinterpret_cast<const char*>(&no_sigpipe), sizeof(no_sigpipe)) != 0) {
+        this->error_code = GET_NET_SOCKET_ERROR();
+        this->error_state = state_accept;
+        NET_CLOSE_SOCKET(fd);
+        return invalid_socket;
+    }
+#endif
 #ifdef NET_PLATFORM_WINDOWS
     u_long mode = blocking ? 0UL : 1UL;
     if (::ioctlsocket(fd, FIONBIO, &mode) != 0) {

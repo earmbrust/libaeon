@@ -85,6 +85,13 @@ TEST(TcpOwnership, PlainServerOwnsAcceptedDescriptorUntilDestruction) {
     ASSERT_NE(accepted, nullptr);
     const auto fd = accepted->sockfd;
     EXPECT_TRUE(descriptor_open(fd));
+#ifdef NET_PLATFORM_MACOS
+    int no_sigpipe = 0;
+    socklen_t option_length = sizeof(no_sigpipe);
+    ASSERT_EQ(::getsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE,
+                           &no_sigpipe, &option_length), 0);
+    EXPECT_EQ(no_sigpipe, 1);
+#endif
     EXPECT_EQ(server->peer_count(), 1);
     EXPECT_EQ(server->peer_at(0), accepted);
     ASSERT_EQ(client.write("ok", 2), 2);

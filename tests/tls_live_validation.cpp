@@ -488,10 +488,13 @@ int main() {
             for (int n = 0; n < 100 && received.size() < 12; ++n)
                 require(poller.poll(100) >= 0, "post-drain direct poll");
             require(received == "QUEUEDDIRECT", "TLS queue/direct byte ordering");
-            require(peer->close(), "close peer with TLS close_notify");
-            for (int n = 0; n < 100 && client.is_valid_socket(); ++n)
+            require(peer->begin_graceful_shutdown(5000), "start peer close_notify");
+            for (int n = 0; n < 100 &&
+                 (client.is_valid_socket() || peer->is_valid_socket()); ++n)
                 require(poller.poll(100) >= 0, "TLS close_notify poll");
-            require(!client.is_valid_socket() && orderly_close == 1 && peer_close == 1,
+            require(!client.is_valid_socket() && !peer->is_valid_socket(),
+                    "both TLS peers closed after close_notify");
+            require(orderly_close == 1 && peer_close == 1,
                     "orderly close notified exactly once");
             require(data_error == 1, "only intentional rejected direct write raises error");
             require(poller.remove_socket(&client) && poller.remove_socket(peer),
