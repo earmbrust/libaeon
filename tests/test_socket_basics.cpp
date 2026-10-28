@@ -5,6 +5,9 @@
 #include "server_socket.hpp"
 #include "udp_socket.hpp"
 #include <type_traits>
+#ifndef NET_PLATFORM_WINDOWS
+#include <fcntl.h>
+#endif
 
 class SocketBasicsTest : public ::testing::Test {
 };
@@ -47,8 +50,18 @@ TEST_F(SocketBasicsTest, SetBlocking) {
     aeon::socket sock;
     int result = sock.set_blocking(false);
     EXPECT_EQ(result, 0);
+#ifndef NET_PLATFORM_WINDOWS
+    int flags = ::fcntl(sock.sockfd, F_GETFL, 0);
+    ASSERT_NE(flags, -1);
+    EXPECT_NE(flags & O_NONBLOCK, 0);
+#endif
     result = sock.set_blocking(true);
     EXPECT_EQ(result, 0);
+#ifndef NET_PLATFORM_WINDOWS
+    flags = ::fcntl(sock.sockfd, F_GETFL, 0);
+    ASSERT_NE(flags, -1);
+    EXPECT_EQ(flags & O_NONBLOCK, 0);
+#endif
 }
 
 TEST_F(SocketBasicsTest, SetReadTimeout) {
@@ -183,8 +196,18 @@ TEST_F(SocketBasicsTest, BlockingModeGuard) {
     {
         aeon::blocking_mode_guard guard(&sock);
         EXPECT_TRUE(guard.is_valid());
+#ifndef NET_PLATFORM_WINDOWS
+        const int flags = ::fcntl(sock.sockfd, F_GETFL, 0);
+        ASSERT_NE(flags, -1);
+        EXPECT_NE(flags & O_NONBLOCK, 0);
+#endif
     }
     EXPECT_TRUE(sock.is_valid_socket());
+#ifndef NET_PLATFORM_WINDOWS
+    const int flags = ::fcntl(sock.sockfd, F_GETFL, 0);
+    ASSERT_NE(flags, -1);
+    EXPECT_EQ(flags & O_NONBLOCK, 0);
+#endif
 }
 
 TEST_F(SocketBasicsTest, BlockingModeGuardClosed) {
