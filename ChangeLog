@@ -1,5 +1,7 @@
 v2.0.0 (unreleased)
 ===================
+-fixed macOS TLS socket SIGPIPE and peer-notified orderly shutdown handling
+-stabilized event accept-readiness regression fixtures on macOS
 -fixed infinite event poll returns shortly before TLS deadlines and stabilized cross-platform regression tests
 -removed generated public headers and propagated build features through CMake targets
 -expanded event poller lifetime regression tests for listener shutdown, peer retirement, and stale TCP/UDP registrations

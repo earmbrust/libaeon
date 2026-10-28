@@ -46,15 +46,15 @@ To enable and run tests on Visual Studio 2026, use a separate build directory::
     ctest --test-dir build-vs2026-tests -C Release --output-on-failure
 
 Optional event sockets
-~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~
 
 Event-driven sockets are enabled by default. If your application uses only
 ordinary TCP and UDP sockets, configure with
 ``-DLIBAEON_ENABLE_EVENTS=OFF`` to exclude event handling and polling code.
 This option is independent of SSL/TLS. ``socket_set`` and server-owned peers
 remain available in either configuration. Include ``<aeon.hpp>`` in your
-application; CMake provides the generated ``aeon_features.hpp`` and
-``aeon_export.hpp`` include path to targets that link Aeon.
+application. The ``aeon`` and ``aeon-static`` CMake targets propagate the
+feature definitions and required include paths to consumers.
 
 Optional SSL/TLS
 ~~~~~~~~~~~~~~~~

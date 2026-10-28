@@ -89,6 +89,15 @@ bool numeric_ip(const std::string& name) {
             set_error(ssl_error_init);
             return ssl_error_init;
         }
+#ifdef SO_NOSIGPIPE
+        const int no_sigpipe = 1;
+        if (::setsockopt(sockfd, SOL_SOCKET, SO_NOSIGPIPE,
+                         reinterpret_cast<const char*>(&no_sigpipe),
+                         sizeof(no_sigpipe)) != 0) {
+            set_error(ssl_error_io);
+            return ssl_error_io;
+        }
+#endif
         clear_ssl_errors();
         ssl = SSL_new(ssl_ctx);
         if (!ssl || SSL_set_fd(ssl, static_cast<int>(sockfd)) != 1) {
@@ -135,6 +144,15 @@ bool numeric_ip(const std::string& name) {
             set_error(ssl_error_init);
             return ssl_error_init;
         }
+#ifdef SO_NOSIGPIPE
+        const int no_sigpipe = 1;
+        if (::setsockopt(sockfd, SOL_SOCKET, SO_NOSIGPIPE,
+                         reinterpret_cast<const char*>(&no_sigpipe),
+                         sizeof(no_sigpipe)) != 0) {
+            set_error(ssl_error_io);
+            return ssl_error_io;
+        }
+#endif
 
         // Reconnects must never retain the previous SSL object.
         if (ssl != nullptr) {

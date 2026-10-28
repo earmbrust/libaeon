@@ -626,6 +626,7 @@ TEST(EventPolling, TransportHooksCoverReadsDirectWritesAndWriteQueue) {
 TEST(EventPolling, ListenerCallbackCanRetireOtherReadyPeers) {
     aeon::server_event_socket listener;
     ASSERT_TRUE(listener.listen("127.0.0.1", 0));
+    ASSERT_EQ(listener.set_accept_timeout(2000), 0);
     const int port = port_of(listener);
     ASSERT_GT(port, 0);
 

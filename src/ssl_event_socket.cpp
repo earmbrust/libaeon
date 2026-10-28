@@ -80,6 +80,12 @@ void ssl_event_socket::set_transport_error() {
 
 bool ssl_event_socket::init_session(bool server) {
     if (!ctx_ || !is_valid_socket()) return false;
+#ifdef SO_NOSIGPIPE
+    const int no_sigpipe = 1;
+    if (::setsockopt(sockfd, SOL_SOCKET, SO_NOSIGPIPE,
+                     reinterpret_cast<const char*>(&no_sigpipe),
+                     sizeof(no_sigpipe)) != 0) return false;
+#endif
     if (session_) { SSL_free(session_); session_ = nullptr; }
     ERR_clear_error();
     session_ = SSL_new(ctx_);
@@ -286,6 +292,7 @@ int ssl_event_socket::poll_step(short flags) {
                 return -1;
             }
             if (flags & (POLLERR | POLLNVAL)) {
+                if (peer_notified_close_) return 3;
                 ssl_failed_ = true;
                 set_error(ssl_error_io);
                 return -1;
@@ -293,7 +300,7 @@ int ssl_event_socket::poll_step(short flags) {
             // Do not send close_notify while any queued application record
             // still needs to be written. The queue is flushed by the poller.
             if (queued_bytes() != 0) return 1;
-            if (shutdown_need_read_ && !(flags & POLLIN)) return 0;
+            if (shutdown_need_read_ && !(flags & (POLLIN | POLLHUP))) return 0;
             if (shutdown_need_write_ && !(flags & POLLOUT)) return 0;
             if (!shutdown_need_read_ && !shutdown_need_write_ &&
                 shutdown_notify_sent_ && !(flags & POLLIN)) return 0;
@@ -313,8 +320,11 @@ int ssl_event_socket::poll_step(short flags) {
                 shutdown_notify_sent_ = (SSL_get_shutdown(session_) & SSL_SENT_SHUTDOWN) != 0;
                 shutdown_need_write_ = reason == SSL_ERROR_WANT_WRITE;
                 shutdown_need_read_ = reason == SSL_ERROR_WANT_READ;
+                if (peer_notified_close_ && shutdown_notify_sent_ &&
+                    (flags & POLLHUP)) return 3;
                 return 0;
             }
+            if (peer_notified_close_) return 3;
             ssl_failed_ = true;
             set_error(ssl_error_io);
             return -1;

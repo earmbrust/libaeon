@@ -206,6 +206,7 @@ TEST(ServerPeerLifecycle, RetiringPeerCanRetireAnotherFromCloseCallback) {
 TEST(ServerPeerLifecycle, ThrowingRetirementCallbackLeavesCollectionConsistent) {
     aeon::server_event_socket server;
     ASSERT_TRUE(server.listen("127.0.0.1", 0));
+    ASSERT_EQ(server.set_accept_timeout(2000), 0);
     const int port = bound_port(server);
     ASSERT_GT(port, 0);
     aeon::client_socket a, b;
