@@ -297,6 +297,9 @@ int ssl_event_socket::poll_step(short flags) {
                 set_error(ssl_error_io);
                 return -1;
             }
+            // The peer's close_notify was already verified. On transport
+            // hangup there is no connection left on which to send a reply.
+            if (peer_notified_close_ && (flags & POLLHUP)) return 3;
             // Do not send close_notify while any queued application record
             // still needs to be written. The queue is flushed by the poller.
             if (queued_bytes() != 0) return 1;

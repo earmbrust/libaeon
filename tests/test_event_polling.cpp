@@ -573,6 +573,7 @@ TEST(EventPolling, TransportHooksCoverReadsDirectWritesAndWriteQueue) {
     // Own the accepted descriptor in our derived event socket exactly once.
     sockaddr_storage remote{};
     socklen_t length = static_cast<socklen_t>(sizeof(remote));
+    ASSERT_TRUE(wait_until_readable(listener.sockfd));
     const aeon::socket_t accepted = ::accept(listener.sockfd,
         reinterpret_cast<sockaddr*>(&remote), &length);
     ASSERT_NE(accepted, aeon::invalid_socket);
@@ -672,6 +673,7 @@ TEST(EventPolling, ListenerCallbackCanRetireOtherReadyPeers) {
 TEST(EventPolling, PeerCloseCallbackCanRetireLaterReadyPeer) {
     aeon::server_event_socket listener;
     ASSERT_TRUE(listener.listen("127.0.0.1", 0));
+    ASSERT_EQ(listener.set_accept_timeout(2000), 0);
     const int port = port_of(listener);
     ASSERT_GT(port, 0);
     aeon::client_socket a, b;
