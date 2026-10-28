@@ -151,7 +151,18 @@ struct live_server {
     live_server& operator=(const live_server&) = delete;
 };
 
+#ifdef NET_PLATFORM_MACOS
+void report_sigpipe(int) {
+    constexpr char message[] = "SIGPIPE during TLS validation\n";
+    (void)::write(STDERR_FILENO, message, sizeof(message) - 1);
+    ::_exit(128 + SIGPIPE);
+}
+#endif
+
 void case_test(const char* name, const std::function<void()>& test) {
+#ifdef NET_PLATFORM_MACOS
+    std::cerr << "RUN " << name << std::endl;
+#endif
     test();
     std::cout << "PASS " << name << '\n';
 }
@@ -159,6 +170,9 @@ void case_test(const char* name, const std::function<void()>& test) {
 } // namespace
 
 int main() {
+#ifdef NET_PLATFORM_MACOS
+    if (std::signal(SIGPIPE, report_sigpipe) == SIG_ERR) return 2;
+#endif
     namespace fs = std::filesystem;
     const auto seed = std::chrono::steady_clock::now().time_since_epoch().count();
     const fs::path folder = fs::temp_directory_path() /
