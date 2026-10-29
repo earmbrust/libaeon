@@ -497,7 +497,10 @@ int socket::write(const char* data) {
  * write char* data to socket with explicit size
  * \param data Pointer to data buffer
  * \param size Number of bytes to write
- * \return Number of bytes written
+ * \return Bytes sent, 0 on readiness timeout, -1 on error
+ *
+ * A configured write timeout waits for writability before send(). A successful
+ * wait does not guarantee that all requested bytes are sent.
  */
 int socket::write(char* data, int size) {
     if (!data || !this->is_valid_socket() || size <= 0) {
@@ -535,6 +538,8 @@ int socket::write(const char* data, int size) {
  * write std::string data to socket
  * \param data std::string to write
  * \return Number of bytes written
+ *
+ * This overload sends directly without applying the configured write timeout.
  */
 int socket::write(const std::string& data) {
     if (!this->is_valid_socket() || data.empty()) {
@@ -552,7 +557,10 @@ int socket::write(const std::string& data) {
  * read data from socket into buffer
  * \param buffer Character array to receive data
  * \param size Maximum number of bytes to read
- * \return Number of bytes read (0 on timeout)
+ * \return Bytes read, 0 on timeout or TCP EOF, -1 on error
+ *
+ * The supplied capacity is used without NUL termination. TCP EOF clears
+ * connected; a read timeout leaves the connection state unchanged.
  */
 int socket::read(char* buffer, int size) {
     if (!buffer || !this->is_valid_socket() || size <= 0) {
@@ -660,6 +668,8 @@ void socket::clear_buffer(char* buffer, int size) {
  * \param buffer Character array to receive line
  * \param size Maximum bytes to read
  * \return Number of bytes read
+ *
+ * Uses a fixed-size legacy buffer and does not apply read_timeout_ms.
  */
 int socket::read_line(char* buffer, int size) {
     if (!buffer || !this->is_valid_socket() || size <= 0) {
@@ -748,15 +758,12 @@ int socket::set_blocking(bool flag) {
 
 /**
  * Set read timeout
- * \param timeout_ms Timeout in milliseconds (0 = no timeout, blocking behavior)
- * \return 0 on success, -1 on error
- * 
- * When a read timeout is set, read() operations will wait for the specified time
- * before returning 0 if no data is available. This allows for non-blocking reads
- * with timeout semantics in blocking sockets.
- * 
- * Error code set on failure:
- * - err_no_socket: Socket is invalid
+ * \param timeout_ms Timeout in milliseconds (0 disables readiness waiting)
+ * \return 0 on success, -1 for a negative value
+ *
+ * Buffer reads wait for readability before recv() when this timeout is positive.
+ * A 0 return from a TCP read may also indicate EOF. read_line() does not use
+ * this timeout. The setter does not require an open socket.
  */
 int socket::set_read_timeout(int timeout_ms) {
     if (timeout_ms < 0) {
@@ -770,15 +777,12 @@ int socket::set_read_timeout(int timeout_ms) {
 
 /**
  * Set write timeout
- * \param timeout_ms Timeout in milliseconds (0 = no timeout, blocking behavior)
- * \return 0 on success, -1 on error
- * 
- * When a write timeout is set, write() operations will apply timeout semantics
- * if supported by the platform. Currently, this is primarily used for tracking
- * intent and may be used for future async write operations.
- * 
- * Error code set on failure:
- * - err_no_socket: Socket is invalid
+ * \param timeout_ms Timeout in milliseconds (0 disables readiness waiting)
+ * \return 0 on success, -1 for a negative value
+ *
+ * The base TCP explicit-size buffer write overloads wait for writability before
+ * send(). C-string and std::string overloads send directly. The timeout does
+ * not guarantee that an entire buffer is sent within the configured interval.
  */
 int socket::set_write_timeout(int timeout_ms) {
     if (timeout_ms < 0) {
@@ -792,15 +796,12 @@ int socket::set_write_timeout(int timeout_ms) {
 
 /**
  * Set connect timeout
- * \param timeout_ms Timeout in milliseconds (0 = blocking, wait indefinitely)
- * \return 0 on success, -1 on error
- * 
- * When a connect timeout is set, connect() operations will fail if they cannot
- * complete within the specified time. This is useful for network operations where
- * the server may be slow or unreachable.
- * 
- * Error code set on failure:
- * - err_no_socket: Socket is invalid
+ * \param timeout_ms Timeout in milliseconds (0 uses native connect behavior)
+ * \return 0 on success, -1 for a negative value
+ *
+ * A positive TCP connect timeout uses a temporary nonblocking connect,
+ * waits for writability, and checks SO_ERROR before completing. Blocking mode
+ * is restored after the attempt.
  */
 int socket::set_connect_timeout(int timeout_ms) {
     if (timeout_ms < 0) {

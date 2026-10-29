@@ -1,233 +1,257 @@
 # Quick API Reference: Socket Configuration
 
+Include `<aeon.hpp>` to use the libAeon 2.0 API. Public types are in the
+`aeon` namespace, and methods use lowercase `snake_case`. Timeouts are in
+milliseconds. A timeout of `0` disables the corresponding readiness wait; it
+does not change a socket's blocking mode.
+
 ## Setting Timeouts
 
 ### Read Timeout
 ```cpp
-socket.SetReadTimeout(5000);  // 5 second timeout for Read() calls
+client.set_read_timeout(5000);  // Wait up to 5 seconds for readable data
 ```
-- Stores the timeout value used by Read() operations
-- Uses select() internally to wait before recv()
-- Returns 0 on success, -1 on error
-- Default: 0 (no timeout, blocking mode)
+- `socket::read(char*, int)`, `read()` and `read(int)` use `select()` to wait for readability before receiving data. UDP reads also use the configured timeout.
+- A positive timeout returns `0` from the buffer overload when no data becomes readable. For TCP, `0` can also mean an orderly disconnect.
+- `read_line()` uses its own byte-by-byte receive loop and does not apply the configured read timeout.
+- Returns `0` on success and `-1` for a negative timeout. Default: `0`.
 
 ### Write Timeout
 ```cpp
-socket.SetWriteTimeout(5000);  // Currently stored but not actively used in Write()
+client.set_write_timeout(5000);  // Wait for writability before an explicit-size write
 ```
-- **Note**: This value is stored but not currently applied during Write() operations
-- Intended for future use
-- Returns 0 on success, -1 on error
-- Default: 0
+- The base TCP `socket::write(char*, int)` and `write(const char*, int)` overloads check writability with `select()` before `send()`.
+- These overloads return `0` when the readiness wait times out; a successful wait can still result in a partial send.
+- The base C-string and `std::string` write overloads send directly without consulting this timeout. Event and TLS socket transports have their own I/O paths.
+- This is a readiness wait, not a deadline for transferring every byte.
+- Returns `0` on success and `-1` for a negative timeout. Default: `0`.
 
 ### Connect Timeout (TCP Client Only)
 ```cpp
-client.SetConnectTimeout(10000);  // Currently stored but not actively used in Connect()
+aeon::client_socket client;
+client.set_connect_timeout(10000);  // 10 seconds for TCP connect readiness
 ```
-- **Note**: This value is stored but not currently applied during Connect() operations
-- Intended for future use
-- Returns 0 on success, -1 on error
-- Default: 0
+- With a positive timeout, TCP connect temporarily uses nonblocking mode, waits for writability and checks `SO_ERROR` before reporting success.
+- The original blocking mode is restored after the attempt. A failed connection closes the attempted descriptor.
+- With the default `0`, the native connect call is used without a library-imposed timeout.
+- Returns `0` on success and `-1` for a negative timeout.
+
+### Accept Timeout (TCP Servers)
+```cpp
+aeon::server_event_socket server;
+server.set_accept_timeout(2000);  // Bound the wait for an incoming connection
+```
+- Available on `server_socket` and `server_event_socket`.
+- Positive values wait for listener readability before accepting; an expired wait returns `nullptr` without treating the timeout as a socket error.
+- `accept(false)` still configures the accepted peer as nonblocking. The timeout controls the wait for a pending connection, not the peer's mode.
+- Returns `0` on success and `-1` for values outside `0` through `60000`. Default: `0`.
 
 ## Setting Socket Modes
 
 ### Blocking Mode
 ```cpp
-socket.SetBlocking(true);   // Blocking mode (default)
-socket.SetBlocking(false);  // Non-blocking mode
+client.set_blocking(true);   // Blocking mode (default)
+client.set_blocking(false);  // Nonblocking mode
 ```
-- Actually applies the mode immediately to the socket
-- Returns: 1 if blocking, 0 if non-blocking, -1 on error
-- On Windows: Uses ioctlsocket(FIONBIO)
-- On Linux/macOS: Uses fcntl(F_SETFL)
+- Applies the mode to the native socket immediately.
+- Returns `0` on success, `-1` on error; it does not return the selected mode.
+- On Windows, uses `ioctlsocket(FIONBIO)`; on POSIX, uses `fcntl(F_SETFL)`.
+- A timeout does not by itself make a socket nonblocking.
 
 ### TCP_NODELAY (Disable Nagle's Algorithm)
 ```cpp
-socket.SetTCPNodelay(true);   // Disable Nagle (low-latency mode)
-socket.SetTCPNodelay(false);  // Enable Nagle (default, buffering enabled)
+client.set_tcp_nodelay(true);   // Disable Nagle's algorithm
+client.set_tcp_nodelay(false);  // Enable Nagle's algorithm
 ```
-- Actually applies immediately via setsockopt(TCP_NODELAY)
-- Returns 0 on success, -1 on error
-- Only applies to TCP sockets (CSocket, CClientSocket, CServerSocket, CEventSocket)
-- UDP sockets don't use this
+- Applies `TCP_NODELAY` with `setsockopt()` on TCP sockets.
+- Returns `0` on success, `-1` on error. This option is not for UDP sockets.
 
 ## Reading with Timeout
 
 ```cpp
-socket.SetReadTimeout(5000);  // 5 second timeout
-int bytes = socket.Read(buffer, sizeof(buffer));
+char buffer[1024];
+client.set_read_timeout(5000);
+const int bytes = client.read(buffer, sizeof(buffer));
 
 if (bytes > 0) {
-    // Data received successfully
+    // Process exactly bytes bytes; the buffer is not NUL-terminated.
 } else if (bytes == 0) {
-    // Timeout occurred - no data available
+    if (!client.connected) {
+        // TCP peer closed its sending side.
+    } else {
+        // No bytes were returned before the configured timeout.
+    }
 } else {
-    // Error occurred (bytes == -1)
-    // Check socket.GetError() for error code
+    // Native receive error; inspect client.get_error().
 }
 ```
+
+The buffer overload preserves binary data, including embedded NULs. `read(int)`
+returns a binary-safe `std::string`, but an empty result can mean timeout, EOF
+or error. The no-argument `read()` uses the legacy internal 256-byte buffer
+and reads at most 255 bytes at a time.
 
 ## Typical Server Configuration
 
 ```cpp
-net::CServerSocket server;
-server.Listen(8080);
-
-while (!shutdown) {
-    net::CEventSocket* client = server.Accept();
-    if (client && client->connected) {
-        // Apply low-latency settings
-        client->SetTCPNodelay(true);
-        client->SetReadTimeout(30000);   // 30 sec read timeout
-        
-        // Non-blocking mode for event-driven handling
-        client->SetBlocking(false);
-        
-        // Your client handling...
-        delete client;
+aeon::server_socket server;
+if (server.listen(8080)) {
+    server.set_accept_timeout(2000);
+    if (aeon::socket* client = server.accept(true)) {
+        client->set_tcp_nodelay(true);
+        client->set_read_timeout(30000);
+        // Handle the client. The server owns the accepted socket.
+        server.remove_peer(client);  // Retire it when finished.
     }
 }
 ```
+
+Accepted peers are owned by the server. Do not `delete` the returned pointer.
+`remove_peer()` destroys the peer and invalidates borrowed pointers. Closing
+the server closes its owned peers; the peer objects remain owned until removal
+or server destruction.
 
 ## Typical Client Configuration
 
 ```cpp
-net::CClientSocket client("example.com", 80);
+aeon::client_socket client;
+client.set_connect_timeout(10000);
+if (client.connect("example.com", 80)) {
+    client.set_tcp_nodelay(true);
+    client.set_read_timeout(5000);
+    client.set_write_timeout(5000);
 
-if (client.connected) {
-    client.SetTCPNodelay(true);        // Low-latency mode
-    client.SetReadTimeout(5000);       // 5 second read timeout
-    client.SetBlocking(true);          // Blocking for simple request/response
-    
-    client.Write("GET / HTTP/1.1\r\n");
-    std::string response = client.Read(1024);
+    const char request[] = "GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n";
+    const int sent = client.write(request, sizeof(request) - 1);
+    if (sent > 0) {
+        const std::string response = client.read(1024);
+        // Handle response; both send and receive can be partial.
+    }
 }
 ```
 
+TCP is a byte stream. Applications must handle partial writes, partial reads
+and their own message framing; one `read()` is not guaranteed to return a full
+response.
+
 ## Return Values
 
-**Timeout Setters** (SetReadTimeout, SetWriteTimeout, SetConnectTimeout):
-- Returns: **0** (always succeeds, just stores the value)
-- Error: Not checked - just stores the value
+**Timeout setters** (`set_read_timeout`, `set_write_timeout`, `set_connect_timeout`):
+- `0` on success; `-1` for a negative value. These setters store a configuration value and do not require an open descriptor.
 
-**SetBlocking:**
-- Returns: **1** if blocking mode is now active
-- Returns: **0** if non-blocking mode is now active  
-- Returns: **-1** on error (check GetError())
+**`set_accept_timeout`:**
+- `0` on success; `-1` outside the allowed range of 0-60000 ms.
 
-**SetTCPNodelay:**
-- Returns: **0** on success
-- Returns: **-1** on error (check GetError())
+**`set_blocking` and `set_tcp_nodelay`:**
+- `0` on success; `-1` if the socket operation fails.
 
-**Read/Write with timeouts:**
-- Returns: **> 0** = bytes read/sent successfully
-- Returns: **0** = timeout occurred (no data available)
-- Returns: **-1** = error occurred (check GetError())
+**Buffer `read` and explicit-size base TCP `write`:**
+- Positive: bytes received or sent (not necessarily the requested amount).
+- Zero: read timeout or TCP EOF; on explicit-size write, readiness timeout.
+- `-1`: invalid arguments, invalid descriptor or native operation failure.
+
+**`read_until(char*, int)`:**
+- Returns the accumulated byte count, including a partial count if EOF, timeout or error interrupts the operation; `-1` for invalid arguments or an invalid descriptor.
 
 ## How Timeouts Work
 
 ### Read Timeout Implementation
-```cpp
-// In CSocket::Read():
-if (this->read_timeout_ms > 0) {
-    int wait_result = WaitForReadable(sockfd, read_timeout_ms);
-    if (wait_result == 0) {
-        return 0;  // Timeout
-    } else if (wait_result < 0) {
-        return -1; // Error
-    }
-}
-// Then recv() is called
-```
 
-Uses select() to wait for the socket to be readable with the specified timeout.
+For positive timeouts, a socket read checks readability with `select()` and
+then calls `recv()`. If the readiness wait expires, the buffer overload returns
+`0` and stores `n = 0`. TCP `recv()` also returns `0` at EOF, in which case
+`connected` becomes `false`.
 
 ### Write Timeout
-Currently stored but **not applied** during Write() operations. Future implementation.
+
+The base explicit-size TCP buffer overloads check writability with `select()`
+before calling `send()`. The C-string and `std::string` overloads do not use
+this timeout. A writable descriptor does not guarantee that `send()` transmits
+the entire buffer or that subsequent native operations cannot block.
 
 ### Connect Timeout
-Currently stored but **not applied** during Connect() operations. Future implementation.
+
+TCP client connections with a positive timeout use a temporary nonblocking
+connection attempt, wait for writability, inspect `SO_ERROR`, and restore the
+previous blocking mode. A timeout fails the connection; it does not return a
+connected socket.
 
 ## Platform Support
 
-All socket configuration methods work on:
-- Windows (MSVC, MinGW)
-- Linux (GCC, Clang)
-- macOS (Clang)
-
-Platform-specific implementation details are abstracted away.
+The socket configuration API is available on Windows, Linux and macOS.
+Operating-system error codes and readiness behavior can differ by platform.
 
 ## Non-Blocking Socket Example
 
 ```cpp
-net::CEventSocket* socket = new net::CEventSocket();
-socket->SetBlocking(false);
-socket->SetReadTimeout(100);  // Quick check, don't wait long
-
-while (socket->connected) {
-    int bytes = socket->Read(buffer, sizeof(buffer));
-    
+aeon::client_socket client;
+if (client.connect("127.0.0.1", 2300) && client.set_blocking(false) == 0) {
+    char buffer[256];
+    const int bytes = client.read(buffer, sizeof(buffer));
     if (bytes > 0) {
-        // Process received data
-        ProcessData(buffer, bytes);
-    } else if (bytes == 0) {
-        // Timeout - no data this iteration, continue
-        continue;
-    } else {
-        // Error
-        socket->connected = false;
+        // Process bytes received.
+    } else if (bytes < 0) {
+        // No data may produce a platform-specific would-block error.
+        // Use readiness polling rather than spinning on read().
     }
 }
 ```
+
+Event-driven applications can use `event_socket_set::poll()` instead of
+manually polling each socket. Event sockets require event support enabled at
+build time.
 
 ## Common Patterns
 
 ### Simple Blocking Client
 ```cpp
-client.SetBlocking(true);          // Default
-client.SetReadTimeout(5000);       // 5 sec per read
-client.SetTCPNodelay(false);       // Default, allow buffering
+client.set_blocking(true);
+client.set_read_timeout(5000);
+client.set_tcp_nodelay(false);
 ```
 
 ### Low-Latency Server (Game-like)
 ```cpp
-client->SetBlocking(false);
-client->SetReadTimeout(16);        // ~60 FPS tick rate
-client->SetTCPNodelay(true);       // Immediate sends
+client->set_blocking(false);
+client->set_tcp_nodelay(true);
+// Integrate the peer with your event poll loop.
 ```
 
 ### Responsive Interactive Session
 ```cpp
-client->SetBlocking(false);
-client->SetReadTimeout(50);
-client->SetTCPNodelay(true);
+client->set_read_timeout(50);
+client->set_tcp_nodelay(true);
 ```
 
 ### Bulk Data Transfer
 ```cpp
-socket.SetBlocking(true);
-socket.SetReadTimeout(30000);      // Long timeout for slow transfers
-socket.SetTCPNodelay(false);       // Allow Nagle's buffering
+client.set_blocking(true);
+client.set_read_timeout(30000);
+client.set_tcp_nodelay(false);
 ```
 
 ## Error Checking
 
 ```cpp
-int result = socket.SetBlocking(false);
-if (result == -1) {
-    printf("Error: %d\n", socket.GetError());
+if (client.set_blocking(false) != 0) {
+    // client.get_error() reports the configuration error.
 }
 
-// For timeouts, check return value from Read/Write
-int bytes = socket.Read(buffer, 256);
-if (bytes == -1) {
-    printf("Read error: %d\n", socket.GetError());
+char buffer[256];
+const int bytes = client.read(buffer, sizeof(buffer));
+if (bytes < 0) {
+    // Inspect client.get_error() after a native receive failure.
 }
 ```
 
+`get_error()` is stored library state, not a universal record of the most
+recent native call. In particular, a read timeout does not set a new error,
+and some base TCP `write()` paths do not update it after a failed `send()`.
+Do not use `get_error()` alone to distinguish timeout from EOF.
+
 ## Known Limitations
 
-- **SetWriteTimeout**: Stored but not currently used during Write()
-- **SetConnectTimeout**: Stored but not currently used during Connect()
-- **Read timeout only**: Write operations do not currently respect write_timeout_ms
-- **Select-based**: Timeout implementation uses select(), which has platform-specific fd_set limits on Windows
+- Base TCP write timeout checks are limited to explicit-size buffer overloads; other overloads and transports have different paths.
+- `read_line()` does not apply `read_timeout_ms` and has a fixed 256-byte buffer limit.
+- `read(int)` returns an empty string for timeout, EOF or error; use the buffer overload when the distinction matters.
+- The current timeout mechanism uses `select()` readiness checks rather than a deadline that bounds an entire multi-step transfer. POSIX `select()` also has descriptor-set limits.
