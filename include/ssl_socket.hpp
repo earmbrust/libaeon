@@ -14,13 +14,13 @@
 
 namespace aeon {
 
-    // SSL/TLS error codes (negative to distinguish from socket errors)
-    constexpr int ssl_error = -1;          // Generic SSL error
-    constexpr int ssl_error_init = -2;     // SSL context/object creation failed
-    constexpr int ssl_error_cert = -3;     // Certificate verification/loading failed
-    constexpr int ssl_error_key = -4;      // Private key loading failed
-    constexpr int ssl_error_handshake = -5; // SSL handshake failed
-    constexpr int ssl_error_io = -6;       // SSL I/O error
+    // SSL/TLS error codes
+    constexpr int ssl_error = -0x020001;           // Generic SSL error
+    constexpr int ssl_error_init = -0x020002;      // SSL context/object creation failed
+    constexpr int ssl_error_cert = -0x020003;      // Certificate verification/loading failed
+    constexpr int ssl_error_key = -0x020004;       // Private key loading failed
+    constexpr int ssl_error_handshake = -0x020005; // SSL handshake failed
+    constexpr int ssl_error_io = -0x020006;        // SSL I/O error
 
     /**
      * \brief SSL/TLS peer verification mode
