@@ -24,6 +24,40 @@ TEST_F(SocketBasicsTest, DefaultConstructor) {
     EXPECT_FALSE(sock.connected);
 }
 
+TEST_F(SocketBasicsTest, LibraryErrorCodes) {
+    EXPECT_EQ(aeon::err_none, 0);
+    EXPECT_EQ(aeon::socket_error, -1);
+    EXPECT_EQ(aeon::err_no_host, -0x010001);
+    EXPECT_EQ(aeon::err_no_socket, -0x010002);
+    EXPECT_NE(aeon::err_no_host, aeon::err_no_socket);
+#ifdef ENABLE_SSL
+    EXPECT_EQ(aeon::ssl_error, -0x020001);
+    EXPECT_EQ(aeon::ssl_error_init, -0x020002);
+    EXPECT_EQ(aeon::ssl_error_cert, -0x020003);
+    EXPECT_EQ(aeon::ssl_error_key, -0x020004);
+    EXPECT_EQ(aeon::ssl_error_handshake, -0x020005);
+    EXPECT_EQ(aeon::ssl_error_io, -0x020006);
+    EXPECT_NE(aeon::err_no_socket, aeon::ssl_error);
+#endif
+}
+
+TEST_F(SocketBasicsTest, ClosedSocketRetainsErrorAndState) {
+    aeon::socket sock;
+    ASSERT_TRUE(sock.close());
+    EXPECT_EQ(sock.set_blocking(false), -1);
+    EXPECT_EQ(sock.get_error(), aeon::err_no_socket);
+    EXPECT_EQ(sock.get_state(), aeon::state_create);
+}
+
+#ifdef ENABLE_SSL
+TEST_F(SocketBasicsTest, UnconnectedTlsWriteIsAnError) {
+    aeon::ssl_client_socket client;
+    const char data[] = "test";
+    EXPECT_LT(client.write(data, 4), 0);
+    EXPECT_EQ(client.get_error(), aeon::err_no_socket);
+}
+#endif
+
 TEST_F(SocketBasicsTest, ConstructorIPv4) {
     aeon::socket sock(aeon::socket::family_ipv4);
     EXPECT_TRUE(sock.is_valid_socket());
