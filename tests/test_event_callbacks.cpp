@@ -326,3 +326,46 @@ TEST(EventCallbacks, WriteCallbackSupportsVirtualFallbackAndReplacement) {
     EXPECT_EQ(s.write("y", 1), 1);
     EXPECT_EQ(s.virtual_writes, 2);
 }
+
+TEST(EventCallbacks, InvalidDirectWriteDoesNotDispatchCallbacks) {
+    write_notification_probe s;
+    int writes = 0, errors = 0;
+    s.on_write([&](const char*, int, int) { ++writes; });
+    s.on_error([&](int) { ++errors; });
+
+    EXPECT_EQ(s.write("x", 0), NET_SOCKET_ERROR);
+    EXPECT_EQ(s.get_error(), aeon::err_invalid_argument);
+    EXPECT_EQ(s.write(static_cast<const char*>(nullptr), 1), NET_SOCKET_ERROR);
+    EXPECT_EQ(s.get_error(), aeon::err_invalid_argument);
+    EXPECT_EQ(writes, 0);
+    EXPECT_EQ(errors, 0);
+
+    ASSERT_TRUE(s.close());
+    EXPECT_EQ(s.write("x", 1), NET_SOCKET_ERROR);
+    EXPECT_EQ(s.get_error(), aeon::err_no_socket);
+    EXPECT_EQ(writes, 0);
+    EXPECT_EQ(errors, 0);
+}
+
+TEST(EventCallbacks, ASuccessfulDirectWriteClearsPriorTransportError) {
+    write_notification_probe s;
+    int writes = 0, errors = 0;
+    s.on_write([&](const char*, int requested, int sent) {
+        EXPECT_EQ(requested, 3);
+        EXPECT_EQ(sent, writes == 0 ? 0 : 2);
+        ++writes;
+    });
+    s.on_error([&](int error) {
+        EXPECT_EQ(error, aeon::err_connection_reset);
+        ++errors;
+    });
+
+    s.fail_send = true;
+    EXPECT_EQ(s.write("abc"), NET_SOCKET_ERROR);
+    EXPECT_EQ(s.get_error(), aeon::err_connection_reset);
+    s.fail_send = false;
+    EXPECT_EQ(s.write("abc"), 2);
+    EXPECT_EQ(s.get_error(), aeon::err_none);
+    EXPECT_EQ(writes, 2);
+    EXPECT_EQ(errors, 1);
+}

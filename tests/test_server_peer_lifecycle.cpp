@@ -52,6 +52,7 @@ TEST(ServerPeerLifecycle, TcpEventListenerOwnsPeersAndSupportsRetirement) {
     static_assert(std::is_same_v<decltype(std::declval<aeon::server_event_socket&>().accept()), aeon::event_socket*>);
     aeon::server_event_socket server;
     ASSERT_TRUE(server.listen("127.0.0.1", 0));
+    ASSERT_EQ(server.set_accept_timeout(2000), 0);
     aeon::client_socket client;
     ASSERT_TRUE(client.connect("127.0.0.1", bound_port(server)));
     auto* peer = server.accept(false);
@@ -110,6 +111,7 @@ TEST(ServerPeerLifecycle, UdpPeersShareOnlyTheParentTransport) {
 TEST(ServerPeerLifecycle, ListenerCloseSurvivesPeerRemovalAndReentrantClose) {
     aeon::server_event_socket listener;
     ASSERT_TRUE(listener.listen("127.0.0.1", 0));
+    ASSERT_EQ(listener.set_accept_timeout(2000), 0);
     const int port = bound_port(listener);
     ASSERT_GT(port, 0);
 
@@ -147,6 +149,7 @@ TEST(ServerPeerLifecycle, ListenerCloseSurvivesPeerRemovalAndReentrantClose) {
 TEST(ServerPeerLifecycle, ThrowingPeerCloseLeavesRemainingPeersClosable) {
     aeon::server_event_socket listener;
     ASSERT_TRUE(listener.listen("127.0.0.1", 0));
+    ASSERT_EQ(listener.set_accept_timeout(2000), 0);
     const int port = bound_port(listener);
     ASSERT_GT(port, 0);
     aeon::client_socket a, b;
@@ -172,6 +175,7 @@ TEST(ServerPeerLifecycle, ThrowingPeerCloseLeavesRemainingPeersClosable) {
 TEST(ServerPeerLifecycle, RetiringPeerCanRetireAnotherFromCloseCallback) {
     aeon::server_event_socket server;
     ASSERT_TRUE(server.listen("127.0.0.1", 0));
+    ASSERT_EQ(server.set_accept_timeout(2000), 0);
     const int port = bound_port(server);
     ASSERT_GT(port, 0);
     aeon::client_socket a, b, c;
@@ -230,6 +234,7 @@ TEST(ServerPeerLifecycle, ThrowingRetirementCallbackLeavesCollectionConsistent) 
 TEST(ServerPeerLifecycle, PollCallbackCanRetireAnotherDeregisteredPeer) {
     aeon::server_event_socket listener;
     ASSERT_TRUE(listener.listen("127.0.0.1", 0));
+    ASSERT_EQ(listener.set_accept_timeout(2000), 0);
     const int port = bound_port(listener);
     ASSERT_GT(port, 0);
     aeon::client_socket a, b;

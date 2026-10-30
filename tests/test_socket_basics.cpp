@@ -385,3 +385,27 @@ TEST_F(SocketBasicsTest, UdpConstructorCreatesDatagramSocket) {
                            reinterpret_cast<char*>(&type), &option_length), 0);
     EXPECT_EQ(type, SOCK_DGRAM);
 }
+
+#ifdef ENABLE_SSL
+TEST_F(SocketBasicsTest, TlsUnconnectedReadAndWriteOverloadsReportNoSocket) {
+    aeon::ssl_client_socket client;
+    char mutable_data[] = "hello";
+    const char const_data[] = "world";
+    char buffer[16]{};
+
+    EXPECT_EQ(client.write(mutable_data, 5), aeon::err_no_socket);
+    EXPECT_EQ(client.get_error(), aeon::err_no_socket);
+    EXPECT_EQ(client.write(const_data, 5), aeon::err_no_socket);
+    EXPECT_EQ(client.write(mutable_data), aeon::err_no_socket);
+    EXPECT_EQ(client.write(const_data), aeon::err_no_socket);
+    EXPECT_EQ(client.write(std::string("A\0B", 3)), aeon::err_no_socket);
+    EXPECT_EQ(client.get_error(), aeon::err_no_socket);
+
+    EXPECT_EQ(client.read(), aeon::err_no_socket);
+    EXPECT_EQ(client.read(buffer, static_cast<int>(sizeof(buffer))), aeon::err_no_socket);
+    EXPECT_EQ(client.read_line(buffer, static_cast<int>(sizeof(buffer))), aeon::err_no_socket);
+    EXPECT_EQ(client.read_until(buffer, static_cast<int>(sizeof(buffer))), aeon::err_no_socket);
+    EXPECT_TRUE(client.read(8).empty());
+    EXPECT_EQ(client.get_error(), aeon::err_no_socket);
+}
+#endif

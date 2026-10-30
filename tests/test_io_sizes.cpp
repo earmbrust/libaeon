@@ -149,3 +149,219 @@ TEST(IoSizes, InvalidReadSizesDoNotWritePastBuffer) {
     EXPECT_EQ(buffer[0], '!');
     EXPECT_EQ(buffer[1], '!');
 }
+
+// M6j.4: Exercise each base TCP write overload through a real loopback peer.
+// The small sends are deliberate: a successful stream send is not generally
+// required to transmit every byte of a larger buffer.
+TEST(IoSizes, TcpExplicitSizeWritesPreserveEmbeddedNuls) {
+    tcp_pair pair;
+    ASSERT_TRUE(pair.start());
+    char mutable_bytes[] = {'A', '\0', 'B'};
+    const char const_bytes[] = {'C', '\0', 'D'};
+    std::array<char, 3> received{};
+
+    ASSERT_EQ(pair.sender.write(mutable_bytes, 3), 3);
+    ASSERT_EQ(pair.receiver->read_until(received.data(), 3), 3);
+    EXPECT_EQ(std::string(received.data(), 3), std::string(mutable_bytes, 3));
+
+    ASSERT_EQ(pair.sender.write(const_bytes, 3), 3);
+    ASSERT_EQ(pair.receiver->read_until(received.data(), 3), 3);
+    EXPECT_EQ(std::string(received.data(), 3), std::string(const_bytes, 3));
+}
+
+TEST(IoSizes, TcpCStringAndStringWritesUseTheirOwnLengths) {
+    tcp_pair pair;
+    ASSERT_TRUE(pair.start());
+    char mutable_text[] = "one";
+    const char const_text[] = "two";
+    const std::string binary("Z\0Q", 3);
+    std::array<char, 3> received{};
+
+    ASSERT_EQ(pair.sender.write(mutable_text), 3);
+    ASSERT_EQ(pair.receiver->read_until(received.data(), 3), 3);
+    EXPECT_EQ(std::string(received.data(), 3), "one");
+
+    ASSERT_EQ(pair.sender.write(const_text), 3);
+    ASSERT_EQ(pair.receiver->read_until(received.data(), 3), 3);
+    EXPECT_EQ(std::string(received.data(), 3), "two");
+
+    ASSERT_EQ(pair.sender.write(binary), 3);
+    ASSERT_EQ(pair.receiver->read_until(received.data(), 3), 3);
+    EXPECT_EQ(std::string(received.data(), 3), binary);
+}
+
+TEST(IoSizes, TcpReadLineStopsAtCrLfWithoutConsumingNextLine) {
+    tcp_pair pair;
+    ASSERT_TRUE(pair.start());
+    const char lines[] = "one\r\ntwo\r\n";
+    ASSERT_EQ(pair.sender.write(lines, 10), 10);
+    std::array<char, 32> buffer{};
+
+    ASSERT_EQ(pair.receiver->read_line(buffer.data(), static_cast<int>(buffer.size())), 5);
+    EXPECT_STREQ(buffer.data(), "one\r\n");
+    ASSERT_EQ(pair.receiver->read_line(buffer.data(), static_cast<int>(buffer.size())), 5);
+    EXPECT_STREQ(buffer.data(), "two\r\n");
+}
+
+TEST(IoSizes, TcpReadTimeoutThenDataThenEofUpdatesState) {
+    tcp_pair pair;
+    ASSERT_TRUE(pair.start());
+    ASSERT_EQ(pair.receiver->set_read_timeout(30), 0);
+    std::array<char, 8> buffer{};
+    buffer.fill('!');
+
+    EXPECT_EQ(pair.receiver->read(buffer.data(), static_cast<int>(buffer.size())), 0);
+    EXPECT_EQ(pair.receiver->get_error(), aeon::err_timeout);
+    EXPECT_EQ(pair.receiver->n, 0);
+    EXPECT_TRUE(pair.receiver->connected);
+    EXPECT_EQ(buffer[0], '!');
+
+    ASSERT_EQ(pair.sender.write("OK", 2), 2);
+    ASSERT_EQ(pair.receiver->read(buffer.data(), static_cast<int>(buffer.size())), 2);
+    EXPECT_EQ(std::string(buffer.data(), 2), "OK");
+    EXPECT_EQ(pair.receiver->get_error(), aeon::err_none);
+    EXPECT_EQ(pair.receiver->n, 2);
+
+    ASSERT_TRUE(pair.sender.close());
+    EXPECT_EQ(pair.receiver->read(buffer.data(), static_cast<int>(buffer.size())), 0);
+    EXPECT_EQ(pair.receiver->get_error(), aeon::err_none);
+    EXPECT_FALSE(pair.receiver->connected);
+}
+
+TEST(IoSizes, TcpInvalidBuffersDoNotPreventSubsequentValidIo) {
+    tcp_pair pair;
+    ASSERT_TRUE(pair.start());
+    std::array<char, 4> buffer{'!', '!', '!', '!'};
+
+    EXPECT_EQ(pair.receiver->read(nullptr, 1), NET_SOCKET_ERROR);
+    EXPECT_EQ(pair.receiver->get_error(), aeon::err_invalid_argument);
+    EXPECT_EQ(pair.receiver->n, NET_SOCKET_ERROR);
+    EXPECT_EQ(pair.receiver->read(buffer.data(), 0), NET_SOCKET_ERROR);
+    EXPECT_EQ(pair.receiver->get_error(), aeon::err_invalid_argument);
+    EXPECT_EQ(pair.receiver->read_until(nullptr, 1), NET_SOCKET_ERROR);
+    EXPECT_EQ(pair.receiver->get_error(), aeon::err_invalid_argument);
+    EXPECT_EQ(pair.sender.write(static_cast<char*>(nullptr), 1), NET_SOCKET_ERROR);
+    EXPECT_EQ(pair.sender.get_error(), aeon::err_invalid_argument);
+    EXPECT_EQ(pair.sender.write(std::string{}), NET_SOCKET_ERROR);
+    EXPECT_EQ(pair.sender.get_error(), aeon::err_invalid_argument);
+    EXPECT_EQ(buffer[0], '!');
+    EXPECT_EQ(buffer[3], '!');
+
+    ASSERT_EQ(pair.sender.write("x", 1), 1);
+    EXPECT_EQ(pair.sender.get_error(), aeon::err_none);
+    ASSERT_EQ(pair.receiver->read(buffer.data(), static_cast<int>(buffer.size())), 1);
+    EXPECT_EQ(pair.receiver->get_error(), aeon::err_none);
+    EXPECT_EQ(buffer[0], 'x');
+    EXPECT_EQ(buffer[1], '!');
+}
+
+TEST(IoSizes, UdpWriteOverloadsKeepDatagramBoundariesAndBinaryData) {
+    udp_pair pair;
+    ASSERT_TRUE(pair.start());
+    char mutable_text[] = "one";
+    const char const_text[] = "two";
+    const char binary[] = {'A', '\0', 'B'};
+    std::array<char, 16> buffer{};
+
+    ASSERT_EQ(pair.sender.write(mutable_text), 3);
+    ASSERT_EQ(pair.listener.read(buffer.data(), static_cast<int>(buffer.size())), 3);
+    EXPECT_EQ(std::string(buffer.data(), 3), "one");
+
+    ASSERT_EQ(pair.sender.write(const_text), 3);
+    ASSERT_EQ(pair.listener.read(buffer.data(), static_cast<int>(buffer.size())), 3);
+    EXPECT_EQ(std::string(buffer.data(), 3), "two");
+
+    ASSERT_EQ(pair.sender.write(binary, 3), 3);
+    ASSERT_EQ(pair.listener.read(buffer.data(), static_cast<int>(buffer.size())), 3);
+    EXPECT_EQ(std::string(buffer.data(), 3), std::string(binary, 3));
+
+    char mutable_binary[] = {'X', '\0', 'Y'};
+    ASSERT_EQ(pair.sender.write(mutable_binary, 3), 3);
+    ASSERT_EQ(pair.listener.read(buffer.data(), static_cast<int>(buffer.size())), 3);
+    EXPECT_EQ(std::string(buffer.data(), 3), std::string(mutable_binary, 3));
+
+    const std::string text("Q\0R", 3);
+    ASSERT_EQ(pair.sender.write(text), 3);
+    ASSERT_EQ(pair.listener.read(buffer.data(), static_cast<int>(buffer.size())), 3);
+    EXPECT_EQ(std::string(buffer.data(), 3), text);
+}
+
+TEST(IoSizes, UdpTimeoutAndEmptyDatagramRemainDistinguishableByError) {
+    udp_pair pair;
+    ASSERT_TRUE(pair.start());
+    ASSERT_EQ(pair.listener.set_read_timeout(30), 0);
+    const auto original_descriptor = pair.listener.sockfd;
+    std::array<char, 8> buffer{};
+
+    ASSERT_EQ(pair.listener.read(buffer.data(), static_cast<int>(buffer.size())), 0);
+    EXPECT_EQ(pair.listener.get_error(), aeon::err_timeout);
+    EXPECT_EQ(pair.listener.n, 0);
+    EXPECT_EQ(pair.listener.sockfd, original_descriptor);
+
+    ASSERT_EQ(pair.sender.write(std::string{}), 0);
+    ASSERT_EQ(pair.listener.read(buffer.data(), static_cast<int>(buffer.size())), 0);
+    EXPECT_EQ(pair.listener.get_error(), aeon::err_none);
+    EXPECT_EQ(pair.listener.n, 0);
+    EXPECT_TRUE(pair.listener.is_valid_socket());
+
+    ASSERT_EQ(pair.sender.write("X", 1), 1);
+    ASSERT_EQ(pair.listener.read(buffer.data(), static_cast<int>(buffer.size())), 1);
+    EXPECT_EQ(buffer[0], 'X');
+    EXPECT_EQ(pair.listener.get_error(), aeon::err_none);
+    EXPECT_EQ(pair.listener.n, 1);
+}
+
+TEST(IoSizes, UdpInvalidWritesAndRecoveryHavePortableErrors) {
+    udp_pair pair;
+    ASSERT_TRUE(pair.start());
+    EXPECT_EQ(pair.sender.write("bad", -1), NET_SOCKET_ERROR);
+    EXPECT_EQ(pair.sender.get_error(), aeon::err_invalid_argument);
+    EXPECT_EQ(pair.sender.write(static_cast<const char*>(nullptr), 1), NET_SOCKET_ERROR);
+    EXPECT_EQ(pair.sender.get_error(), aeon::err_invalid_argument);
+    EXPECT_EQ(pair.sender.write(static_cast<char*>(nullptr), 1), NET_SOCKET_ERROR);
+    EXPECT_EQ(pair.sender.get_error(), aeon::err_invalid_argument);
+
+    ASSERT_EQ(pair.sender.write("OK", 2), 2);
+    EXPECT_EQ(pair.sender.get_error(), aeon::err_none);
+    std::array<char, 4> received{};
+    ASSERT_EQ(pair.listener.read(received.data(), static_cast<int>(received.size())), 2);
+    EXPECT_EQ(std::string(received.data(), 2), "OK");
+    EXPECT_EQ(pair.listener.get_error(), aeon::err_none);
+}
+
+TEST(IoSizes, TcpReadLineCapacityIsClampedToLegacyBuffer) {
+    tcp_pair pair;
+    ASSERT_TRUE(pair.start());
+    const char message[] = "abc\r\n";
+    ASSERT_EQ(pair.sender.write(message, 5), 5);
+    std::vector<char> received(4098, '!');
+
+    ASSERT_EQ(pair.receiver->read_line(received.data() + 1, 4096), 5);
+    EXPECT_EQ(std::string(received.data() + 1), "abc\r\n");
+    EXPECT_EQ(received.front(), '!');
+    EXPECT_EQ(received.back(), '!');
+    EXPECT_EQ(received[257], '!');
+}
+
+TEST(IoSizes, UdpLegacyReadTruncatesOnlyItsCurrentDatagram) {
+    udp_pair pair;
+    ASSERT_TRUE(pair.start());
+    const auto bytes = payload(300);
+    ASSERT_EQ(pair.sender.write(bytes.data(), static_cast<int>(bytes.size())), 300);
+#ifdef NET_PLATFORM_WINDOWS
+    // Winsock reports WSAEMSGSIZE instead of returning a truncated byte count.
+    ASSERT_EQ(pair.listener.read(), NET_SOCKET_ERROR);
+    EXPECT_EQ(pair.listener.n, NET_SOCKET_ERROR);
+    EXPECT_EQ(pair.listener.get_error(), aeon::err_message_too_large);
+#else
+    ASSERT_EQ(pair.listener.read(), aeon::socket::max_buffer_size - 1);
+    EXPECT_EQ(pair.listener.n, aeon::socket::max_buffer_size - 1);
+    EXPECT_EQ(pair.listener.get_error(), aeon::err_none);
+#endif
+
+    ASSERT_EQ(pair.sender.write("Z", 1), 1);
+    char next = '!';
+    ASSERT_EQ(pair.listener.read(&next, 1), 1);
+    EXPECT_EQ(next, 'Z');
+    EXPECT_EQ(pair.listener.get_error(), aeon::err_none);
+}
