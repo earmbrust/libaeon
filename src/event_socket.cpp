@@ -143,7 +143,7 @@ event_socket::flush_result event_socket::flush_queued(std::size_t budget) {
         auto& out = (*outgoing_);
         std::lock_guard<std::mutex> guard(out.mutex);
         out.chunks.clear(); out.front_offset = 0; out.bytes = 0;
-        return {0, err, false};
+        return {0, internal::translate_native_error(err), false};
     }
 #endif
     auto& out = (*outgoing_);
@@ -173,7 +173,9 @@ event_socket::flush_result event_socket::flush_queued(std::size_t budget) {
 #endif
             if (interrupted && ++interrupts <= 4) continue;
             if (interrupted || internal::would_block_error(error)) break;
-            result.error = error ? error : internal::invalid_descriptor_error();
+            result.error = poll_error_terminal() && get_error() < 0 &&
+                get_error() != socket_error ? get_error() :
+                internal::translate_native_error(error ? error : internal::invalid_descriptor_error());
             out.chunks.clear();
             out.front_offset = 0;
             out.bytes = 0;
@@ -181,7 +183,7 @@ event_socket::flush_result event_socket::flush_queued(std::size_t budget) {
         }
         if (sent == 0) break;
         if (sent > requested) {
-            result.error = internal::invalid_descriptor_error();
+            result.error = err_system;
             out.chunks.clear();
             out.front_offset = 0;
             out.bytes = 0;
@@ -261,11 +263,19 @@ int event_socket::write(char* data, int size) {
 }
 
 int event_socket::write(const char* data, int size) {
-    if (!is_valid_socket() || !data || size <= 0) return NET_SOCKET_ERROR;
+    if (!is_valid_socket() || !data || size <= 0) {
+        error_code = !is_valid_socket() ? err_no_socket : err_invalid_argument;
+        return NET_SOCKET_ERROR;
+    }
     const int sent = poll_send(data, size, 0);
     if (sent < 0) {
-        error_code = GET_NET_SOCKET_ERROR();
+        const int native = GET_NET_SOCKET_ERROR();
+        error_code = !internal::would_block_error(native) && poll_error_terminal() &&
+            get_error() < 0 && get_error() != socket_error ? get_error() :
+            internal::translate_native_error(native);
         fire_on_error(error_code);
+    } else {
+        error_code = err_none;
     }
     fire_on_write(data, size, sent < 0 ? 0 : sent);
     return sent;

@@ -41,6 +41,29 @@ TEST_F(SocketBasicsTest, LibraryErrorCodes) {
 #endif
 }
 
+TEST_F(SocketBasicsTest, NativeErrorCodesArePortable) {
+    EXPECT_EQ(aeon::internal::translate_native_error(0), aeon::err_none);
+#ifdef NET_PLATFORM_WINDOWS
+    EXPECT_EQ(aeon::internal::translate_native_error(WSAECONNRESET), aeon::err_connection_reset);
+    EXPECT_EQ(aeon::internal::translate_native_error(WSAEWOULDBLOCK), aeon::err_would_block);
+    EXPECT_EQ(aeon::internal::translate_native_error(WSAETIMEDOUT), aeon::err_timeout);
+    EXPECT_EQ(aeon::internal::translate_native_error(WSAEADDRINUSE), aeon::err_address_in_use);
+    EXPECT_EQ(aeon::internal::translate_native_error(WSAENOTSOCK), aeon::err_no_socket);
+#else
+    EXPECT_EQ(aeon::internal::translate_native_error(ECONNRESET), aeon::err_connection_reset);
+    EXPECT_EQ(aeon::internal::translate_native_error(EAGAIN), aeon::err_would_block);
+    EXPECT_EQ(aeon::internal::translate_native_error(EWOULDBLOCK), aeon::err_would_block);
+    EXPECT_EQ(aeon::internal::translate_native_error(ETIMEDOUT), aeon::err_timeout);
+    EXPECT_EQ(aeon::internal::translate_native_error(EADDRINUSE), aeon::err_address_in_use);
+    EXPECT_EQ(aeon::internal::translate_native_error(EBADF), aeon::err_no_socket);
+#endif
+    EXPECT_EQ(aeon::internal::translate_native_error(0x7F7F7F7F), aeon::err_system);
+    EXPECT_EQ(aeon::err_invalid_argument, -0x010003);
+    EXPECT_EQ(aeon::err_timeout, -0x010004);
+    EXPECT_EQ(aeon::err_connection_reset, -0x010008);
+    EXPECT_EQ(aeon::err_system, -0x01FFFF);
+}
+
 TEST_F(SocketBasicsTest, ClosedSocketRetainsErrorAndState) {
     aeon::socket sock;
     ASSERT_TRUE(sock.close());
@@ -96,6 +119,16 @@ TEST_F(SocketBasicsTest, SetBlocking) {
     ASSERT_NE(flags, -1);
     EXPECT_EQ(flags & O_NONBLOCK, 0);
 #endif
+}
+
+TEST_F(SocketBasicsTest, InvalidTimeoutHasPortableError) {
+    aeon::socket sock;
+    EXPECT_EQ(sock.set_read_timeout(-1), -1);
+    EXPECT_EQ(sock.get_error(), aeon::err_invalid_argument);
+    EXPECT_EQ(sock.set_write_timeout(-1), -1);
+    EXPECT_EQ(sock.get_error(), aeon::err_invalid_argument);
+    EXPECT_EQ(sock.set_connect_timeout(-1), -1);
+    EXPECT_EQ(sock.get_error(), aeon::err_invalid_argument);
 }
 
 TEST_F(SocketBasicsTest, SetReadTimeout) {

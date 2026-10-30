@@ -179,7 +179,8 @@ connected socket.
 ## Platform Support
 
 The socket configuration API is available on Windows, Linux and macOS.
-Operating-system error codes and readiness behavior can differ by platform.
+Readiness behavior can differ by platform. Errors reported through `get_error()`
+use libAeon's portable error constants.
 
 ## Non-Blocking Socket Example
 
@@ -230,6 +231,27 @@ client.set_read_timeout(30000);
 client.set_tcp_nodelay(false);
 ```
 
+## Portable Error Codes
+
+`get_error()` returns libAeon error constants on socket failures; applications
+never need to compare `errno` or Winsock error numbers. Native socket errors are
+translated internally. For example, POSIX `ECONNRESET` and Winsock
+`WSAECONNRESET` both become `aeon::err_connection_reset`.
+
+```cpp
+if (client.write("hello", 5) < 0) {
+    if (client.get_error() == aeon::err_connection_reset) {
+        // The peer reset the connection.
+    }
+}
+```
+
+The core errors use `-0x01xxxx`, TLS errors use `-0x02xxxx`, and
+`aeon::err_system` identifies an unmapped native failure. `-1` remains the
+standard I/O failure return value; `get_error()` provides the reason.
+An expired positive read timeout returns `0` and sets `aeon::err_timeout`;
+TCP EOF and a zero-byte UDP datagram are not errors.
+
 ## Error Checking
 
 ```cpp
@@ -244,10 +266,10 @@ if (bytes < 0) {
 }
 ```
 
-`get_error()` is stored library state, not a universal record of the most
-recent native call. In particular, a read timeout does not set a new error,
-and some base TCP `write()` paths do not update it after a failed `send()`.
-Do not use `get_error()` alone to distinguish timeout from EOF.
+`get_error()` records portable library errors rather than raw native error numbers.
+A positive read timeout sets `err_timeout`; TCP EOF clears the read error.
+Some legacy I/O methods still have different return-value behavior, so use a
+buffer read when the distinction between EOF, timeout, and failure matters.
 
 ## Known Limitations
 

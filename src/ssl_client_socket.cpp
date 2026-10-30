@@ -113,7 +113,7 @@ namespace aeon {
         }
 
         if (::connect(sockfd, reinterpret_cast<const sockaddr*>(&target_addr), addr_len) != 0) {
-            set_error(GET_NET_SOCKET_ERROR());
+            set_error(internal::translate_native_error(GET_NET_SOCKET_ERROR()));
             (void)close();
             return false;
         }

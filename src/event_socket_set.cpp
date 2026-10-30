@@ -137,8 +137,8 @@ static int socket_pending_error(socket_t fd) {
     socklen_t size = sizeof(code);
 #endif
     if (::getsockopt(fd, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&code), &size) != 0)
-        return GET_NET_SOCKET_ERROR();
-    return code;
+        return internal::translate_native_error(GET_NET_SOCKET_ERROR());
+    return code ? internal::translate_native_error(code) : err_system;
 }
 
 static int poll_readable(std::vector<poll_descriptor>& descriptors, int timeout_ms) {
@@ -345,7 +345,7 @@ int event_socket_set::poll(int timeout_ms) {
                     ++handled;
                     fire_on_socket_listen(s);
                 } else if (flags & (POLLERR | POLLNVAL | POLLHUP)) {
-                    const int err = (flags & POLLNVAL) ? internal::invalid_descriptor_error()
+                    const int err = (flags & POLLNVAL) ? err_no_socket
                         : internal::socket_pending_error(watch.fd);
                     ++handled;
                     s->set_error(err);
@@ -394,17 +394,20 @@ int event_socket_set::poll(int timeout_ms) {
                 } else {
                     const int err = GET_NET_SOCKET_ERROR();
                     if (!internal::would_block_error(err)) {
+                        const int reported = s->poll_error_terminal() &&
+                            s->get_error() < 0 && s->get_error() != socket_error
+                            ? s->get_error() : internal::translate_native_error(err);
                         ++handled;
-                        s->set_error(err);
+                        s->set_error(reported);
                         s->n = NET_SOCKET_ERROR;
-                        s->fire_on_error(err);
-                        if (watch.tcp->get_if_active()) fire_on_socket_error(s, err);
+                        s->fire_on_error(reported);
+                        if (watch.tcp->get_if_active()) fire_on_socket_error(s, reported);
                         if (watch.tcp->get_if_active() && s->is_valid_socket() &&
                             s->sockfd == watch.fd && s->poll_error_terminal()) s->close();
                     }
                 }
             } else if (flags & (POLLERR | POLLNVAL)) {
-                const int err = (flags & POLLNVAL) ? internal::invalid_descriptor_error()
+                const int err = (flags & POLLNVAL) ? err_no_socket
                     : internal::socket_pending_error(watch.fd);
                 ++handled;
                 s->set_error(err);
@@ -449,15 +452,16 @@ int event_socket_set::poll(int timeout_ms) {
                 } else {
                     const int err = GET_NET_SOCKET_ERROR();
                     if (!internal::would_block_error(err)) {
+                        const int reported = internal::translate_native_error(err);
                         ++handled;
-                        s->set_error(err);
+                        s->set_error(reported);
                         s->n = NET_SOCKET_ERROR;
-                        s->fire_on_error(err);
-                        if (watch.udp->get_if_active()) fire_on_udp_socket_error(s, err);
+                        s->fire_on_error(reported);
+                        if (watch.udp->get_if_active()) fire_on_udp_socket_error(s, reported);
                     }
                 }
             } else if (flags & (POLLERR | POLLNVAL)) {
-                const int err = (flags & POLLNVAL) ? internal::invalid_descriptor_error()
+                const int err = (flags & POLLNVAL) ? err_no_socket
                     : internal::socket_pending_error(watch.fd);
                 ++handled;
                 s->set_error(err);

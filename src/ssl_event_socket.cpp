@@ -372,10 +372,14 @@ int ssl_event_socket::poll_step(short flags) {
 }
 
 int ssl_event_socket::poll_receive(char* data, int size) {
-    if (!tls_ready_ || !session_) { set_transport_error(); return -1; }
+    if (!tls_ready_ || !session_) {
+        set_error(ssl_error_io);
+        set_transport_error();
+        return -1;
+    }
     ERR_clear_error();
     const int result = SSL_read(session_, data, size);
-    if (result > 0) { recv_need_write_ = false; return result; }
+    if (result > 0) { recv_need_write_ = false; set_error(err_none); return result; }
     const int code = SSL_get_error(session_, result);
     if (code == SSL_ERROR_ZERO_RETURN) {
         peer_notified_close_ = true;
@@ -411,6 +415,7 @@ int ssl_event_socket::poll_send_queued(const char* data, int size, int) {
 int ssl_event_socket::send_tls(const char* data, int size, bool queued) {
     if (!tls_ready_ || !session_ || !data || size <= 0 ||
         (shutdown_requested_ && !queued)) {
+        set_error(ssl_error_io);
         set_transport_error();
         return -1;
     }
@@ -442,6 +447,7 @@ int ssl_event_socket::send_tls(const char* data, int size, bool queued) {
         pending_write_queued_ = false;
         pending_write_hash_ = 0;
         send_need_read_ = false;
+        set_error(err_none);
         return result;
     }
     const int code = SSL_get_error(session_, result);
