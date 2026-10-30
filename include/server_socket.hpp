@@ -4,7 +4,7 @@
 
 namespace aeon {
 
-class LIBAEON_API server_socket : public socket, protected internal::peer_collection {
+class LIBAEON_API server_socket : public socket, protected peer_collection {
 public:
     server_socket();
     ~server_socket() override;

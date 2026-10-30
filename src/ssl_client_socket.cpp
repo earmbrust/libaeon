@@ -7,6 +7,7 @@
 #ifdef ENABLE_SSL
 
 #include "aeon.hpp"
+#include "native_error.hpp"
 #include "ssl_client_socket.hpp"
 #include "resolver.hpp"
 #include <stdexcept>
@@ -113,7 +114,7 @@ namespace aeon {
         }
 
         if (::connect(sockfd, reinterpret_cast<const sockaddr*>(&target_addr), addr_len) != 0) {
-            set_error(internal::translate_native_error(GET_NET_SOCKET_ERROR()));
+            set_error(translate_native_error(GET_NET_SOCKET_ERROR()));
             (void)close();
             return false;
         }

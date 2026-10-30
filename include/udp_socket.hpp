@@ -7,7 +7,7 @@
 #include "socket.hpp"
 
 namespace aeon {
-namespace internal { class peer_collection; }
+class peer_collection;
 class udp_server_socket;
 class udp_server_event_socket;
 
@@ -42,7 +42,7 @@ protected:
     udp_socket(udp_socket* parent, const address& endpoint);
 
 private:
-    friend class internal::peer_collection;
+    friend class peer_collection;
     friend class udp_server_socket;
     friend class udp_server_event_socket;
     udp_socket* parent_ = nullptr; // server-owned lifetime makes this safe

@@ -4,6 +4,7 @@
  * This software is licensed under the BSD software license.
  *********************************************************************/
 #include "aeon.hpp"
+#include "native_error.hpp"
 #ifndef NET_PLATFORM_WINDOWS
 #include <poll.h>
 #endif
@@ -19,7 +20,7 @@
 #include <memory>
 #include <utility>
 
-namespace aeon::internal {
+namespace aeon {
 
 struct event_handlers::state {
     explicit state(std::size_t count) : handlers(count) {}
@@ -40,7 +41,7 @@ std::shared_ptr<const void> event_handlers::get_handler(std::size_t slot) const 
     return callbacks_->handlers.at(slot);
 }
 
-struct pending_write_state {
+struct event_socket::state {
     mutable std::mutex mutex;
     std::deque<std::string> chunks;
     std::size_t front_offset = 0;
@@ -50,18 +51,15 @@ struct pending_write_state {
 
 
 
-} // namespace aeon::internal
-
-namespace aeon {
 enum { handler_data, handler_connect, handler_close, handler_listen, handler_error, handler_drain, handler_write };
 
 
-event_socket::event_socket() : socket(), internal::event_handlers(7), outgoing_(new internal::pending_write_state) {
+event_socket::event_socket() : socket(), event_handlers(7), outgoing_(new state) {
     if (is_valid_socket() && set_blocking(false) != 0) socket::close();
 }
 
 event_socket::event_socket(socket_t fd, bool adopt)
-    : socket(fd, adopt), internal::event_handlers(7), outgoing_(new internal::pending_write_state) {
+    : socket(fd, adopt), event_handlers(7), outgoing_(new state) {
     if (is_valid_socket() && set_blocking(false) != 0) socket::close();
 }
 
@@ -143,7 +141,7 @@ event_socket::flush_result event_socket::flush_queued(std::size_t budget) {
         auto& out = (*outgoing_);
         std::lock_guard<std::mutex> guard(out.mutex);
         out.chunks.clear(); out.front_offset = 0; out.bytes = 0;
-        return {0, internal::translate_native_error(err), false};
+        return {0, translate_native_error(err), false};
     }
 #endif
     auto& out = (*outgoing_);
@@ -172,10 +170,10 @@ event_socket::flush_result event_socket::flush_queued(std::size_t budget) {
             const bool interrupted = error == EINTR;
 #endif
             if (interrupted && ++interrupts <= 4) continue;
-            if (interrupted || internal::would_block_error(error)) break;
+            if (interrupted || would_block_error(error)) break;
             result.error = poll_error_terminal() && get_error() < 0 &&
                 get_error() != socket_error ? get_error() :
-                internal::translate_native_error(error ? error : internal::invalid_descriptor_error());
+                translate_native_error(error ? error : invalid_descriptor_error());
             out.chunks.clear();
             out.front_offset = 0;
             out.bytes = 0;
@@ -270,9 +268,9 @@ int event_socket::write(const char* data, int size) {
     const int sent = poll_send(data, size, 0);
     if (sent < 0) {
         const int native = GET_NET_SOCKET_ERROR();
-        error_code = !internal::would_block_error(native) && poll_error_terminal() &&
+        error_code = !would_block_error(native) && poll_error_terminal() &&
             get_error() < 0 && get_error() != socket_error ? get_error() :
-            internal::translate_native_error(native);
+            translate_native_error(native);
         fire_on_error(error_code);
     } else {
         error_code = err_none;

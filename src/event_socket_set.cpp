@@ -4,6 +4,7 @@
  * This software is licensed under the BSD software license.
  *********************************************************************/
 #include "aeon.hpp"
+#include "native_error.hpp"
 #include "event_socket_set.hpp"
 #include "server_event_socket.hpp"
 #include <chrono>
@@ -20,7 +21,8 @@
 #endif
 #include <utility>
 
-namespace aeon::internal {
+namespace aeon {
+namespace {
 
 // Registrations are non-owning. Shared tokens keep only registration metadata
 // alive after removal, not the event_socket itself. Before using the pointer,
@@ -115,14 +117,15 @@ private:
 using socket_registry = basic_socket_registry<event_socket>;
 using udp_socket_registry = basic_socket_registry<udp_event_socket>;
 
+} // namespace
 
-
-struct set_poll_state {
+struct event_socket_set::state {
     std::mutex poll_mutex;
     socket_registry sockets;
     udp_socket_registry udp_sockets;
 };
 
+namespace {
 struct poll_descriptor {
     socket_t fd = invalid_socket;
     short revents = 0;
@@ -137,8 +140,8 @@ static int socket_pending_error(socket_t fd) {
     socklen_t size = sizeof(code);
 #endif
     if (::getsockopt(fd, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&code), &size) != 0)
-        return internal::translate_native_error(GET_NET_SOCKET_ERROR());
-    return code ? internal::translate_native_error(code) : err_system;
+        return translate_native_error(GET_NET_SOCKET_ERROR());
+    return code ? translate_native_error(code) : err_system;
 }
 
 static int poll_readable(std::vector<poll_descriptor>& descriptors, int timeout_ms) {
@@ -181,12 +184,11 @@ static int poll_readable(std::vector<poll_descriptor>& descriptors, int timeout_
     for (size_t i = 0; i < native.size(); ++i) descriptors[i].revents = native[i].revents;
     return result;
 }
-} // namespace aeon::internal
+} // namespace
 
-namespace aeon {
 enum { handler_data, handler_connect, handler_close, handler_listen, handler_error, handler_drain, handler_udp_datagram, handler_udp_error };
 
-event_socket_set::event_socket_set() : internal::event_handlers(8), state_(new internal::set_poll_state) {}
+event_socket_set::event_socket_set() : event_handlers(8), state_(new state) {}
 event_socket_set::~event_socket_set() { delete state_; }
 
 bool event_socket_set::add(event_socket* socket) {
@@ -259,12 +261,12 @@ int event_socket_set::poll(int timeout_ms) {
     std::unique_lock<std::mutex> single_poll(state_->poll_mutex, std::try_to_lock);
     if (!single_poll.owns_lock()) return -1;
     struct pending {
-        internal::socket_registry::token tcp;
-        internal::udp_socket_registry::token udp;
+        socket_registry::token tcp;
+        udp_socket_registry::token udp;
         socket_t fd;
     };
     std::vector<pending> watched;
-    std::vector<internal::poll_descriptor> native;
+    std::vector<poll_descriptor> native;
     const auto tcp_snapshot = state_->sockets.snapshot();
     const auto udp_snapshot = state_->udp_sockets.snapshot();
     watched.reserve(tcp_snapshot.size() + udp_snapshot.size());
@@ -305,7 +307,7 @@ int event_socket_set::poll(int timeout_ms) {
             if (due >= 0 && (effective_timeout == -1 || due < effective_timeout))
                 effective_timeout = due;
         }
-        ready = internal::poll_readable(native, buffered ? 0 : effective_timeout);
+        ready = poll_readable(native, buffered ? 0 : effective_timeout);
         if (ready < 0) return ready;
         expired = false;
         for (const auto& watch : watched) {
@@ -346,7 +348,7 @@ int event_socket_set::poll(int timeout_ms) {
                     fire_on_socket_listen(s);
                 } else if (flags & (POLLERR | POLLNVAL | POLLHUP)) {
                     const int err = (flags & POLLNVAL) ? err_no_socket
-                        : internal::socket_pending_error(watch.fd);
+                        : socket_pending_error(watch.fd);
                     ++handled;
                     s->set_error(err);
                     s->n = NET_SOCKET_ERROR;
@@ -393,10 +395,10 @@ int event_socket_set::poll(int timeout_ms) {
                     if (watch.tcp->get_if_active()) fire_on_socket_close(s);
                 } else {
                     const int err = GET_NET_SOCKET_ERROR();
-                    if (!internal::would_block_error(err)) {
+                    if (!would_block_error(err)) {
                         const int reported = s->poll_error_terminal() &&
                             s->get_error() < 0 && s->get_error() != socket_error
-                            ? s->get_error() : internal::translate_native_error(err);
+                            ? s->get_error() : translate_native_error(err);
                         ++handled;
                         s->set_error(reported);
                         s->n = NET_SOCKET_ERROR;
@@ -408,7 +410,7 @@ int event_socket_set::poll(int timeout_ms) {
                 }
             } else if (flags & (POLLERR | POLLNVAL)) {
                 const int err = (flags & POLLNVAL) ? err_no_socket
-                    : internal::socket_pending_error(watch.fd);
+                    : socket_pending_error(watch.fd);
                 ++handled;
                 s->set_error(err);
                 s->n = NET_SOCKET_ERROR;
@@ -451,8 +453,8 @@ int event_socket_set::poll(int timeout_ms) {
                     if (watch.udp->get_if_active()) fire_on_socket_datagram(s, buffer, bytes, sender);
                 } else {
                     const int err = GET_NET_SOCKET_ERROR();
-                    if (!internal::would_block_error(err)) {
-                        const int reported = internal::translate_native_error(err);
+                    if (!would_block_error(err)) {
+                        const int reported = translate_native_error(err);
                         ++handled;
                         s->set_error(reported);
                         s->n = NET_SOCKET_ERROR;
@@ -462,7 +464,7 @@ int event_socket_set::poll(int timeout_ms) {
                 }
             } else if (flags & (POLLERR | POLLNVAL)) {
                 const int err = (flags & POLLNVAL) ? err_no_socket
-                    : internal::socket_pending_error(watch.fd);
+                    : socket_pending_error(watch.fd);
                 ++handled;
                 s->set_error(err);
                 s->n = NET_SOCKET_ERROR;
