@@ -102,6 +102,8 @@
 
 namespace aeon {
 namespace internal {
+// Converts native socket errors before they reach public state or callbacks.
+LIBAEON_API int translate_native_error(int native_error) noexcept;
 #ifdef NET_PLATFORM_WINDOWS
     using socket_t = SOCKET;
     constexpr socket_t invalid_socket = INVALID_SOCKET;
@@ -134,6 +136,30 @@ constexpr int null_flag = 0;
 constexpr int err_none = 0;
 constexpr int err_no_host = -0x010001;
 constexpr int err_no_socket = -0x010002;
+constexpr int err_invalid_argument = -0x010003;
+constexpr int err_timeout = -0x010004;
+constexpr int err_would_block = -0x010005;
+constexpr int err_interrupted = -0x010006;
+constexpr int err_connection_refused = -0x010007;
+constexpr int err_connection_reset = -0x010008;
+constexpr int err_connection_aborted = -0x010009;
+constexpr int err_not_connected = -0x01000A;
+constexpr int err_address_in_use = -0x01000B;
+constexpr int err_network_unreachable = -0x01000C;
+constexpr int err_host_unreachable = -0x01000D;
+constexpr int err_permission_denied = -0x01000E;
+constexpr int err_message_too_large = -0x01000F;
+constexpr int err_address_not_available = -0x010010;
+constexpr int err_already_connected = -0x010011;
+constexpr int err_in_progress = -0x010012;
+constexpr int err_broken_pipe = -0x010013;
+constexpr int err_network_down = -0x010014;
+constexpr int err_network_reset = -0x010015;
+constexpr int err_no_buffers = -0x010016;
+constexpr int err_resource_limit = -0x010017;
+constexpr int err_unsupported = -0x010018;
+constexpr int err_protocol = -0x010019;
+constexpr int err_system = -0x01FFFF;
 constexpr int state_resolve = 1;
 constexpr int state_create = 2;
 constexpr int state_accept = 3;

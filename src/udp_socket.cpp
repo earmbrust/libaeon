@@ -48,7 +48,10 @@ bool udp_socket::is_valid_socket() const {
 }
 
 int udp_socket::send_datagram(const char* data, int size) {
-    if (!is_valid_socket() || size < 0 || (size > 0 && !data)) return NET_SOCKET_ERROR;
+    if (!is_valid_socket() || size < 0 || (size > 0 && !data)) {
+        error_code = !is_valid_socket() ? err_no_socket : err_invalid_argument;
+        return NET_SOCKET_ERROR;
+    }
     const socket_t native = parent_ ? parent_->sockfd : sockfd;
     sockaddr_storage target = remote_addr;
     // The parent stores the bound native socket family; no syscall per send.
@@ -66,11 +69,14 @@ int udp_socket::send_datagram(const char* data, int size) {
         std::memcpy(&mapped.sin6_addr.s6_addr[12], &v4->sin_addr, sizeof(v4->sin_addr));
         std::memcpy(&target, &mapped, sizeof(mapped));
         target_len = static_cast<socklen_t>(sizeof(mapped));
-    } else return NET_SOCKET_ERROR;
+    } else {
+        error_code = err_address_not_available;
+        return NET_SOCKET_ERROR;
+    }
     const char zero = 0;
     const int sent = static_cast<int>(::sendto(native, size ? data : &zero, size, 0,
         reinterpret_cast<const sockaddr*>(&target), target_len));
-    if (sent < 0) error_code = GET_NET_SOCKET_ERROR();
+    error_code = sent < 0 ? internal::translate_native_error(GET_NET_SOCKET_ERROR()) : err_none;
     n = sent;
     return sent;
 }
@@ -101,6 +107,7 @@ int udp_socket::write(const std::string& data) {
  */
 LIBAEON_API int udp_socket::read(char* buffer, int size) {
     if (parent_ || !buffer || !this->is_valid_socket() || size <= 0) {
+        this->error_code = !this->is_valid_socket() ? err_no_socket : err_invalid_argument;
         this->n = NET_SOCKET_ERROR;
         return NET_SOCKET_ERROR;
     }
@@ -110,11 +117,12 @@ LIBAEON_API int udp_socket::read(char* buffer, int size) {
     if (this->read_timeout_ms > 0) {
         const int ready = socket::wait_for_readable(this->sockfd, this->read_timeout_ms);
         if (ready == 0) {
+            this->error_code = err_timeout;
             this->n = 0;
             return 0;
         }
         if (ready < 0) {
-            this->error_code = GET_NET_SOCKET_ERROR();
+            this->error_code = internal::translate_native_error(GET_NET_SOCKET_ERROR());
             this->error_state = state_accept;
             this->n = NET_SOCKET_ERROR;
             return NET_SOCKET_ERROR;
@@ -127,8 +135,10 @@ LIBAEON_API int udp_socket::read(char* buffer, int size) {
     this->n = received;
     // A zero-length UDP datagram is valid; it is not a disconnect.
     if (received < 0) {
-        this->error_code = GET_NET_SOCKET_ERROR();
+        this->error_code = internal::translate_native_error(GET_NET_SOCKET_ERROR());
         this->error_state = state_accept;
+    } else {
+        this->error_code = err_none;
     }
     return received;
 }
@@ -301,7 +311,7 @@ bool udp_socket::udp_listen(int port, native_bind_fn bind_socket) {
     for (const int family : {AF_INET6, AF_INET}) {
         socket_t candidate = invalid_socket;
         if (!select_family(family, this->blocking, candidate)) {
-            last_error = GET_NET_SOCKET_ERROR();
+            last_error = internal::translate_native_error(GET_NET_SOCKET_ERROR());
             continue;
         }
 
@@ -311,7 +321,7 @@ bool udp_socket::udp_listen(int port, native_bind_fn bind_socket) {
             if (::setsockopt(candidate, IPPROTO_IPV6, IPV6_V6ONLY,
                              reinterpret_cast<const char*>(&v6only),
                              sizeof(v6only)) != 0) {
-                last_error = GET_NET_SOCKET_ERROR();
+                last_error = internal::translate_native_error(GET_NET_SOCKET_ERROR());
                 close_candidate(candidate);
                 continue;
             }
@@ -345,7 +355,7 @@ bool udp_socket::udp_listen(int port, native_bind_fn bind_socket) {
             close_candidate(prior);
             return true;
         }
-        last_error = GET_NET_SOCKET_ERROR();
+        last_error = internal::translate_native_error(GET_NET_SOCKET_ERROR());
         close_candidate(candidate);
     }
     this->error_code = last_error;

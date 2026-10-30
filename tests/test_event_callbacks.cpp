@@ -297,13 +297,10 @@ TEST(EventCallbacks, DirectWriteFailureReportsZeroAndRetainsErrorNotification) {
     });
     s.on_error([&](int code) {
         ++errors;
-#ifdef NET_PLATFORM_WINDOWS
-        EXPECT_EQ(code, WSAECONNRESET);
-#else
-        EXPECT_EQ(code, ECONNRESET);
-#endif
+        EXPECT_EQ(code, aeon::err_connection_reset);
     });
     EXPECT_EQ(s.write("abc"), -1);
+    EXPECT_EQ(s.get_error(), aeon::err_connection_reset);
     EXPECT_EQ(requested, 3);
     EXPECT_EQ(sent, 0);
     EXPECT_EQ(errors, 1);

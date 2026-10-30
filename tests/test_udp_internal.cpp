@@ -99,11 +99,7 @@ TEST(UdpInternal, FailedNativeBindPreservesPreviouslyBoundSocket) {
     EXPECT_EQ(server.sockfd, old_fd);
     EXPECT_EQ(local_port(server), old_port);
     EXPECT_TRUE(is_open(old_fd));
-#ifdef NET_PLATFORM_WINDOWS
-    EXPECT_EQ(server.get_error(), WSAEADDRINUSE);
-#else
-    EXPECT_EQ(server.get_error(), EADDRINUSE);
-#endif
+    EXPECT_EQ(server.get_error(), aeon::err_address_in_use);
     EXPECT_EQ(server.get_state(), aeon::state_bind);
 
     aeon::udp_client_socket client;
