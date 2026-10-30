@@ -6,20 +6,19 @@
 
 
 #include <aeon.hpp>
+#include "native_error.hpp"
 #include <cstring>
 #include <algorithm>
 
 namespace aeon {
 
-namespace internal {
-struct socket_private_state {
+struct socket::state {
     std::string hostname;
     socket* parent_server = nullptr;
 };
-} // namespace internal
 
 void socket::set_parent_server(socket* server) {
-    if (!state_) state_ = new internal::socket_private_state;
+    if (!state_) state_ = new state;
     state_->parent_server = server;
 }
 socket* socket::parent_server() const noexcept {
@@ -28,7 +27,7 @@ socket* socket::parent_server() const noexcept {
 
 void socket::set_remote_hostname(const std::string& hostname) {
     // Do not allocate per socket until a named destination is used.
-    if (!state_) state_ = new internal::socket_private_state;
+    if (!state_) state_ = new state;
     state_->hostname = hostname;
 }
 
@@ -448,7 +447,7 @@ bool socket::close() {
     this->sockfd = invalid_socket;
     this->connected = false;
     if (NET_CLOSE_SOCKET(owned) != 0) {
-        this->error_code = internal::translate_native_error(GET_NET_SOCKET_ERROR());
+        this->error_code = translate_native_error(GET_NET_SOCKET_ERROR());
         return false;
     }
     return true;
@@ -484,7 +483,7 @@ int socket::write(char* data) {
     
     int bytesSent = static_cast<int>(send(this->sockfd, data, static_cast<int>(len), 0));
     this->error_code = bytesSent < 0
-        ? internal::translate_native_error(GET_NET_SOCKET_ERROR()) : err_none;
+        ? translate_native_error(GET_NET_SOCKET_ERROR()) : err_none;
     return bytesSent;
 }
 
@@ -521,14 +520,14 @@ int socket::write(char* data, int size) {
             return 0;
         } else if (wait_result < 0) {
             // Error
-            this->error_code = internal::translate_native_error(GET_NET_SOCKET_ERROR());
+            this->error_code = translate_native_error(GET_NET_SOCKET_ERROR());
             return NET_SOCKET_ERROR;
         }
     }
     
     int bytesSent = static_cast<int>(send(this->sockfd, data, size, 0));
     this->error_code = bytesSent < 0
-        ? internal::translate_native_error(GET_NET_SOCKET_ERROR()) : err_none;
+        ? translate_native_error(GET_NET_SOCKET_ERROR()) : err_none;
     return bytesSent;
 }
 
@@ -560,7 +559,7 @@ int socket::write(const std::string& data) {
                         static_cast<int>(data.size()), 
                         0));
     this->error_code = bytesSent < 0
-        ? internal::translate_native_error(GET_NET_SOCKET_ERROR()) : err_none;
+        ? translate_native_error(GET_NET_SOCKET_ERROR()) : err_none;
     return bytesSent;
 }
 
@@ -591,7 +590,7 @@ int socket::read(char* buffer, int size) {
             return 0;
         }
         if (ready < 0) {
-            this->error_code = internal::translate_native_error(GET_NET_SOCKET_ERROR());
+            this->error_code = translate_native_error(GET_NET_SOCKET_ERROR());
             this->n = NET_SOCKET_ERROR;
             return NET_SOCKET_ERROR;
         }
@@ -603,7 +602,7 @@ int socket::read(char* buffer, int size) {
         this->connected = false;
         this->error_code = err_none;
     } else if (received < 0) {
-        this->error_code = internal::translate_native_error(GET_NET_SOCKET_ERROR());
+        this->error_code = translate_native_error(GET_NET_SOCKET_ERROR());
     } else {
         this->error_code = err_none;
     }
@@ -715,7 +714,7 @@ int socket::read_line(char* buffer, int size) {
         }
         
         if (bytesread < 0) {
-            this->error_code = internal::translate_native_error(GET_NET_SOCKET_ERROR());
+            this->error_code = translate_native_error(GET_NET_SOCKET_ERROR());
             break;
         }
         
@@ -762,7 +761,7 @@ int socket::set_blocking(bool flag) {
 
     int result = this->set_socket_nonblocking(!flag);
     if (result != 0) {
-        this->error_code = internal::translate_native_error(GET_NET_SOCKET_ERROR());
+        this->error_code = translate_native_error(GET_NET_SOCKET_ERROR());
         this->error_state = state_create;
         return -1;
     }
@@ -853,7 +852,7 @@ int socket::set_tcp_nodelay(bool enabled) {
     int flag = enabled ? 1 : 0;
     if (setsockopt(this->sockfd, IPPROTO_TCP, TCP_NODELAY, 
                    (const char*)&flag, sizeof(flag)) < 0) {
-        this->error_code = internal::translate_native_error(GET_NET_SOCKET_ERROR());
+        this->error_code = translate_native_error(GET_NET_SOCKET_ERROR());
         this->error_state = state_create;
         return -1;
     }
@@ -881,7 +880,7 @@ int socket::set_so_reuseaddr(bool enabled) {
     int flag = enabled ? 1 : 0;
     if (setsockopt(this->sockfd, SOL_SOCKET, SO_REUSEADDR, 
                    (const char*)&flag, sizeof(flag)) < 0) {
-        this->error_code = internal::translate_native_error(GET_NET_SOCKET_ERROR());
+        this->error_code = translate_native_error(GET_NET_SOCKET_ERROR());
         this->error_state = state_create;
         return -1;
     }
@@ -915,7 +914,7 @@ int socket::set_so_linger(u_short linger_time_sec) {
     
     if (setsockopt(this->sockfd, SOL_SOCKET, SO_LINGER, 
                    (const char*)&linger_opt, sizeof(linger_opt)) < 0) {
-        this->error_code = internal::translate_native_error(GET_NET_SOCKET_ERROR());
+        this->error_code = translate_native_error(GET_NET_SOCKET_ERROR());
         this->error_state = state_create;
         return -1;
     }
@@ -940,7 +939,7 @@ int socket::set_ipv6_v6only(bool enabled) {
     int v6only = enabled ? 1 : 0;
     if (setsockopt(this->sockfd, IPPROTO_IPV6, IPV6_V6ONLY, 
                    (const char*)&v6only, sizeof(v6only)) < 0) {
-        this->error_code = internal::translate_native_error(GET_NET_SOCKET_ERROR());
+        this->error_code = translate_native_error(GET_NET_SOCKET_ERROR());
         this->error_state = state_create;
         return -1;
     }
@@ -977,7 +976,7 @@ int socket::set_socket_nonblocking(bool nonblocking) {
 #endif
 
     if (result != 0) {
-        this->error_code = internal::translate_native_error(GET_NET_SOCKET_ERROR());
+        this->error_code = translate_native_error(GET_NET_SOCKET_ERROR());
         return -1;
     }
 
@@ -1120,7 +1119,7 @@ bool socket::tcp_connect(const address& addr) {
     if (this->connect_timeout_ms > 0) {
         blocking_mode_guard guard(this);
         if (!guard.is_valid()) {
-            this->error_code = internal::translate_native_error(GET_NET_SOCKET_ERROR());
+            this->error_code = translate_native_error(GET_NET_SOCKET_ERROR());
             this->error_state = state_connect;
         } else {
             const int status = ::connect(this->sockfd,
@@ -1146,23 +1145,23 @@ bool socket::tcp_connect(const address& addr) {
 #endif
                         if (::getsockopt(this->sockfd, SOL_SOCKET, SO_ERROR,
                             reinterpret_cast<char*>(&so_error), &len) != 0) {
-                            this->error_code = internal::translate_native_error(GET_NET_SOCKET_ERROR());
+                            this->error_code = translate_native_error(GET_NET_SOCKET_ERROR());
                             this->error_state = state_connect;
                         } else if (so_error == 0) {
                             succeeded = true;
                         } else {
-                            this->error_code = internal::translate_native_error(so_error);
+                            this->error_code = translate_native_error(so_error);
                             this->error_state = state_connect;
                         }
                     } else if (ready == 0) {
 this->error_code = err_timeout;
                         this->error_state = state_connect;
                     } else {
-                        this->error_code = internal::translate_native_error(GET_NET_SOCKET_ERROR());
+                        this->error_code = translate_native_error(GET_NET_SOCKET_ERROR());
                         this->error_state = state_connect;
                     }
                 } else {
-                    this->error_code = internal::translate_native_error(error);
+                    this->error_code = translate_native_error(error);
                     this->error_state = state_connect;
                 }
             }
@@ -1172,7 +1171,7 @@ this->error_code = err_timeout;
             reinterpret_cast<const sockaddr*>(&target), length) == 0) {
             succeeded = true;
         } else {
-            this->error_code = internal::translate_native_error(GET_NET_SOCKET_ERROR());
+            this->error_code = translate_native_error(GET_NET_SOCKET_ERROR());
             this->error_state = state_connect;
         }
     }
@@ -1196,7 +1195,7 @@ int socket::tcp_bind(const sockaddr* addr, socklen_t length) {
         return -1;
     }
     if (::bind(this->sockfd, addr, length) != 0) {
-        this->error_code = internal::translate_native_error(GET_NET_SOCKET_ERROR());
+        this->error_code = translate_native_error(GET_NET_SOCKET_ERROR());
         this->error_state = state_bind;
         return -1;
     }
@@ -1245,7 +1244,7 @@ bool socket::tcp_listen(const char* ip, int port) {
         return false;
     }
     if (::listen(this->sockfd, SOMAXCONN) != 0) {
-        this->error_code = internal::translate_native_error(GET_NET_SOCKET_ERROR());
+        this->error_code = translate_native_error(GET_NET_SOCKET_ERROR());
         this->error_state = state_accept;
         this->close();
         return false;
@@ -1267,7 +1266,7 @@ socket_t socket::tcp_accept(int timeout_ms, bool blocking,
         const int ready = socket::wait_for_readable(this->sockfd, timeout_ms);
         if (ready == 0) return invalid_socket; // timeout is not an error
         if (ready < 0) {
-            this->error_code = internal::translate_native_error(GET_NET_SOCKET_ERROR());
+            this->error_code = translate_native_error(GET_NET_SOCKET_ERROR());
             this->error_state = state_accept;
             return invalid_socket;
         }
@@ -1282,7 +1281,7 @@ socket_t socket::tcp_accept(int timeout_ms, bool blocking,
 #else
         if (error == EAGAIN || error == EWOULDBLOCK || error == ECONNRESET) return invalid_socket;
 #endif
-        this->error_code = internal::translate_native_error(error);
+        this->error_code = translate_native_error(error);
         this->error_state = state_accept;
         return invalid_socket;
     }
@@ -1291,7 +1290,7 @@ socket_t socket::tcp_accept(int timeout_ms, bool blocking,
     const int no_sigpipe = 1;
     if (::setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE,
                      reinterpret_cast<const char*>(&no_sigpipe), sizeof(no_sigpipe)) != 0) {
-        this->error_code = internal::translate_native_error(GET_NET_SOCKET_ERROR());
+        this->error_code = translate_native_error(GET_NET_SOCKET_ERROR());
         this->error_state = state_accept;
         NET_CLOSE_SOCKET(fd);
         return invalid_socket;
@@ -1300,7 +1299,7 @@ socket_t socket::tcp_accept(int timeout_ms, bool blocking,
 #ifdef NET_PLATFORM_WINDOWS
     u_long mode = blocking ? 0UL : 1UL;
     if (::ioctlsocket(fd, FIONBIO, &mode) != 0) {
-        this->error_code = internal::translate_native_error(GET_NET_SOCKET_ERROR());
+        this->error_code = translate_native_error(GET_NET_SOCKET_ERROR());
         this->error_state = state_accept;
         NET_CLOSE_SOCKET(fd);
         return invalid_socket;
@@ -1309,7 +1308,7 @@ socket_t socket::tcp_accept(int timeout_ms, bool blocking,
     const int flags = ::fcntl(fd, F_GETFL, 0);
     if (flags < 0 || ::fcntl(fd, F_SETFL,
                            blocking ? (flags & ~O_NONBLOCK) : (flags | O_NONBLOCK)) != 0) {
-        this->error_code = internal::translate_native_error(GET_NET_SOCKET_ERROR());
+        this->error_code = translate_native_error(GET_NET_SOCKET_ERROR());
         this->error_state = state_accept;
         NET_CLOSE_SOCKET(fd);
         return invalid_socket;

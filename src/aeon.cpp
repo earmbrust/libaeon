@@ -5,6 +5,7 @@
  *********************************************************************/
 
 #include <aeon.hpp>
+#include "native_error.hpp"
 
 // Stringification helpers for the public aeon::get_library_version() API.
 #define STR_(x) #x
@@ -17,7 +18,7 @@ namespace aeon {
 }
 
 // Keep native socket errors inside libAeon. Public errors use stable codes.
-namespace aeon::internal {
+namespace aeon {
 int translate_native_error(int native_error) noexcept {
     if (native_error == 0) return err_none;
 #ifdef NET_PLATFORM_WINDOWS
@@ -85,4 +86,4 @@ int translate_native_error(int native_error) noexcept {
     return err_system;
 #endif
 }
-} // namespace aeon::internal
+} // namespace aeon

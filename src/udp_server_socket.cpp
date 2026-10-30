@@ -8,7 +8,7 @@
 #include <memory>
 #include <cstring>
 
-namespace aeon::internal {
+namespace aeon {
 
 static bool same_udp_address(const address& a, const address& b) {
     const auto lhs = a.get_sockaddr_storage();
@@ -59,9 +59,6 @@ udp_socket* peer_collection::get_or_create_udp_peer(udp_socket* server, const ad
     return static_cast<udp_socket*>(add_peer(std::unique_ptr<udp_socket>(new udp_socket(server, remote))));
 }
 
-} // namespace aeon::internal
-
-namespace aeon {
 udp_server_socket::udp_server_socket() = default;
 udp_server_socket::~udp_server_socket() { close(); }
 bool udp_server_socket::listen(int port) {

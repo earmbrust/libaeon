@@ -10,7 +10,6 @@
 
 namespace aeon {
 
-    namespace internal { struct socket_private_state; }
 
     /**
      * \brief RAII guard for temporary non-blocking socket mode
@@ -175,7 +174,8 @@ namespace aeon {
 #endif
 
     private:
-        internal::socket_private_state* state_ = nullptr;
+        struct state;
+        state* state_ = nullptr;
     };
 
 } // aeon

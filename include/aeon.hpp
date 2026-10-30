@@ -101,36 +101,13 @@
 #include <cerrno>
 
 namespace aeon {
-namespace internal {
-// Converts native socket errors before they reach public state or callbacks.
-LIBAEON_API int translate_native_error(int native_error) noexcept;
 #ifdef NET_PLATFORM_WINDOWS
-    using socket_t = SOCKET;
-    constexpr socket_t invalid_socket = INVALID_SOCKET;
+using socket_t = SOCKET;
+constexpr socket_t invalid_socket = INVALID_SOCKET;
 #else
-    using socket_t = int;
-    constexpr socket_t invalid_socket = -1;
+using socket_t = int;
+constexpr socket_t invalid_socket = -1;
 #endif
-
-    inline int invalid_descriptor_error() noexcept {
-#ifdef NET_PLATFORM_WINDOWS
-        return WSAENOTSOCK;
-#else
-        return EBADF;
-#endif
-    }
-
-    inline bool would_block_error(int error) noexcept {
-#ifdef NET_PLATFORM_WINDOWS
-        return error == WSAEWOULDBLOCK;
-#else
-        return error == EAGAIN || error == EWOULDBLOCK || error == EINTR;
-#endif
-    }
-}
-
-using socket_t = internal::socket_t;
-constexpr socket_t invalid_socket = internal::invalid_socket;
 constexpr int socket_error = -1;
 constexpr int null_flag = 0;
 constexpr int err_none = 0;
@@ -174,7 +151,6 @@ class udp_socket;
 class address;
 class socket_set;
 
-namespace internal {
 class LIBAEON_API peer_collection {
 protected:
     peer_collection();
@@ -214,7 +190,6 @@ private:
 };
 #endif
 
-} // namespace internal
 } // namespace aeon
 
 #include "address.hpp"

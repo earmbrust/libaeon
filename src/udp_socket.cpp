@@ -5,6 +5,7 @@
  *********************************************************************/
 
 #include <aeon.hpp>
+#include "native_error.hpp"
 #include <cstring>
 #include <climits>
 
@@ -76,7 +77,7 @@ int udp_socket::send_datagram(const char* data, int size) {
     const char zero = 0;
     const int sent = static_cast<int>(::sendto(native, size ? data : &zero, size, 0,
         reinterpret_cast<const sockaddr*>(&target), target_len));
-    error_code = sent < 0 ? internal::translate_native_error(GET_NET_SOCKET_ERROR()) : err_none;
+    error_code = sent < 0 ? translate_native_error(GET_NET_SOCKET_ERROR()) : err_none;
     n = sent;
     return sent;
 }
@@ -122,7 +123,7 @@ LIBAEON_API int udp_socket::read(char* buffer, int size) {
             return 0;
         }
         if (ready < 0) {
-            this->error_code = internal::translate_native_error(GET_NET_SOCKET_ERROR());
+            this->error_code = translate_native_error(GET_NET_SOCKET_ERROR());
             this->error_state = state_accept;
             this->n = NET_SOCKET_ERROR;
             return NET_SOCKET_ERROR;
@@ -135,7 +136,7 @@ LIBAEON_API int udp_socket::read(char* buffer, int size) {
     this->n = received;
     // A zero-length UDP datagram is valid; it is not a disconnect.
     if (received < 0) {
-        this->error_code = internal::translate_native_error(GET_NET_SOCKET_ERROR());
+        this->error_code = translate_native_error(GET_NET_SOCKET_ERROR());
         this->error_state = state_accept;
     } else {
         this->error_code = err_none;
@@ -311,7 +312,7 @@ bool udp_socket::udp_listen(int port, native_bind_fn bind_socket) {
     for (const int family : {AF_INET6, AF_INET}) {
         socket_t candidate = invalid_socket;
         if (!select_family(family, this->blocking, candidate)) {
-            last_error = internal::translate_native_error(GET_NET_SOCKET_ERROR());
+            last_error = translate_native_error(GET_NET_SOCKET_ERROR());
             continue;
         }
 
@@ -321,7 +322,7 @@ bool udp_socket::udp_listen(int port, native_bind_fn bind_socket) {
             if (::setsockopt(candidate, IPPROTO_IPV6, IPV6_V6ONLY,
                              reinterpret_cast<const char*>(&v6only),
                              sizeof(v6only)) != 0) {
-                last_error = internal::translate_native_error(GET_NET_SOCKET_ERROR());
+                last_error = translate_native_error(GET_NET_SOCKET_ERROR());
                 close_candidate(candidate);
                 continue;
             }
@@ -355,7 +356,7 @@ bool udp_socket::udp_listen(int port, native_bind_fn bind_socket) {
             close_candidate(prior);
             return true;
         }
-        last_error = internal::translate_native_error(GET_NET_SOCKET_ERROR());
+        last_error = translate_native_error(GET_NET_SOCKET_ERROR());
         close_candidate(candidate);
     }
     this->error_code = last_error;

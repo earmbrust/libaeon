@@ -12,7 +12,6 @@
 #include <climits>
 
 namespace aeon {
-namespace internal {
 struct peer_collection::state {
     std::vector<std::unique_ptr<socket>> owned;
     socket_set members;
@@ -89,21 +88,20 @@ socket* peer_collection::owned_peer_at(unsigned int index) const {
     return index < peers_->owned.size() ? peers_->owned[index].get() : nullptr;
 }
 
-struct socket_set_state {
+struct socket_set::state {
     std::vector<socket*> sockets;
     int error_code = err_none;
     int error_state = 0;
 };
-} // namespace internal
 
-socket_set::socket_set() : state_(new internal::socket_set_state) {}
+socket_set::socket_set() : state_(new state) {}
 socket_set::socket_set(const socket_set& other)
-    : state_(new internal::socket_set_state(*other.state_)) {}
+    : state_(new state(*other.state_)) {}
 socket_set& socket_set::operator=(const socket_set& other) {
     if (this != &other) {
         // Allocate before replacing the old state, so a throwing vector
         // copy leaves the destination untouched.
-        auto* replacement = new internal::socket_set_state(*other.state_);
+        auto* replacement = new state(*other.state_);
         std::swap(state_, replacement);
         delete replacement;
     }

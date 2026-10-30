@@ -6,7 +6,7 @@
 namespace aeon {
 enum { handler_datagram, handler_connect, handler_close, handler_listen, handler_error };
 
-udp_event_socket::udp_event_socket() : internal::event_handlers(5) {
+udp_event_socket::udp_event_socket() : event_handlers(5) {
     if (is_valid_socket() && set_blocking(false) != 0) socket::close();
 }
 udp_event_socket::~udp_event_socket() = default;

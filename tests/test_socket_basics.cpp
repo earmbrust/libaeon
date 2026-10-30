@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "aeon.hpp"
+#include "../src/native_error.hpp"
 #include "socket.hpp"
 #include "client_socket.hpp"
 #include "server_socket.hpp"
@@ -42,22 +43,22 @@ TEST_F(SocketBasicsTest, LibraryErrorCodes) {
 }
 
 TEST_F(SocketBasicsTest, NativeErrorCodesArePortable) {
-    EXPECT_EQ(aeon::internal::translate_native_error(0), aeon::err_none);
+    EXPECT_EQ(aeon::translate_native_error(0), aeon::err_none);
 #ifdef NET_PLATFORM_WINDOWS
-    EXPECT_EQ(aeon::internal::translate_native_error(WSAECONNRESET), aeon::err_connection_reset);
-    EXPECT_EQ(aeon::internal::translate_native_error(WSAEWOULDBLOCK), aeon::err_would_block);
-    EXPECT_EQ(aeon::internal::translate_native_error(WSAETIMEDOUT), aeon::err_timeout);
-    EXPECT_EQ(aeon::internal::translate_native_error(WSAEADDRINUSE), aeon::err_address_in_use);
-    EXPECT_EQ(aeon::internal::translate_native_error(WSAENOTSOCK), aeon::err_no_socket);
+    EXPECT_EQ(aeon::translate_native_error(WSAECONNRESET), aeon::err_connection_reset);
+    EXPECT_EQ(aeon::translate_native_error(WSAEWOULDBLOCK), aeon::err_would_block);
+    EXPECT_EQ(aeon::translate_native_error(WSAETIMEDOUT), aeon::err_timeout);
+    EXPECT_EQ(aeon::translate_native_error(WSAEADDRINUSE), aeon::err_address_in_use);
+    EXPECT_EQ(aeon::translate_native_error(WSAENOTSOCK), aeon::err_no_socket);
 #else
-    EXPECT_EQ(aeon::internal::translate_native_error(ECONNRESET), aeon::err_connection_reset);
-    EXPECT_EQ(aeon::internal::translate_native_error(EAGAIN), aeon::err_would_block);
-    EXPECT_EQ(aeon::internal::translate_native_error(EWOULDBLOCK), aeon::err_would_block);
-    EXPECT_EQ(aeon::internal::translate_native_error(ETIMEDOUT), aeon::err_timeout);
-    EXPECT_EQ(aeon::internal::translate_native_error(EADDRINUSE), aeon::err_address_in_use);
-    EXPECT_EQ(aeon::internal::translate_native_error(EBADF), aeon::err_no_socket);
+    EXPECT_EQ(aeon::translate_native_error(ECONNRESET), aeon::err_connection_reset);
+    EXPECT_EQ(aeon::translate_native_error(EAGAIN), aeon::err_would_block);
+    EXPECT_EQ(aeon::translate_native_error(EWOULDBLOCK), aeon::err_would_block);
+    EXPECT_EQ(aeon::translate_native_error(ETIMEDOUT), aeon::err_timeout);
+    EXPECT_EQ(aeon::translate_native_error(EADDRINUSE), aeon::err_address_in_use);
+    EXPECT_EQ(aeon::translate_native_error(EBADF), aeon::err_no_socket);
 #endif
-    EXPECT_EQ(aeon::internal::translate_native_error(0x7F7F7F7F), aeon::err_system);
+    EXPECT_EQ(aeon::translate_native_error(0x7F7F7F7F), aeon::err_system);
     EXPECT_EQ(aeon::err_invalid_argument, -0x010003);
     EXPECT_EQ(aeon::err_timeout, -0x010004);
     EXPECT_EQ(aeon::err_connection_reset, -0x010008);

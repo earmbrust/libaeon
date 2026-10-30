@@ -11,9 +11,8 @@
 #include <cstddef>
 
 namespace aeon {
-namespace internal { struct set_poll_state; }
 
-class LIBAEON_API event_socket_set : protected internal::event_handlers {
+class LIBAEON_API event_socket_set : protected event_handlers {
 public:
     using data_handler = std::function<void(event_socket*, const char*, int)>;
     using notification_handler = std::function<void(event_socket*)>;
@@ -81,6 +80,7 @@ protected:
     void fire_on_udp_socket_error(udp_event_socket*, int);
 
 private:
-    internal::set_poll_state* state_;
+    struct state;
+    state* state_;
 };
 } // namespace aeon

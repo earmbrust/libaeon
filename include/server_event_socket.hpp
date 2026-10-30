@@ -4,7 +4,7 @@
 
 namespace aeon {
 
-class LIBAEON_API server_event_socket : public event_socket, protected internal::peer_collection {
+class LIBAEON_API server_event_socket : public event_socket, protected peer_collection {
 public:
     server_event_socket();
     explicit server_event_socket(int port);

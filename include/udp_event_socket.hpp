@@ -5,7 +5,7 @@
 
 namespace aeon {
 
-class LIBAEON_API udp_event_socket : public udp_socket, protected internal::event_handlers {
+class LIBAEON_API udp_event_socket : public udp_socket, protected event_handlers {
     friend class event_socket_set;
 public:
     using datagram_handler = std::function<void(const char*, int, const address&)>;

@@ -9,7 +9,6 @@
 #include "socket.hpp"
 
 namespace aeon {
-    namespace internal { struct socket_set_state; }
 
     class LIBAEON_API socket_set {
     public:
@@ -51,7 +50,8 @@ namespace aeon {
     private:
         // Opaque, non-owning registry storage. Constructed and destroyed
         // inside Aeon so STL allocation remains in the library module.
-        internal::socket_set_state* state_;
+        struct state;
+        state* state_;
     };
 
 } // aeon
