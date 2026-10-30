@@ -52,6 +52,7 @@ TEST(ServerPeerLifecycle, TcpEventListenerOwnsPeersAndSupportsRetirement) {
     static_assert(std::is_same_v<decltype(std::declval<aeon::server_event_socket&>().accept()), aeon::event_socket*>);
     aeon::server_event_socket server;
     ASSERT_TRUE(server.listen("127.0.0.1", 0));
+    ASSERT_EQ(server.set_accept_timeout(2000), 0);
     aeon::client_socket client;
     ASSERT_TRUE(client.connect("127.0.0.1", bound_port(server)));
     auto* peer = server.accept(false);
