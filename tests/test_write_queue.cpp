@@ -230,6 +230,46 @@ TEST(WriteQueue, BufferedOutputDoesNotPretendToBeDirectWriteCompletion) {
     EXPECT_EQ(std::string(data, 6), "queued");
 }
 
+TEST(WriteQueue, QueueCapacityRecoversAfterPartialDrain) {
+    write_pair pair;
+    ASSERT_TRUE(pair.start());
+    const auto first = binary(128 * 1024);
+    ASSERT_TRUE(pair.writer->set_max_queued_bytes(first.size()));
+    ASSERT_TRUE(pair.writer->queue_write(first));
+    EXPECT_FALSE(pair.writer->queue_write("!", 1));
+
+    ASSERT_GT(pair.set.poll(2000), 0);
+    const auto remaining = pair.writer->queued_bytes();
+    ASSERT_GT(remaining, 0u);
+    ASSERT_LT(remaining, first.size());
+    const auto freed = first.size() - remaining;
+    const std::string second(freed, 'Z');
+    EXPECT_FALSE(pair.writer->queue_write(second + "!"));
+    EXPECT_EQ(pair.writer->queued_bytes(), remaining);
+    ASSERT_TRUE(pair.writer->queue_write(second));
+    EXPECT_EQ(pair.writer->queued_bytes(), first.size());
+
+    const auto expected = first + second;
+    std::string received(expected.size(), '\0');
+    int received_count = -1;
+    std::thread receiver([&] {
+        received_count = pair.reader.read_until(received.data(),
+                                               static_cast<int>(received.size()));
+    });
+    bool poll_failed = false;
+    for (int i = 0; pair.writer->queued_bytes() && i < 30; ++i) {
+        if (pair.set.poll(2000) < 0) {
+            poll_failed = true;
+            break;
+        }
+    }
+    receiver.join();
+    EXPECT_FALSE(poll_failed);
+    EXPECT_EQ(pair.writer->queued_bytes(), 0u);
+    EXPECT_EQ(received_count, static_cast<int>(expected.size()));
+    EXPECT_EQ(received, expected);
+}
+
 TEST(WriteQueue, QueuedWriteOwnsCopyOfCallerBuffer) {
     write_pair pair;
     ASSERT_TRUE(pair.start());

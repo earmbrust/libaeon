@@ -417,6 +417,50 @@ int main() {
             }
             require(server_ok, "TLS read overload exchange");
         });
+        case_test("native-tls-close-rejects-io", [&] {
+            live_server server(good.server_ctx);
+            aeon::ssl_client_socket client;
+            require(client.set_ca_file(good.ca_path.string().c_str()) == 0,
+                    "TLS closed I/O CA");
+            require(client.connect("127.0.0.1", server.port), "TLS closed I/O connect");
+            require(client.close(), "TLS explicit close");
+            require(!client.connected && !client.is_valid_socket(), "TLS closed state");
+            char buffer[4] = {'!', '!', '!', '!'};
+            require(client.read(buffer, 4) == aeon::err_no_socket &&
+                    client.get_error() == aeon::err_no_socket, "TLS closed buffer read");
+            require(client.read_until(buffer, 4) == aeon::err_no_socket &&
+                    client.get_error() == aeon::err_no_socket, "TLS closed read_until");
+            require(client.read_line(buffer, 4) == aeon::err_no_socket &&
+                    client.get_error() == aeon::err_no_socket, "TLS closed read_line");
+            require(client.read() == aeon::err_no_socket &&
+                    client.get_error() == aeon::err_no_socket, "TLS closed legacy read");
+            require(client.read(4).empty(), "TLS closed string read");
+            require(client.write("X", 1) == aeon::err_no_socket &&
+                    client.get_error() == aeon::err_no_socket, "TLS closed buffer write");
+            require(client.write(std::string("X")) == aeon::err_no_socket &&
+                    client.get_error() == aeon::err_no_socket, "TLS closed string write");
+            require(buffer[0] == '!' && buffer[3] == '!', "TLS closed buffer integrity");
+        });
+        case_test("native-tls-reconnect-preserves-io", [&] {
+            live_server server(good.server_ctx, 2, "127.0.0.1", [](SSL* session) {
+                char input{};
+                if (SSL_read(session, &input, 1) == 1)
+                    (void)SSL_write(session, &input, 1);
+            });
+            aeon::ssl_client_socket client;
+            require(client.set_ca_file(good.ca_path.string().c_str()) == 0,
+                    "TLS reconnect CA");
+            for (char marker : {'A', 'B'}) {
+                const bool connected = marker == 'A'
+                    ? client.connect("127.0.0.1", server.port) : client.connect();
+                require(connected, "TLS reconnect handshake");
+                require(client.write(&marker, 1) == 1, "TLS reconnect write");
+                char echo{};
+                require(client.read(&echo, 1) == 1 && echo == marker,
+                        "TLS reconnect decrypted echo");
+                require(client.close(), "TLS reconnect close");
+            }
+        });
 #if LIBAEON_HAS_EVENTS
         case_test("event-server-requires-credentials", [&] {
             aeon::ssl_server_event_socket server;
