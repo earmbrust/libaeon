@@ -92,6 +92,50 @@ TEST(AbiStorage, SocketSetPreservesExistingDuplicateRegistrationBehavior) {
     EXPECT_TRUE(s.is_valid_socket());
 }
 
+TEST(AbiStorage, BroadcastSkipsClosedRecipientsAndPreservesBinaryData) {
+    aeon::server_socket server;
+    ASSERT_TRUE(server.listen("127.0.0.1", 0));
+    ASSERT_EQ(server.set_accept_timeout(2000), 0);
+    sockaddr_in bound{};
+    socklen_t length = static_cast<socklen_t>(sizeof(bound));
+    ASSERT_EQ(::getsockname(server.sockfd, reinterpret_cast<sockaddr*>(&bound), &length), 0);
+    const int port = ntohs(bound.sin_port);
+
+    aeon::client_socket first;
+    aeon::client_socket second;
+    ASSERT_TRUE(first.connect("127.0.0.1", port));
+    ASSERT_TRUE(second.connect("127.0.0.1", port));
+    aeon::socket* first_peer = server.accept(true);
+    aeon::socket* second_peer = server.accept(true);
+    ASSERT_NE(first_peer, nullptr);
+    ASSERT_NE(second_peer, nullptr);
+    ASSERT_EQ(first.set_read_timeout(2000), 0);
+    ASSERT_EQ(second.set_read_timeout(2000), 0);
+
+    aeon::socket closed;
+    ASSERT_TRUE(closed.close());
+    aeon::socket_set recipients;
+    ASSERT_TRUE(recipients.add(first_peer));
+    ASSERT_TRUE(recipients.add(&closed));
+    ASSERT_TRUE(recipients.add(second_peer));
+    EXPECT_EQ(recipients.broadcast(nullptr, 1), -1);
+    EXPECT_EQ(recipients.broadcast("bad", -1), -1);
+    EXPECT_EQ(recipients.size(), 3);
+
+    const char raw[] = {'A', '\0', 'B'};
+    EXPECT_EQ(recipients.broadcast(raw, 3), 2);
+    EXPECT_EQ(recipients.broadcast(std::string("Q\0R", 3)), 2);
+
+    const std::string expected("A\0BQ\0R", 6);
+    char first_result[6]{};
+    char second_result[6]{};
+    ASSERT_EQ(first.read_until(first_result, 6), 6);
+    ASSERT_EQ(second.read_until(second_result, 6), 6);
+    EXPECT_EQ(std::string(first_result, 6), expected);
+    EXPECT_EQ(std::string(second_result, 6), expected);
+    EXPECT_EQ(recipients.at(99), nullptr);
+    EXPECT_EQ(recipients[99], nullptr);
+}
 TEST(AbiStorage, CopiesHaveIndependentNonOwningRegistries) {
     aeon::socket a;
     aeon::socket b;
