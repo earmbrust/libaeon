@@ -175,6 +175,61 @@ int main() {
         ephemeral_certificate bad(folder / "wrong.pem", "DNS:wrong.example");
         ephemeral_certificate expired(folder / "expired.pem", "IP:127.0.0.1", true);
 
+        case_test("tls-config-errors-and-openssl-error-accessors", [&] {
+            aeon::ssl_client_socket client;
+            const auto missing = folder / "missing-trust-certificate.pem";
+            require(!fs::exists(missing), "missing certificate fixture must not exist");
+            require(client.set_certificate_file(nullptr) == aeon::ssl_error,
+                    "reject null TLS client certificate path");
+            require(client.set_private_key_file(nullptr) == aeon::ssl_error,
+                    "reject null TLS client private key path");
+            require(client.set_ca_file(nullptr) == aeon::ssl_error,
+                    "reject null CA path");
+
+            ERR_clear_error();
+            require(client.get_ssl_error() == 0, "empty OpenSSL error queue");
+            require(client.get_ssl_error_string() == "No SSL error",
+                    "empty OpenSSL error string");
+            require(client.get_ssl_errors_all() == "No SSL errors",
+                    "empty OpenSSL error list");
+
+            const std::string absent = missing.string();
+            require(client.set_ca_file(absent.c_str()) == aeon::ssl_error_cert,
+                    "reject missing CA file");
+            require(client.get_error() == aeon::ssl_error_cert,
+                    "missing CA reports certificate error");
+            require(client.get_ssl_error() != 0, "OpenSSL error code accessor");
+
+            ERR_clear_error();
+            require(client.set_ca_file(absent.c_str()) == aeon::ssl_error_cert,
+                    "repeat missing CA error");
+            require(client.get_ssl_error_string() != "No SSL error",
+                    "OpenSSL error string accessor");
+
+            ERR_clear_error();
+            require(client.set_ca_file(absent.c_str()) == aeon::ssl_error_cert,
+                    "repeat missing CA error list");
+            require(client.get_ssl_errors_all() != "No SSL errors",
+                    "OpenSSL error list accessor");
+            require(client.get_ssl_error() == 0, "error list consumes queue");
+            require(client.set_ca_file(good.ca_path.string().c_str()) == aeon::err_none,
+                    "valid CA loads after rejected path");
+
+            aeon::ssl_server_socket server;
+            require(server.set_certificate_file(nullptr) == aeon::ssl_error_cert,
+                    "reject null server certificate");
+            require(server.set_private_key_file(nullptr) == aeon::ssl_error_key,
+                    "reject null server private key");
+            require(server.set_certificate_file(absent.c_str()) == aeon::ssl_error_cert,
+                    "reject missing server certificate");
+            require(server.set_private_key_file(absent.c_str()) == aeon::ssl_error_key,
+                    "reject missing server private key");
+            require(server.set_certificate_file(good.ca_path.string().c_str()) == aeon::err_none,
+                    "valid server certificate after failures");
+            require(server.set_private_key_file(good.key_path.string().c_str()) == aeon::err_none,
+                    "valid server private key after failures");
+            ERR_clear_error();
+        });
         case_test("trusted-ip-matches", [&] {
             live_server server(good.server_ctx);
             aeon::ssl_client_socket client;

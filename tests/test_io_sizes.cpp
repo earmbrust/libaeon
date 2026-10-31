@@ -384,6 +384,37 @@ TEST(IoSizes, TcpClosedPeerRejectsReadAndWriteWithoutChangingBuffer) {
     EXPECT_EQ(buffer, (std::array<char, 4>{'!', '!', '!', '!'}));
 }
 
+TEST(IoSizes, TcpStreamOperatorsPreserveBinaryAndReadData) {
+    tcp_pair pair;
+    ASSERT_TRUE(pair.start());
+    char mutable_text[] = "one";
+    const std::string binary("A\0B", 3);
+    char received[3]{};
+
+    ASSERT_EQ(pair.sender << mutable_text, 3);
+    ASSERT_EQ(pair.receiver->read_until(received, 3), 3);
+    EXPECT_EQ(std::string(received, 3), "one");
+
+    ASSERT_EQ(pair.sender << binary, 3);
+    ASSERT_EQ(pair.receiver->read_until(received, 3), 3);
+    EXPECT_EQ(std::string(received, 3), binary);
+
+    ASSERT_EQ(pair.sender.write("Z", 1), 1);
+    EXPECT_EQ((*pair.receiver >> std::string{}), "Z");
+}
+
+TEST(IoSizes, UdpStreamOperatorsUseDatagramIo) {
+    udp_pair pair;
+    ASSERT_TRUE(pair.start());
+    char mutable_text[] = "OK";
+    const std::string binary("A\0B", 3);
+
+    ASSERT_EQ(pair.sender << mutable_text, 2);
+    EXPECT_EQ((pair.listener >> std::string{}), "OK");
+
+    ASSERT_EQ(pair.sender << binary, 3);
+    EXPECT_EQ((pair.listener >> std::string{}), binary);
+}
 TEST(IoSizes, TcpReadUntilReturnsProgressOnTimeoutAndCanResume) {
     tcp_pair pair;
     ASSERT_TRUE(pair.start());
