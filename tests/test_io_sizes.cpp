@@ -366,6 +366,24 @@ TEST(IoSizes, UdpLegacyReadTruncatesOnlyItsCurrentDatagram) {
     EXPECT_EQ(pair.listener.get_error(), aeon::err_none);
 }
 
+TEST(IoSizes, TcpClosedPeerRejectsReadAndWriteWithoutChangingBuffer) {
+    tcp_pair pair;
+    ASSERT_TRUE(pair.start());
+    ASSERT_TRUE(pair.receiver->close());
+    std::array<char, 4> buffer{'!', '!', '!', '!'};
+
+    EXPECT_EQ(pair.receiver->read(buffer.data(), 4), NET_SOCKET_ERROR);
+    EXPECT_EQ(pair.receiver->get_error(), aeon::err_no_socket);
+    EXPECT_EQ(pair.receiver->n, NET_SOCKET_ERROR);
+    EXPECT_EQ(pair.receiver->read_until(buffer.data(), 4), NET_SOCKET_ERROR);
+    EXPECT_EQ(pair.receiver->get_error(), aeon::err_no_socket);
+    EXPECT_EQ(pair.receiver->n, NET_SOCKET_ERROR);
+    EXPECT_TRUE(pair.receiver->read(4).empty());
+    EXPECT_EQ(pair.receiver->write("X", 1), NET_SOCKET_ERROR);
+    EXPECT_EQ(pair.receiver->get_error(), aeon::err_no_socket);
+    EXPECT_EQ(buffer, (std::array<char, 4>{'!', '!', '!', '!'}));
+}
+
 TEST(IoSizes, TcpReadUntilReturnsProgressOnTimeoutAndCanResume) {
     tcp_pair pair;
     ASSERT_TRUE(pair.start());
