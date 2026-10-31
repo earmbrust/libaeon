@@ -229,3 +229,24 @@ TEST(WriteQueue, BufferedOutputDoesNotPretendToBeDirectWriteCompletion) {
     EXPECT_EQ(pair.reader.read_until(data, 6), 6);
     EXPECT_EQ(std::string(data, 6), "queued");
 }
+
+TEST(WriteQueue, QueuedWriteOwnsCopyOfCallerBuffer) {
+    write_pair pair;
+    ASSERT_TRUE(pair.start());
+    char source[] = {'A', '\0', 'B'};
+    int drains = 0;
+    pair.writer->on_drain([&] { ++drains; });
+
+    ASSERT_TRUE(pair.writer->queue_write(source, sizeof(source)));
+    EXPECT_EQ(pair.writer->queued_bytes(), sizeof(source));
+    source[0] = 'X';
+    source[1] = 'Y';
+    source[2] = 'Z';
+
+    ASSERT_GT(pair.set.poll(2000), 0);
+    EXPECT_EQ(pair.writer->queued_bytes(), 0u);
+    EXPECT_EQ(drains, 1);
+    char received[3]{};
+    ASSERT_EQ(pair.reader.read_until(received, 3), 3);
+    EXPECT_EQ(std::string(received, 3), std::string("A\0B", 3));
+}

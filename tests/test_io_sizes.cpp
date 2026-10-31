@@ -365,3 +365,25 @@ TEST(IoSizes, UdpLegacyReadTruncatesOnlyItsCurrentDatagram) {
     EXPECT_EQ(next, 'Z');
     EXPECT_EQ(pair.listener.get_error(), aeon::err_none);
 }
+
+TEST(IoSizes, TcpReadUntilReturnsProgressOnTimeoutAndCanResume) {
+    tcp_pair pair;
+    ASSERT_TRUE(pair.start());
+    ASSERT_EQ(pair.receiver->set_read_timeout(40), 0);
+    ASSERT_EQ(pair.sender.write("part", 4), 4);
+
+    char received[9]{};
+    received[8] = '!';
+    EXPECT_EQ(pair.receiver->read_until(received, 8), 4);
+    EXPECT_EQ(std::string(received, 4), "part");
+    EXPECT_EQ(received[4], '\0');
+    EXPECT_EQ(received[8], '!');
+    EXPECT_EQ(pair.receiver->get_error(), aeon::err_timeout);
+    EXPECT_TRUE(pair.receiver->connected);
+
+    ASSERT_EQ(pair.sender.write("rest", 4), 4);
+    EXPECT_EQ(pair.receiver->read_until(received + 4, 4), 4);
+    EXPECT_EQ(std::string(received, 8), "partrest");
+    EXPECT_EQ(pair.receiver->get_error(), aeon::err_none);
+    EXPECT_EQ(received[8], '!');
+}

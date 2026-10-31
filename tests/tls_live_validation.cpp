@@ -18,6 +18,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <utility>
 
 namespace {
 void require(bool ok, const char* message) {
@@ -96,12 +97,14 @@ struct live_server {
     aeon::server_socket listener;
     SSL_CTX* ctx;
     int count;
+    std::function<void(SSL*)> session_work;
     std::thread worker;
     int port = 0;
 
     explicit live_server(SSL_CTX* server_ctx, int connections = 1,
-                         const char* bind_ip = "127.0.0.1")
-        : ctx(server_ctx), count(connections) {
+                         const char* bind_ip = "127.0.0.1",
+                         std::function<void(SSL*)> work = {})
+        : ctx(server_ctx), count(connections), session_work(std::move(work)) {
         require(listener.listen(bind_ip, 0), "server.listen");
         sockaddr_storage local{};
         socklen_t len = static_cast<socklen_t>(sizeof(local));
@@ -133,8 +136,11 @@ struct live_server {
                             // Keep the accepted transport alive until the client
                             // closes. Otherwise immediate server close can race
                             // the client's SSL_connect/SSL_shutdown and SIGPIPE.
-                            char one_byte{};
-                            (void)SSL_read(session, &one_byte, 1);
+                            if (session_work) session_work(session);
+                            else {
+                                char one_byte{};
+                                (void)SSL_read(session, &one_byte, 1);
+                            }
                         }
                     }
                     SSL_free(session);
@@ -343,6 +349,73 @@ int main() {
                 if (worker.joinable()) worker.join();
                 throw;
             }
+        });
+        case_test("native-tls-write-overloads-preserve-binary", [&] {
+            const std::string expected = std::string("A\0B", 3) +
+                std::string("C\0D", 3) + "one" + "two" + std::string("X\0Y", 3);
+            std::string received;
+            bool server_ok = false;
+            {
+                live_server server(good.server_ctx, 1, "127.0.0.1", [&](SSL* session) {
+                    char buffer[64]{};
+                    while (received.size() < expected.size()) {
+                        const int bytes = SSL_read(session, buffer, sizeof(buffer));
+                        if (bytes <= 0) return;
+                        received.append(buffer, static_cast<std::size_t>(bytes));
+                    }
+                    server_ok = received == expected && SSL_write(session, "!", 1) == 1;
+                });
+                aeon::ssl_client_socket client;
+                require(client.set_ca_file(good.ca_path.string().c_str()) == 0,
+                        "native TLS write CA");
+                require(client.connect("127.0.0.1", server.port), "native TLS write connect");
+                char mutable_binary[] = {'A', '\0', 'B'};
+                const char const_binary[] = {'C', '\0', 'D'};
+                char mutable_text[] = "one";
+                const char const_text[] = "two";
+                require(client.write(mutable_binary, 3) == 3, "TLS mutable buffer write");
+                require(client.write(const_binary, 3) == 3, "TLS const buffer write");
+                require(client.write(mutable_text) == 3, "TLS mutable C-string write");
+                require(client.write(const_text) == 3, "TLS const C-string write");
+                require(client.write(std::string("X\0Y", 3)) == 3, "TLS binary string write");
+                char ack{};
+                require(client.read(&ack, 1) == 1 && ack == '!', "TLS write acknowledgment");
+            }
+            require(server_ok && received == expected, "TLS write overload payloads");
+        });
+        case_test("native-tls-read-overloads-return-plaintext", [&] {
+            bool server_ok = false;
+            {
+                live_server server(good.server_ctx, 1, "127.0.0.1", [&](SSL* session) {
+                    auto exchange = [&](const char* data, int size) {
+                        if (SSL_write(session, data, size) != size) return false;
+                        char ack{};
+                        return SSL_read(session, &ack, 1) == 1 && ack == '!';
+                    };
+                    server_ok = exchange("RAW", 3) && exchange("A\0B", 3) &&
+                        exchange("LEG", 3) && exchange("line\r\n", 6) &&
+                        exchange("tail\n", 5);
+                });
+                aeon::ssl_client_socket client;
+                require(client.set_ca_file(good.ca_path.string().c_str()) == 0,
+                        "native TLS read CA");
+                require(client.connect("127.0.0.1", server.port), "native TLS read connect");
+                char buffer[16]{};
+                require(client.read(buffer, 3) == 3 &&
+                        std::string(buffer, 3) == "RAW", "TLS buffer read");
+                require(client.write("!", 1) == 1, "TLS buffer read acknowledgment");
+                require(client.read(3) == std::string("A\0B", 3), "TLS binary string read");
+                require(client.write("!", 1) == 1, "TLS string read acknowledgment");
+                require(client.read() == 3, "TLS legacy read");
+                require(client.write("!", 1) == 1, "TLS legacy read acknowledgment");
+                require(client.read_line(buffer, sizeof(buffer)) == 6 &&
+                        std::string(buffer) == "line\r\n", "TLS line read");
+                require(client.write("!", 1) == 1, "TLS line read acknowledgment");
+                require(client.read_until(buffer, sizeof(buffer)) == 5 &&
+                        std::string(buffer) == "tail\n", "TLS read_until legacy behavior");
+                require(client.write("!", 1) == 1, "TLS read_until acknowledgment");
+            }
+            require(server_ok, "TLS read overload exchange");
         });
 #if LIBAEON_HAS_EVENTS
         case_test("event-server-requires-credentials", [&] {
