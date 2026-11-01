@@ -34,14 +34,25 @@ protected:
 class set_probe : public aeon::event_socket_set {
 public:
     int fallback = 0;
+    int udp_error_fallback = 0;
+    aeon::udp_event_socket* last_udp_error_socket = nullptr;
+    int last_udp_error_code = aeon::err_none;
     void emit(aeon::event_socket* s, const char* d, int n) {
         fire_on_socket_data(s, d, n);
     }
     void emit_error(aeon::event_socket* s, int error) {
         fire_on_socket_error(s, error);
     }
+    void emit_udp_error(aeon::udp_event_socket* s, int error) {
+        fire_on_udp_socket_error(s, error);
+    }
 protected:
     void on_socket_data_impl(aeon::event_socket*, const char*, int) override { ++fallback; }
+    void on_udp_socket_error_impl(aeon::udp_event_socket* s, int error) override {
+        ++udp_error_fallback;
+        last_udp_error_socket = s;
+        last_udp_error_code = error;
+    }
 };
 } // namespace
 
@@ -210,6 +221,37 @@ TEST(EventCallbacks, SetErrorIsIndependentFromData) {
     });
     events.emit_error(&sock, 123);
     EXPECT_EQ(received, 123);
+}
+
+TEST(EventCallbacks, UdpSetErrorUsesRegisteredHandlerAndVirtualFallback) {
+    set_probe events;
+    udp_probe first, second;
+    int tcp_errors = 0;
+    events.on_socket_error([&](aeon::event_socket*, int) { ++tcp_errors; });
+
+    events.emit_udp_error(&first, aeon::err_timeout);
+    EXPECT_EQ(events.udp_error_fallback, 1);
+    EXPECT_EQ(events.last_udp_error_socket, &first);
+    EXPECT_EQ(events.last_udp_error_code, aeon::err_timeout);
+
+    int callbacks = 0;
+    events.on_udp_socket_error([&](aeon::udp_event_socket* socket, int error) {
+        ++callbacks;
+        EXPECT_EQ(socket, &second);
+        EXPECT_EQ(error, aeon::err_connection_reset);
+    });
+    events.emit_udp_error(&second, aeon::err_connection_reset);
+    EXPECT_EQ(callbacks, 1);
+    EXPECT_EQ(events.udp_error_fallback, 1);
+    EXPECT_EQ(tcp_errors, 0);
+
+    events.on_udp_socket_error({});
+    events.emit_udp_error(&second, aeon::err_invalid_argument);
+    EXPECT_EQ(callbacks, 1);
+    EXPECT_EQ(events.udp_error_fallback, 2);
+    EXPECT_EQ(events.last_udp_error_socket, &second);
+    EXPECT_EQ(events.last_udp_error_code, aeon::err_invalid_argument);
+    EXPECT_EQ(tcp_errors, 0);
 }
 
 TEST(EventCallbacks, ReplacementDoesNotDestroyExecutingHandler) {
