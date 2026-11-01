@@ -56,6 +56,16 @@ remain available in either configuration. Include ``<aeon.hpp>`` in your
 application. The ``aeon`` and ``aeon-static`` CMake targets propagate the
 feature definitions and required include paths to consumers.
 
+Event callbacks
+~~~~~~~~~~~~~~~
+
+``event_socket_set`` registers event sockets without taking ownership. The
+application must remove registered sockets before destroying them and must not
+destroy a socket during active event dispatch. ``on_socket_error`` registers a
+TCP socket error callback; ``on_udp_socket_error`` registers the corresponding
+UDP error callback. An empty callback clears the registration and restores the
+virtual ``on_*_impl`` handler. Callbacks run in the thread that polls the set.
+
 Optional SSL/TLS
 ~~~~~~~~~~~~~~~~
 

@@ -386,7 +386,7 @@ set_target_properties(aeon_consumer_static PROPERTIES
     CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
 add_test(NAME AeonStaticConsumer COMMAND aeon_consumer_static)
 
-# M6c: real loopback TLS with generated, trusted/mismatched/self-signed certs.
+# Real loopback TLS with generated, trusted/mismatched/self-signed certs.
 # No external network or openssl CLI dependency; runs for static and shared.
 if(ENABLE_SSL)
     find_package(Threads REQUIRED)

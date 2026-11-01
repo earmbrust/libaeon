@@ -166,3 +166,6 @@ and API reference target Aeon 2.0, not the older `net::C*` class names.
 ## License
 
 BSD 3-Clause. See the project license and copyright notices.
+
+libAeon is authored and maintained by Elden Armbrust
+(<eldenarmbrust@gmail.com>).
