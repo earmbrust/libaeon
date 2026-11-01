@@ -1,6 +1,6 @@
 # UDP ASCII Pong (two players)
 
-M5b is a small multiplayer UDP game that exercises Aeon's destination-aware
+The Pong example is a small multiplayer UDP game that exercises Aeon's destination-aware
 UDP sending and application-controlled event polling. The server owns the
 ball, paddle positions, score, and simulation clock. Clients only send input.
 

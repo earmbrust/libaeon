@@ -6,7 +6,7 @@ import re
 
 # Project information
 project = 'Aeon'
-copyright = '2006-2025, Elden Armbrust'
+copyright = '2006-2026, Elden Armbrust'
 author = 'Elden Armbrust'
 
 # Get version from git tags, fall back to branch name
@@ -67,14 +67,14 @@ extensions = [
     'sphinx_rtd_theme',
 ]
 
-templates_path = ['_templates']
+templates_path = ['_templates'] if os.path.isdir(os.path.join(os.path.dirname(__file__), '_templates')) else []
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 
 language = 'en'
 
 # Read the Docs theme
 html_theme = 'sphinx_rtd_theme'
-html_static_path = ['_static']
+html_static_path = ['_static'] if os.path.isdir(os.path.join(os.path.dirname(__file__), '_static')) else []
 
 html_theme_options = {
     'logo_only': False,

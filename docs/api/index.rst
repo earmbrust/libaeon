@@ -59,6 +59,10 @@ Event-driven sockets
 .. doxygenclass:: aeon::udp_server_event_socket
    :members:
 
+Event sockets and socket sets support registered callbacks and overridable
+``on_*_impl`` handlers. ``event_socket_set::on_udp_socket_error`` handles UDP
+errors at the set level; clearing the callback restores the virtual fallback.
+
 Socket sets
 -----------
 
@@ -91,6 +95,14 @@ optional API even when the documentation build itself does not link OpenSSL.
    :members:
 
 .. doxygenclass:: aeon::ssl_server_socket
+   :members:
+
+The following TLS event sockets are available when event support is also enabled.
+
+.. doxygenclass:: aeon::ssl_event_socket
+   :members:
+
+.. doxygenclass:: aeon::ssl_server_event_socket
    :members:
 
 .. doxygenenum:: aeon::ssl_verify_mode

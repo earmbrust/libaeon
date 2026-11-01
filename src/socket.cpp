@@ -163,7 +163,7 @@ int socket::operator<<(const std::string& data) {
 
 /**
  * socket operator>> for reading data
- * \param (unused parameter for operator syntax)
+ * The operator argument is unused.
  * \return std::string containing read data
  */
 std::string socket::operator>>(std::string) {

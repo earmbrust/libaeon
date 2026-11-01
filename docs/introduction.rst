@@ -28,7 +28,7 @@ Features
 - **UDP:** datagrams, including configurable receive timeouts
 - **Events:** callbacks and socket collections for polling-based I/O
 - **Addresses:** IPv4/IPv6 addresses and resolution
-- **TLS:** optional OpenSSL-backed client sockets when enabled at build time
+- **TLS:** optional OpenSSL-backed client, server and event sockets when enabled at build time
 
 Supported platforms
 -------------------

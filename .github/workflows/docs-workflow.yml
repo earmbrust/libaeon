@@ -65,10 +65,16 @@ jobs:
           ls -la docs/
 
       - name: Build Doxygen XML
+        shell: bash
         run: |
+          set -euo pipefail
           doxygen --version
-          doxygen Doxyfile
-          if [ ! -f docs/_build/doxygen/xml/index.xml ]; then
+          doxygen Doxyfile 2>&1 | tee docs/_build/doxygen/build.log
+          if grep -i 'warning:' docs/_build/doxygen/build.log; then
+            echo 'ERROR: Doxygen warnings must be resolved.' >&2
+            exit 1
+          fi
+          if [ ! -s docs/_build/doxygen/xml/index.xml ]; then
             echo 'ERROR: Doxygen index.xml not found.' >&2
             exit 1
           fi
@@ -80,6 +86,12 @@ jobs:
           cd docs
           rm -rf .doctrees _build/.doctrees
           sphinx-build -b html -W . _build/html 2>&1 | tee build.log
+          for page in index introduction getting_started api/index; do
+            if [ ! -s "_build/html/${page}.html" ]; then
+              echo "ERROR: Missing generated page: ${page}.html" >&2
+              exit 1
+            fi
+          done
 
       - name: Upload documentation for GitHub Pages
         if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/'))

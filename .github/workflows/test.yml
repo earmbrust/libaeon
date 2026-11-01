@@ -12,8 +12,8 @@ permissions:
 jobs:
   # Compiling with ENABLE_SSL=ON on every major OS matters: OpenSSL discovery,
   # MSVC import libraries, MinGW headers, and ARM64 linkers differ by platform.
-  # These run the full existing test suite; dedicated TLS handshake/certificate
-  # regression tests must be added separately (none exist yet).
+  # These run the full existing test suite, including live TLS handshake and
+  # certificate validation regression tests.
   ssl:
     name: SSL / ${{ matrix.id }}
     runs-on: ${{ matrix.runner }}
