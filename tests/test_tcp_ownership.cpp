@@ -193,7 +193,7 @@ TEST(TcpOwnership, RepeatedAcceptedPeersAreRetired) {
     const int port = local_port(server);
     ASSERT_GT(port, 0);
 
-    for (int i = 0; i < 128; ++i) {
+    for (int i = 0; i < 1000; ++i) {
         aeon::client_socket client;
         ASSERT_TRUE(client.connect("127.0.0.1", port)) << "iteration " << i;
         auto* accepted = server.accept(false);

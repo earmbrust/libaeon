@@ -127,6 +127,11 @@ the event write-queue benchmark, set `LIBAEON_BUILD_BENCHMARKS=ON`; it also
 requires event sockets. All three options default to OFF. CI explicitly
 enables tests and examples where needed.
 
+The TCP ownership regression exercises 1,000 consecutive loopback connections,
+checks each reply and verifies server-owned peer retirement and descriptor
+closure. It replaces the obsolete interactive Telnet stress script; no separate
+stress utility is required for the 2.0 release checks.
+
 A public CI matrix builds on Windows, Linux and macOS with several compilers
 and architectures (including ARM and 32-bit targets). See
 [GitHub Actions](https://github.com/earmbrust/libaeon/actions) for current
