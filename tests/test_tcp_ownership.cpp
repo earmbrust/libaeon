@@ -186,6 +186,30 @@ TEST(TcpOwnership, EventAcceptCanBeClosedThroughBasePointer) {
     EXPECT_FALSE(descriptor_open(descriptor));
 }
 
+TEST(TcpOwnership, RepeatedAcceptedPeersAreRetired) {
+    aeon::server_socket server;
+    ASSERT_TRUE(server.listen("127.0.0.1", 0));
+    ASSERT_EQ(server.set_accept_timeout(2000), 0);
+    const int port = local_port(server);
+    ASSERT_GT(port, 0);
+
+    for (int i = 0; i < 128; ++i) {
+        aeon::client_socket client;
+        ASSERT_TRUE(client.connect("127.0.0.1", port)) << "iteration " << i;
+        auto* accepted = server.accept(false);
+        ASSERT_NE(accepted, nullptr) << "iteration " << i;
+        ASSERT_EQ(server.peer_count(), 1);
+        ASSERT_EQ(accepted->write("x", 1), 1);
+        char response = 0;
+        ASSERT_EQ(client.read(&response, 1), 1);
+        EXPECT_EQ(response, 'x');
+        const auto fd = accepted->sockfd;
+        ASSERT_TRUE(server.remove_peer(accepted));
+        EXPECT_EQ(server.peer_count(), 0);
+        EXPECT_FALSE(descriptor_open(fd));
+    }
+}
+
 TEST(TcpOwnership, ListenerWithoutPendingConnectionTimesOut) {
     aeon::server_socket server;
     ASSERT_TRUE(server.listen("127.0.0.1", 0));

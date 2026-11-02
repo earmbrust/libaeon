@@ -77,23 +77,24 @@ bool send_request(aeon::socket* socket, const std::string& domain, const std::st
     http_request += "Connection: close\r\n";
     http_request += "\r\n";
 
-    int bytes_sent = socket->write(http_request.c_str());
-    return bytes_sent > 0;
+    std::size_t offset = 0;
+    while (offset < http_request.size()) {
+        const int sent = socket->write(http_request.data() + offset,
+                                       static_cast<int>(http_request.size() - offset));
+        if (sent <= 0) return false;
+        offset += static_cast<std::size_t>(sent);
+    }
+    return true;
 }
 
-std::string read_response(aeon::socket* socket) {
-    std::string response;
+bool read_response(aeon::socket* socket, std::string& response) {
     char buffer[512];
-    int bytes_read = 0;
-
-    do {
-        bytes_read = socket->read(buffer, sizeof(buffer) - 1);
-        if (bytes_read > 0) {
-            response.append(buffer, bytes_read);
-        }
-    } while (bytes_read > 0);
-
-    return response;
+    for (;;) {
+        const int received = socket->read(buffer, sizeof(buffer));
+        if (received < 0) return false;
+        if (received == 0) return true;
+        response.append(buffer, static_cast<std::size_t>(received));
+    }
 }
 
 int main(int argc, char** argv) {
@@ -199,20 +200,33 @@ int main(int argc, char** argv) {
 
         // Read response
         std::cout << "Reading response..." << std::endl;
-        std::string response = read_response(socket);
+        std::string response;
+        if (!read_response(socket, response)) {
+            std::fprintf(stderr, "Failed to read response: %d\n", socket->get_error());
+            delete socket;
+            return EXIT_FAILURE;
+        }
         socket->close();
 
-        // Parse response
-        std::size_t header_end = response.find(HTML_HEADER_BREAK);
-        std::string headers = (header_end != std::string::npos) ? response.substr(0, header_end) : response;
-        std::string body = (header_end != std::string::npos) ? response.substr(header_end + 4) : "";
+        // Headers may span multiple network reads.
+        const std::size_t header_end = response.find(HTML_HEADER_BREAK);
+        if (header_end == std::string::npos) {
+            std::fprintf(stderr, "Incomplete HTTP response headers\n");
+            delete socket;
+            return EXIT_FAILURE;
+        }
+        const std::string headers = response.substr(0, header_end);
+        const std::string body = response.substr(header_end + 4);
+        const std::string status_line = headers.substr(0, headers.find("\r\n"));
+        const bool redirect = status_line.compare(0, 7, "HTTP/1.") == 0 &&
+                              status_line.size() >= 12 && status_line[8] == ' ' &&
+                              (status_line.compare(9, 3, "301") == 0 ||
+                               status_line.compare(9, 3, "302") == 0 ||
+                               status_line.compare(9, 3, "303") == 0 ||
+                               status_line.compare(9, 3, "307") == 0 ||
+                               status_line.compare(9, 3, "308") == 0);
 
-        // Check for redirect
-        if (headers.find("301") != std::string::npos || 
-            headers.find("302") != std::string::npos ||
-            headers.find("303") != std::string::npos ||
-            headers.find("307") != std::string::npos ||
-            headers.find("308") != std::string::npos) {
+        if (redirect) {
             
             std::string redirect_url = extract_redirect_url(headers);
             if (!redirect_url.empty()) {

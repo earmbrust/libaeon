@@ -200,7 +200,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Installed consumer tests failed.' }
 
   static-analysis:
-    name: Static analysis (advisory)
+    name: Cppcheck
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -209,9 +209,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y cppcheck
-      - name: Report cppcheck findings (non-blocking until baseline is clean)
-        continue-on-error: true
+      - name: Check source and tests
         run: |
           cppcheck --enable=warning,performance,portability \
             --inline-suppr --suppress=missingIncludeSystem \
+            -DLIBAEON_HAS_EVENTS=1 -DLIBAEON_HAS_SSL=0 \
             --error-exitcode=1 src include tests

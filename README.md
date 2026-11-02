@@ -38,6 +38,7 @@ if (server.listen(2300)) {
     auto* client = server.accept(); // borrowed; server owns accepted TCP peer
     if (client) {
         client->write("Hello from server!\n");
+        server.remove_peer(client); // Reclaim this server-owned peer
     }
 }
 ```

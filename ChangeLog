@@ -1,5 +1,9 @@
 v2.0.0 (unreleased)
 ===================
+-fixed hello-world example peer retirement and interruptible accept loop
+-made the HTTP client example handle partial writes, receive failures and split headers
+-added repeated loopback accept/retirement coverage without restoring the obsolete Telnet stress script
+-made the existing cppcheck CI job enforce its findings after correcting the test diagnostics
 -added relocatable CMake install/export targets for shared and static consumers
 -added CI tests of installed packages with TLS and event-feature variations
 -updated release packaging to use actual CMake install outputs, include the license
