@@ -158,6 +158,47 @@ jobs:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: ctest --test-dir build --output-on-failure --timeout 90
 
+  # Test the installed package rather than consuming targets from the build tree.
+  installed-consumers:
+    name: Installed consumers / ${{ matrix.id }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: linux-core, runner: ubuntu-24.04, ssl: 'OFF', events: 'ON' }
+          - { id: linux-tls, runner: ubuntu-24.04, ssl: 'ON', events: 'ON' }
+          - { id: linux-no-events, runner: ubuntu-24.04, ssl: 'OFF', events: 'OFF' }
+          - { id: macos-core, runner: macos-15, ssl: 'OFF', events: 'ON' }
+          - { id: windows-core, runner: windows-2022, ssl: 'OFF', events: 'ON' }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OpenSSL headers for TLS package test
+        if: matrix.ssl == 'ON'
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
+      - name: Build, install, configure and test external consumers
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $prefix = Join-Path $PWD 'dist/installed'
+          cmake -S . -B build-package -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF '-DENABLE_SSL=${{ matrix.ssl }}' '-DLIBAEON_ENABLE_EVENTS=${{ matrix.events }}'
+          if ($LASTEXITCODE -ne 0) { throw 'Library configure failed.' }
+          cmake --build build-package --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Library build failed.' }
+          cmake --install build-package --config Release --prefix $prefix
+          if ($LASTEXITCODE -ne 0) { throw 'Library installation failed.' }
+          cmake -S tests/install_consumer -B build-installed-consumer '-DCMAKE_BUILD_TYPE=Release' "-DCMAKE_PREFIX_PATH=$prefix"
+          if ($LASTEXITCODE -ne 0) { throw 'Installed package discovery failed.' }
+          cmake --build build-installed-consumer --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Installed consumer build failed.' }
+          $libdir = Join-Path $prefix 'lib'
+          $env:PATH = (Join-Path $prefix 'bin') + [IO.Path]::PathSeparator + $env:PATH
+          $env:LD_LIBRARY_PATH = $libdir + [IO.Path]::PathSeparator + $env:LD_LIBRARY_PATH
+          $env:DYLD_LIBRARY_PATH = $libdir + [IO.Path]::PathSeparator + $env:DYLD_LIBRARY_PATH
+          ctest --test-dir build-installed-consumer -C Release --output-on-failure --timeout 90
+          if ($LASTEXITCODE -ne 0) { throw 'Installed consumer tests failed.' }
+
   static-analysis:
     name: Static analysis (advisory)
     runs-on: ubuntu-24.04
