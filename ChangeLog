@@ -1,5 +1,11 @@
 v2.0.0 (unreleased)
 ===================
+-added relocatable CMake install/export targets for shared and static consumers
+-added CI tests of installed packages with TLS and event-feature variations
+-updated release packaging to use actual CMake install outputs, include the license
+ and verify candidate packages before any release publication
+-corrected detached CI version fallback to the 2.0 development version
+-added downloadable documentation previews on pull requests
 -fixed POSIX blocking-mode restoration after nonblocking socket operations
 -configured SO_NOSIGPIPE on libAeon TLS sockets for macOS
 -improved peer-notified orderly TLS shutdown handling

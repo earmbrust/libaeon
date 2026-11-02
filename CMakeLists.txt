@@ -18,7 +18,8 @@ if(WIN32 AND NOT Python3_EXECUTABLE)
   endif()
 endif()
 
-# Get version from git tags, fall back to branch name
+# Get version from git tags, fall back to branch name. Detached CI builds
+# without a version tag use the current 2.0 development version.
 execute_process(
     COMMAND git describe --tags --always
     OUTPUT_VARIABLE GIT_DESCRIBE
@@ -67,11 +68,11 @@ else()
             set(GIT_VERSION_STRING "${GIT_BRANCH}")
             message(STATUS "Version from git branch: ${PROJECT_VERSION} (branch: ${GIT_BRANCH})")
         else()
-            set(PROJECT_VERSION "0.0.0")
+            set(PROJECT_VERSION "2.0.0")
             message(STATUS "Could not extract numeric version from branch: ${GIT_BRANCH}")
         endif()
     else()
-        set(PROJECT_VERSION "0.0.0")
+        set(PROJECT_VERSION "2.0.0")
         message(STATUS "Version set to default: ${PROJECT_VERSION}")
     endif()
 endif()
@@ -309,6 +310,40 @@ else()
         endif()
     endif()
 endif()
+
+# Install both link variants with their public CMake usage requirements.
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
+install(TARGETS aeon aeon-static EXPORT libaeonTargets
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    FILES_MATCHING PATTERN "*.hpp"
+)
+
+set(LIBAEON_PACKAGE_DIR "${CMAKE_INSTALL_LIBDIR}/cmake/libaeon")
+configure_package_config_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/libaeonConfig.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/libaeonConfig.cmake"
+    INSTALL_DESTINATION "${LIBAEON_PACKAGE_DIR}"
+)
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/libaeonConfigVersion.cmake"
+    VERSION "${PROJECT_VERSION}"
+    COMPATIBILITY SameMajorVersion
+)
+install(EXPORT libaeonTargets NAMESPACE aeon::
+    DESTINATION "${LIBAEON_PACKAGE_DIR}"
+)
+install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/libaeonConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/libaeonConfigVersion.cmake"
+    DESTINATION "${LIBAEON_PACKAGE_DIR}"
+)
 
 # Build only the libraries by default. CI and local development can enable tests.
 option(BUILD_TESTING "Build libAeon tests" OFF)

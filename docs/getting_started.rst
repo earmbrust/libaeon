@@ -45,6 +45,31 @@ To enable and run tests on Visual Studio 2026, use a separate build directory::
     cmake --build build-vs2026-tests --config Release
     ctest --test-dir build-vs2026-tests -C Release --output-on-failure
 
+Installable CMake package
+-------------------------
+
+Build and install into a chosen prefix::
+
+    cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+    cmake --build build --config Release
+    cmake --install build --config Release --prefix ./dist/libaeon
+
+Use a separate prefix for each platform, toolchain and feature configuration.
+A downstream CMake project can consume either installed library variant::
+
+    find_package(libaeon 2.0 CONFIG REQUIRED)
+    target_link_libraries(my_program PRIVATE aeon::aeon)
+
+The static alternative is ``aeon::aeon-static``. Supply the installation
+prefix through ``CMAKE_PREFIX_PATH``. Installed targets provide their feature
+macros and link requirements, including OpenSSL when enabled. Shared-library
+applications also require the installed runtime library to be discoverable by
+the operating system's dynamic loader. On Windows, its DLL is in ``bin``.
+
+A pull request builds a documentation preview artifact but does not deploy to
+GitHub Pages. Publication is reserved for eligible master or version-tag
+pushes, and requires the repository's Pages deployment configuration.
+
 Optional event sockets
 ~~~~~~~~~~~~~~~~~~~~~~
 

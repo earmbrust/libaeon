@@ -166,29 +166,31 @@ jobs:
             -E LD_LIBRARY_PATH="$GITHUB_WORKSPACE/build" \
             "$GITHUB_WORKSPACE/build/aeon_tests"
 
-      # Release/development artifacts are created only after the corresponding
-      # build AND tests succeed. Work branches and PRs never publish binaries.
-      - name: Package Release libraries and headers
-        if: >-
-          matrix.config == 'Release' && github.event_name != 'pull_request' &&
-          (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/development' ||
-           github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main' ||
-           startsWith(github.ref, 'refs/tags/'))
+      # Build and verify the installable archive on PRs as well as release
+      # branches. Upload/publish remains restricted below.
+      - name: Package installable library
+        if: matrix.config == 'Release'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $stage = Join-Path $PWD 'dist/stage'
-          New-Item -ItemType Directory -Force -Path "$stage/include", "$stage/lib" | Out-Null
-          Copy-Item -Path 'include/*' -Destination "$stage/include" -Recurse -Force
-          Copy-Item -Path 'README.md' -Destination $stage -Force
-          Get-ChildItem -Path . -File -Filter 'LICENSE*' | ForEach-Object { Copy-Item $_.FullName $stage -Force }
-          $libs = @(Get-ChildItem -Path build -File -Recurse | Where-Object {
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          cmake --install build --config Release --prefix $stage
+          if ($LASTEXITCODE -ne 0) { throw 'CMake installation failed.' }
+          Copy-Item -Path 'README.md', 'ChangeLog', 'COPYING' -Destination $stage -Force
+          if (-not (Test-Path (Join-Path $stage 'include/aeon.hpp'))) { throw 'Missing installed header.' }
+          if (@(Get-ChildItem $stage -Filter libaeonConfig.cmake -File -Recurse).Count -ne 1) {
+            throw 'Missing or duplicated CMake package configuration.'
+          }
+          if (@(Get-ChildItem $stage -File -Recurse | Where-Object {
             $_.Extension -in @('.dll', '.lib', '.so', '.dylib', '.a') -and
-            $_.BaseName -match '^(lib)?aeon($|_)'
-          })
-          if ($libs.Count -eq 0) { throw 'No libAeon library binaries found to package.' }
-          foreach ($lib in $libs) { Copy-Item $lib.FullName (Join-Path "$stage/lib" $lib.Name) -Force }
-          Compress-Archive -Path "$stage/*" -DestinationPath 'dist/libaeon-${{ matrix.id }}.zip' -Force
+            $_.Name -match '(lib)?aeon'
+          }).Count -lt 2) { throw 'Expected shared and static library artifacts.' }
+          $archive = 'dist/libaeon-${{ matrix.id }}.zip'
+          Compress-Archive -Path "$stage/*" -DestinationPath $archive -Force
+          if (-not (Test-Path $archive) -or (Get-Item $archive).Length -eq 0) {
+            throw 'Release archive was not created.'
+          }
 
       - name: Upload packaged binary
         if: >-

@@ -154,6 +154,36 @@ without an Aeon CMake target, define the options matching the binary:
 `ENABLE_SSL` when TLS is enabled, and `LIBAEON_STATIC` for a static library.
 Unspecified feature switches default to events on and TLS off.
 
+## Installing for CMake consumers
+
+Use a separate installation prefix for each compiler, architecture and feature
+configuration. Build and install both library variants:
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+cmake --build build --config Release
+cmake --install build --config Release --prefix ./dist/libaeon
+```
+
+A separate CMake project can then use the installed package:
+
+```cmake
+find_package(libaeon 2.0 CONFIG REQUIRED)
+target_link_libraries(my_program PRIVATE aeon::aeon)
+# Or link aeon::aeon-static for the static library.
+```
+
+Pass `-DCMAKE_PREFIX_PATH=<installation-prefix>` to the consumer's CMake
+configuration. Installed targets propagate C++20, feature macros and required
+system libraries. TLS-enabled packages find OpenSSL through CMake. When using
+the shared library, the dynamic loader must find its DLL, .so or .dylib at run
+time; on Windows, the DLL is installed in `bin/`.
+
+The CI matrix verifies installed shared and static consumers separately,
+including TLS and events-disabled configurations. Versioned release archives
+contain installed headers, libraries, CMake package files, README, ChangeLog
+and BSD license. PR builds verify packaging but never publish a release.
+
 ## Documentation and examples
 
 - [Documentation sources](docs/)
