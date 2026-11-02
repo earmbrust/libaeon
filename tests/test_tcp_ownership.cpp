@@ -175,6 +175,7 @@ TEST(TcpOwnership, EventAcceptCanBeClosedThroughBasePointer) {
     ASSERT_TRUE(server.listen("127.0.0.1", 0));
     aeon::client_socket client;
     ASSERT_TRUE(client.connect("127.0.0.1", local_port(server)));
+    ASSERT_EQ(server.set_accept_timeout(2000), 0);
     auto accepted = server.accept(false);
     ASSERT_NE(accepted, nullptr);
     aeon::socket* base = accepted;
