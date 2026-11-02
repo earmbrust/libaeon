@@ -30,7 +30,7 @@ execute_process(
 
 # Parse the git describe output to get clean version
 # Format can be: 0.16.22-79-g184ecca or v1.18.0 or just commit hash
-if(GIT_DESCRIBE MATCHES "^(v)?([0-9]+\\.[0-9]+\\.[0-9]+)")
+if(GIT_DESCRIBE MATCHES "^(v)?([0-9]+\\.[0-9]+\\.[0-9]+)$")
     # Extract the version part (before any -commits-ghash)
     string(REGEX MATCH "^(v)?([0-9]+\\.[0-9]+\\.[0-9]+)" VERSION_MATCH "${GIT_DESCRIBE}")
     string(REGEX REPLACE "^v" "" PROJECT_VERSION "${VERSION_MATCH}")
