@@ -53,7 +53,7 @@ bool until(aeon_examples::http_server& server,
     }
     return done();
 }
-std::string request(std::string path = "/", std::string extra = "") {
+std::string request(const std::string& path = "/", const std::string& extra = "") {
     return "GET " + path + " HTTP/1.1\r\nHost: localhost\r\n" + extra + "\r\n";
 }
 int count(const std::string& haystack, const std::string& needle) {

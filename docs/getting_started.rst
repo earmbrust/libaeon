@@ -142,6 +142,7 @@ used after the peer is removed or the server is destroyed.
         if (client && client->connected) {
             client->write("Hello from Aeon!\n");
             client->close();
+            server.remove_peer(client); // Release the listener-owned peer
         }
     }
 

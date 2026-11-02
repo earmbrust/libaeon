@@ -8,12 +8,11 @@
 #include <iostream>
 #include <csignal>
 #include <cstdlib>
-#include <atomic>
 
 #define PORT 2300
 
 // Global flag for signal handling
-static std::atomic<bool> shutdown_requested(false);
+static volatile std::sig_atomic_t shutdown_requested = 0;
 
 // Forward declaration
 void signal_handler(int sig);
@@ -38,30 +37,31 @@ int main(void) {
         return EXIT_FAILURE;
     }
 
+    if (server.set_accept_timeout(200) != 0) {
+        std::cout << "Error: Cannot configure accept timeout.\n";
+        return EXIT_FAILURE;
+    }
+
     std::cout << "Server listening on port " << PORT << ".\n";
 
-    // Main server loop
     while (!shutdown_requested) {
-        // Accept incoming connection - returns unique_ptr for automatic cleanup
-        auto client = server.accept();
+        // The listener owns accepted peers; remove each after serving it.
+        auto* client = server.accept();
+        if (!client) continue;
 
-        if (client && client->connected) {
+        if (client->connected) {
             std::cout << "Client accepted.\n";
-            
-            // Send hello world message
-            int bytes_sent = client->write("Hello world!\n");
+            const int bytes_sent = client->write("Hello world!\n");
             if (bytes_sent > 0) {
                 std::cout << "Sent greeting (" << bytes_sent << " bytes).\n";
             } else {
                 std::cout << "Error: Failed to send greeting.\n";
             }
-            
-            // Close the connection
-            client->close();
-            // No delete needed - unique_ptr handles cleanup automatically
-            std::cout << "Client connection closed.\n";
         }
-        // If client is nullptr or not connected, unique_ptr auto-deletes on scope exit
+
+        client->close();
+        server.remove_peer(client);
+        std::cout << "Client connection closed.\n";
     }
 
     std::cout << "Shutdown complete.\n";
@@ -72,8 +72,5 @@ int main(void) {
  * Signal handler for SIGINT (ctrl-c)
  */
 void signal_handler(int sig) {
-    if (sig == SIGINT) {
-        std::cout << "\nGot SIGINT. Shutting down gracefully.\n";
-        shutdown_requested = true;
-    }
+    if (sig == SIGINT) shutdown_requested = 1;
 }
