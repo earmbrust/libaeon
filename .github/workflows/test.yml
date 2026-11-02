@@ -199,6 +199,38 @@ jobs:
           ctest --test-dir build-installed-consumer -C Release --output-on-failure --timeout 90
           if ($LASTEXITCODE -ne 0) { throw 'Installed consumer tests failed.' }
 
+  source-quality:
+    name: Whitespace and Clang-Tidy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check changed-line whitespace
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == 'pull_request' ]]; then
+            git diff --check "${{ github.event.pull_request.base.sha }}" HEAD
+          else
+            git diff --check HEAD^ HEAD
+          fi
+      - name: Install Clang-Tidy and OpenSSL headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-tidy ninja-build libssl-dev
+      - name: Configure analysis compilation database
+        run: >-
+          cmake -S . -B build-tidy -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DENABLE_SSL=ON
+          -DBUILD_TESTING=OFF -DLIBAEON_BUILD_EXAMPLES=OFF
+      - name: Run read-only Clang-Tidy checks
+        run: |
+          clang-tidy -p build-tidy \
+            --checks='-*,clang-analyzer-core.*,clang-analyzer-cplusplus.NewDelete,bugprone-use-after-move' \
+            --warnings-as-errors='*' --quiet src/*.cpp
+
   static-analysis:
     name: Cppcheck
     runs-on: ubuntu-24.04
