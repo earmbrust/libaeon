@@ -1,0 +1,245 @@
+name: Build and Test libAeon
+
+# All active/legacy branch names are covered. Only version tags produce releases.
+on:
+  push:
+    branches: [master, development, develop, main, '*-devel']
+    tags: ['v*', '[0-9]*']
+  pull_request:
+    branches: [master, development, develop, main, '*-devel']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  events-disabled:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        ssl: ['OFF', 'ON']
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install TLS build dependency
+        if: matrix.ssl == 'ON'
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
+      - name: Configure core library
+        run: cmake -S . -B build-core -DCMAKE_BUILD_TYPE=Release -DLIBAEON_ENABLE_EVENTS=OFF -DENABLE_SSL=${{ matrix.ssl }} -DBUILD_TESTING=ON -DLIBAEON_BUILD_EXAMPLES=OFF
+      - name: Build core library and tests
+        run: cmake --build build-core --parallel 2
+      - name: Test core library
+        run: ctest --test-dir build-core --output-on-failure
+
+  # Every row builds and runs the test suite independently. A failing Linux job
+  # must not prevent Windows, macOS or other CPU architectures from being checked.
+  build-test:
+    name: ${{ matrix.id }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: linux-x64-gcc-debug,       runner: ubuntu-24.04,         compiler: gcc,   arch: x64,   config: Debug }
+          - { id: linux-x64-gcc-release,     runner: ubuntu-24.04,         compiler: gcc,   arch: x64,   config: Release }
+          - { id: linux-x64-clang-release,   runner: ubuntu-24.04,         compiler: clang, arch: x64,   config: Release }
+          - { id: linux-x86-gcc-release,     runner: ubuntu-24.04,         compiler: gcc,   arch: x86,   config: Release }
+          - { id: linux-armv7-qemu-release,  runner: ubuntu-24.04,         compiler: gcc,   arch: armv7, config: Release }
+          - { id: linux-arm64-gcc-release,   runner: ubuntu-24.04-arm,     compiler: gcc,   arch: arm64, config: Release }
+          - { id: windows-x86-msvc2022,      runner: windows-2022,         compiler: msvc,  arch: Win32, config: Release, generator: 'Visual Studio 17 2022' }
+          - { id: windows-x64-msvc2022,      runner: windows-2022,         compiler: msvc,  arch: x64,   config: Release, generator: 'Visual Studio 17 2022' }
+          - { id: windows-x64-msvc2026-debug,runner: windows-2025-vs2026,  compiler: msvc,  arch: x64,   config: Debug,   generator: 'Visual Studio 18 2026' }
+          - { id: windows-x64-msvc2026,      runner: windows-2025-vs2026,  compiler: msvc,  arch: x64,   config: Release, generator: 'Visual Studio 18 2026' }
+          - { id: windows-arm64-msvc2026,    runner: windows-11-vs2026-arm,compiler: msvc,  arch: ARM64, config: Release, generator: 'Visual Studio 18 2026' }
+          - { id: windows-x64-mingw,         runner: windows-2025,         compiler: mingw, arch: x64,   config: Release }
+          - { id: macos-intel-clang,         runner: macos-15-intel,       compiler: clang, arch: x64,   config: Release }
+          - { id: macos-arm64-clang,         runner: macos-15,             compiler: clang, arch: arm64, config: Release }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Print environment
+        shell: pwsh
+        run: |
+          cmake --version
+          Write-Host "Runner OS: ${{ runner.os }}"
+          Write-Host "Target: ${{ matrix.id }}"
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          packages=(build-essential cmake ninja-build)
+          if [[ '${{ matrix.compiler }}' == 'clang' ]]; then packages+=(clang); fi
+          if [[ '${{ matrix.arch }}' == 'x86' ]]; then packages+=(gcc-multilib g++-multilib); fi
+          if [[ '${{ matrix.arch }}' == 'armv7' ]]; then
+            packages+=(gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf qemu-user file)
+          fi
+          sudo apt-get install -y "${packages[@]}"
+
+      - name: Ensure macOS Ninja is available
+        if: runner.os == 'macOS'
+        shell: bash
+        run: command -v ninja >/dev/null || brew install ninja
+
+      - name: Setup MinGW-w64
+        if: matrix.compiler == 'mingw'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+
+      - name: Configure (native Unix, including Linux x86)
+        if: (runner.os == 'Linux' || runner.os == 'macOS') && matrix.arch != 'armv7'
+        shell: bash
+        run: |
+          if [[ '${{ matrix.compiler }}' == 'gcc' ]]; then
+            export CC=gcc CXX=g++
+          else
+            export CC=clang CXX=clang++
+          fi
+          flags=()
+          if [[ '${{ matrix.arch }}' == 'x86' ]]; then
+            flags+=('-DCMAKE_CXX_FLAGS=-m32' '-DCMAKE_C_FLAGS=-m32')
+          fi
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.config }} -DBUILD_TESTING=ON -DLIBAEON_BUILD_EXAMPLES=ON "${flags[@]}"
+
+      - name: Configure (Linux ARMv7 cross-compiler)
+        if: matrix.arch == 'armv7'
+        shell: bash
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=armv7l \
+            -DCMAKE_C_COMPILER=arm-linux-gnueabihf-gcc \
+            -DCMAKE_CXX_COMPILER=arm-linux-gnueabihf-g++ \
+            -DBUILD_TESTING=ON -DLIBAEON_BUILD_EXAMPLES=ON
+
+      - name: Configure (Visual Studio/MSVC)
+        if: matrix.compiler == 'msvc'
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G '${{ matrix.generator }}' -A '${{ matrix.arch }}' -DBUILD_TESTING=ON -DLIBAEON_BUILD_EXAMPLES=ON
+
+      - name: Configure (MinGW-w64)
+        if: matrix.compiler == 'mingw'
+        shell: msys2 {0}
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DLIBAEON_BUILD_EXAMPLES=ON
+
+      - name: Build
+        if: matrix.compiler != 'mingw'
+        shell: pwsh
+        run: cmake --build build --config '${{ matrix.config }}' --parallel 2
+
+      - name: Build (MinGW-w64)
+        if: matrix.compiler == 'mingw'
+        shell: msys2 {0}
+        run: cmake --build build --parallel 2
+
+      - name: Run native tests (including 32-bit Linux and Windows)
+        if: matrix.arch != 'armv7' && matrix.compiler != 'mingw'
+        shell: pwsh
+        timeout-minutes: 8
+        run: ctest --test-dir build -C '${{ matrix.config }}' --output-on-failure --timeout 90
+
+      - name: Run MinGW-w64 tests
+        if: matrix.compiler == 'mingw'
+        shell: msys2 {0}
+        timeout-minutes: 8
+        run: ctest --test-dir build --output-on-failure --timeout 90
+
+      - name: Run Linux ARMv7 tests under QEMU user emulation
+        if: matrix.arch == 'armv7'
+        shell: bash
+        timeout-minutes: 8
+        run: |
+          file build/aeon_tests
+          # Use the ARMhf system libraries and the freshly built libaeon.so.
+          timeout 120s qemu-arm -L /usr/arm-linux-gnueabihf \
+            -E LD_LIBRARY_PATH="$GITHUB_WORKSPACE/build" \
+            "$GITHUB_WORKSPACE/build/aeon_tests"
+
+      # Build and verify the installable archive on PRs as well as release
+      # branches. Upload/publish remains restricted below.
+      - name: Package installable library
+        if: matrix.config == 'Release'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = Join-Path $PWD 'dist/stage'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          cmake --install build --config Release --prefix $stage
+          if ($LASTEXITCODE -ne 0) { throw 'CMake installation failed.' }
+          Copy-Item -Path 'README.md', 'ChangeLog', 'COPYING' -Destination $stage -Force
+          if (-not (Test-Path (Join-Path $stage 'include/aeon.hpp'))) { throw 'Missing installed header.' }
+          if (@(Get-ChildItem $stage -Filter libaeonConfig.cmake -File -Recurse).Count -ne 1) {
+            throw 'Missing or duplicated CMake package configuration.'
+          }
+          if (@(Get-ChildItem $stage -File -Recurse | Where-Object {
+            $_.Extension -in @('.dll', '.lib', '.so', '.dylib', '.a') -and
+            $_.Name -match '(lib)?aeon'
+          }).Count -lt 2) { throw 'Expected shared and static library artifacts.' }
+          $archive = 'dist/libaeon-${{ matrix.id }}.zip'
+          Compress-Archive -Path "$stage/*" -DestinationPath $archive -Force
+          if (-not (Test-Path $archive) -or (Get-Item $archive).Length -eq 0) {
+            throw 'Release archive was not created.'
+          }
+
+      - name: Upload packaged binary
+        if: >-
+          matrix.config == 'Release' && github.event_name != 'pull_request' &&
+          (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/development' ||
+           github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main' ||
+           startsWith(github.ref, 'refs/tags/'))
+        uses: actions/upload-artifact@v4
+        with:
+          name: libaeon-${{ matrix.id }}
+          path: dist/libaeon-${{ matrix.id }}.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  # SSL/sanitizers/static analysis: reusable workflow, no duplicate CI triggers.
+  quality:
+    uses: ./.github/workflows/test.yml
+
+  # Tag pushes only. Never publishes release binaries from 2.0-devel or PRs.
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [events-disabled, build-test, quality]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify tag commit is reachable from master
+        shell: bash
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo 'Refusing release: expected a numeric X.Y.Z version tag.' >&2
+            exit 1
+          fi
+          git fetch origin master
+          git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/master || {
+            echo 'Refusing release: tag commit is not on master.' >&2
+            exit 1
+          }
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: libaeon-*
+          path: release-files
+          merge-multiple: true
+      - name: Publish version release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-files/*.zip
+          fail_on_unmatched_files: true
+          generate_release_notes: true

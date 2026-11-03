@@ -1,0 +1,122 @@
+name: Build and Deploy Documentation
+
+on:
+  push:
+    branches:
+      - master
+      - development
+      - develop
+      - main
+      - '*-devel'
+    tags:
+      - 'v*'
+      - '[0-9]*'
+  pull_request:
+    branches:
+      - master
+      - development
+      - develop
+      - main
+      - '*-devel'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages-${{ github.ref }}"
+  cancel-in-progress: false
+
+jobs:
+  build-docs:
+    name: Build Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y doxygen graphviz
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r docs/requirements.txt
+
+      - name: Create docs directory structure
+        run: |
+          mkdir -p docs/_build/doxygen
+          mkdir -p docs/_static
+          mkdir -p docs/_templates
+          mkdir -p docs/api
+          echo "Created all required directories"
+          ls -la docs/
+
+      - name: Build Doxygen XML
+        shell: bash
+        run: |
+          set -euo pipefail
+          doxygen --version
+          doxygen Doxyfile 2>&1 | tee docs/_build/doxygen/build.log
+          if grep -i 'warning:' docs/_build/doxygen/build.log; then
+            echo 'ERROR: Doxygen warnings must be resolved.' >&2
+            exit 1
+          fi
+          if [ ! -s docs/_build/doxygen/xml/index.xml ]; then
+            echo 'ERROR: Doxygen index.xml not found.' >&2
+            exit 1
+          fi
+
+      - name: Build Sphinx HTML
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd docs
+          rm -rf .doctrees _build/.doctrees
+          sphinx-build -b html -W . _build/html 2>&1 | tee build.log
+          for page in index introduction getting_started api/index; do
+            if [ ! -s "_build/html/${page}.html" ]; then
+              echo "ERROR: Missing generated page: ${page}.html" >&2
+              exit 1
+            fi
+          done
+
+      - name: Preserve generated documentation preview on pull requests
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: libaeon-docs-preview
+          path: docs/_build/html
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload documentation for GitHub Pages
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/'))
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'docs/_build/html'
+
+  deploy-docs:
+    name: Deploy to GitHub Pages
+    needs: build-docs
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/'))
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

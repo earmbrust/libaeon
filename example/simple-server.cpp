@@ -1,56 +1,133 @@
 /******************************************************************
- * simple-server.cpp - A simple "Hello world!" server using libaeon
- * Copyright (c) 2006-2018 Elden Armbrust
- ******************************************************************/
+ * simple-server.cpp - Event-driven server using server_event_socket
+ * Demonstrates callback registration and non-owning socket sets.
+ * Accepts, reads, and writes through one application-owned poll loop.
+ * Copyright 2006-2025 (c) Elden Armbrust
+ * This software is licensed under the BSD software license.
+ *********************************************************************/
 
-#include <libaeon.h>
-#define SERVER_PORT 2300
-class clientSocket : public net::CEventSocket
-{
-    bool OnRead(const char* buffer, int size);
-};
+#include <aeon.hpp>
+#include <iostream>
+#include <cstdio>
+#include <csignal>
+#include <atomic>
+#include <memory>
+#include <vector>
+#include <algorithm>
+#include <cstring>
 
-bool clientSocket::OnRead(const char* buffer, int size)
-{
-    printf("Client said: %s\r\n", buffer);
-    return true;
+static std::atomic<bool> shutdown_requested(false);
+
+void signal_handler(int sig) {
+    if (sig == SIGINT) {
+        shutdown_requested = true;
+    }
 }
 
-int main(void)
-{
-    int iConnectionCount = 0;
-    net::CServerSocket* server = new net::CServerSocket();
+void print_usage(const char* program) {
+    std::fprintf(stderr, "Usage: %s [address] [port]\n", program);
+    std::fprintf(stderr, "Default: %s 0.0.0.0 2300\n", program);
+    std::fprintf(stderr, "Examples:\n");
+    std::fprintf(stderr, "  %s 0.0.0.0 2300      (IPv4 any)\n", program);
+    std::fprintf(stderr, "  %s 127.0.0.1 2300    (IPv4 loopback)\n", program);
+    std::fprintf(stderr, "  %s :: 2300           (IPv6 any)\n", program);
+    std::fprintf(stderr, "  %s ::1 2300          (IPv6 loopback)\n", program);
+}
 
-    net::CEventSocketSet* socketset = new net::CEventSocketSet();
-    if (server->Listen(SERVER_PORT) == false) {
-        printf("Error when opening port.\r\n");
-        delete server;
-        delete socketset;
+int main(int argc, char** argv) {
+    const char* bind_address = "0.0.0.0";  // Default
+    int port = 2300;                        // Default
+
+    // Parse arguments
+    if (argc > 1) {
+        if (std::strcmp(argv[1], "-h") == 0 || std::strcmp(argv[1], "--help") == 0) {
+            print_usage(argv[0]);
+            return 0;
+        }
+        bind_address = argv[1];
+    }
+
+    if (argc > 2) {
+        port = std::atoi(argv[2]);
+        if (port <= 0 || port > 65535) {
+            std::fprintf(stderr, "Error: Invalid port %d\n", port);
+            return EXIT_FAILURE;
+        }
+    }
+
+    std::cout << "TCP greeting and echo example (application-driven poller)\n";
+    std::cout << "Binding to " << bind_address << ":" << port << "\n";
+    std::cout << "Press Ctrl-C to exit.\n";
+
+    if (std::signal(SIGINT, signal_handler) == SIG_ERR) {
+        std::cout << "Error: Cannot create signal handler.\n";
         return EXIT_FAILURE;
     }
-    printf("Waiting for connection...\r\n");
-    while (1) {
-        socketset->Add((net::CEventSocket*)(new clientSocket));
 
-        // clientSocket = socketset->Sockets[socketset->Size()-1];
-        socketset->Sockets[socketset->Size() - 1] = (clientSocket*)server->Accept();
-        if (socketset->Sockets[socketset->Size() - 1]->connected == true) {
-            ++iConnectionCount;
+    aeon::server_event_socket server;
 
-            printf("Client %d accepted...\r\n", iConnectionCount);
-        } else if (socketset->Sockets[socketset->Size() - 1]->sockfd < 0) {
-            printf("Socket error!\r\n");
-        }
-        if (socketset->Sockets[socketset->Size() - 1]->connected == true) {
-            if (socketset->Sockets[socketset->Size() - 1]->Write((char *)"Hello, world!\r\n") == -1) {
-                printf("Error sending data to client!\r\n");
-            }
-        }
-        socketset->Poll();
-
-        // server->Close();
-
+    if (!server.listen(bind_address, port)) {
+        std::fprintf(stderr, "Error: Failed to listen on %s:%d\n", bind_address, port);
+        std::fprintf(stderr, "Error code: %d\n", server.get_error());
+        return EXIT_FAILURE;
     }
-    delete server;
-    delete socketset;
+
+    std::cout << "Server listening...\n";
+
+    aeon::event_socket_set client_sockets;
+    int connection_count = 0;
+    std::vector<aeon::event_socket*> clients; // listener owns connections
+
+    // The listener owns accepted peers. The event set only observes them.
+    if (!client_sockets.add(&server)) return EXIT_FAILURE;
+    client_sockets.on_socket_listen([&](aeon::event_socket*) {
+        auto client = server.accept(); // Nonblocking: listener is readable.
+        if (!client) return;
+        ++connection_count;
+        std::printf("Client %d accepted\n", connection_count);
+        client->set_socket_tcp_nodelay();
+        client->write("Hello, world!\r\n");
+        client_sockets.add(client);
+        clients.push_back(client);
+    });
+
+    // Set callbacks for client events
+    client_sockets.on_socket_data([](aeon::event_socket* client, const char* buffer, int size) {
+        std::printf("Received %d bytes from client\n", size);
+        // Echo back to client
+        client->write(buffer, size); // Application must handle partial writes.
+    });
+
+    client_sockets.on_socket_close([&](aeon::event_socket* client) {
+        std::printf("Client closed connection\n");
+        client_sockets.remove_socket(client);
+    });
+
+    client_sockets.on_socket_error([&](aeon::event_socket* client, int error_code) {
+        std::printf("Client error: %d\n", error_code);
+        client_sockets.remove_socket(client);
+        client->close();
+    });
+
+    while (!shutdown_requested) {
+        if (client_sockets.poll(100) < 0) {
+            std::fprintf(stderr, "Socket readiness poll failed\n");
+            break;
+        }
+        // Retire closed peers only after poll() has returned and after their
+        // event-set registrations have been removed.
+        clients.erase(std::remove_if(clients.begin(), clients.end(),
+            [&server](auto* client) {
+                if (client->is_valid_socket()) return false;
+                return server.remove_peer(client);
+            }), clients.end());
+    }
+
+    // Deregister before destroying sockets; close after poll returns.
+    while (client_sockets.size() != 0) client_sockets.remove(0U);
+    clients.clear();
+    server.close();
+
+    std::cout << "Server shutdown complete.\n";
+    return EXIT_SUCCESS;
 }

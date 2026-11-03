@@ -1,88 +1,253 @@
 /******************************************************************
- * http-client.cpp - A simple binary/text http client using libaeon
- * Copyright (c) 2006-2018 Elden Armbrust
- ******************************************************************/
+ * http-client.cpp - HTTP/HTTPS client using libaeon
+ * Copyright 2006-2025 (c) Elden Armbrust
+ * This software is licensed under the BSD software license.
+ *********************************************************************/
+
 #include <iostream>
-#include <stdio.h>
-#include <string.h>
+#include <cstdio>
+#include <cstring>
 #include <string>
-#include <libaeon.h>
+#include <aeon.hpp>
 
-#define HTML_HEADER_BREAK "\r\n\r\n" //the separator between header and content as per RFC1945
+#ifdef ENABLE_SSL
+#include <ssl_client_socket.hpp>
+#endif
 
+#define HTML_HEADER_BREAK "\r\n\r\n"
+#define MAX_REDIRECTS 5
 
+struct url_parts {
+    bool is_https;
+    std::string domain;
+    std::string path;
+    int port;
+};
 
-int main (int argc, char** argv)
-{
-    std::cout << "Checking arguments..." << std::endl;
-    if (argc != 2) {
-        fprintf(stderr, "Usage: %s URL\r\n", argv[0]);
-        return EXIT_FAILURE;
+url_parts parse_url(const std::string& url) {
+    url_parts parts{false, "", "/", 80};
+    std::string working_url = url;
+
+    // Check for https://
+    if (working_url.find("https://") == 0) {
+        parts.is_https = true;
+        parts.port = 443;
+        working_url = working_url.substr(8);
+    }
+    // Check for http://
+    else if (working_url.find("http://") == 0) {
+        parts.is_https = false;
+        parts.port = 80;
+        working_url = working_url.substr(7);
     }
 
-    std::cout << "Checked arguments..." << std::endl;
-    char cBuffer[256];
-    //let's parse the command-line now
-    std::string sHostArg, sDomain, sPage;
-    sHostArg = argv[1];
-    if (sHostArg.find("http://") != std::string::npos) sHostArg = sHostArg.substr(7);
-    sPage = "/";
-    if (sHostArg.find("/") != std::string::npos) {
-        sPage = sHostArg.substr(sHostArg.find("/"));
-        sDomain = sHostArg.substr(0, sHostArg.find("/"));
+    // Split domain and path
+    std::size_t slash_pos = working_url.find("/");
+    if (slash_pos != std::string::npos) {
+        parts.path = working_url.substr(slash_pos);
+        parts.domain = working_url.substr(0, slash_pos);
     } else {
-        sDomain = sHostArg;
-    }
-    std::cout << "Trimmed hostname..." << std::endl;
-    if (sPage.size() <= 0 || sDomain.size() <= 0) { //if for some reason the url was invalid, return without connecting
-        return EXIT_FAILURE;
+        parts.domain = working_url;
     }
 
+    return parts;
+}
 
-    std::cout << "Creating socket..." << std::endl;
-    net::CClientSocket *sockClient = new net::CClientSocket(&sDomain, 80);
-
-    if (sockClient->Connect((char*)sDomain.c_str(), 80) != true) {
-        printf("Connection error!\r\n");
-        delete sockClient;
-        return EXIT_FAILURE;
-    }
-
-    std::string sReqPage = "GET " + sPage + " HTTP/1.0\r\n"; //generate the GET request
-    std::string sReqHost = "Host: " + sDomain + "\r\n"; //we append the host, to please certain servers
-    std::string sRequest = sReqPage + sReqHost + "\r\n";//combine it all into a cohesive request
-    int iBytesSent = 0;
-    iBytesSent = sockClient->Write(sRequest.c_str()); //send the request, returning the number of bytes
-    //to iBytesSent for checking
-    if (iBytesSent != sRequest.size()) {
-        printf("Size consistency error!\r\n");
-    }
-
-    int iBytesRead = 0;
-    std::string sTemp; //a string to
-    int iOutputStart = 0; //define where the data starts
-    bool bOutput = false;
-    do {
-        iBytesRead = sockClient->ReadUntil(cBuffer, sizeof(cBuffer)-1);
-        if (iBytesRead < 0) break;
-        sTemp.clear();
-        sTemp = cBuffer;
-        if (sTemp.find("\r\n\r\n") != std::string::npos && bOutput == false) {
-            iOutputStart = sTemp.find("\r\n\r\n")+4;
-            bOutput = true;
-        } else {
-            iOutputStart = 0;
+std::string extract_redirect_url(const std::string& headers) {
+    // Look for Location header
+    std::string location_key = "Location: ";
+    std::size_t loc_pos = headers.find(location_key);
+    
+    if (loc_pos != std::string::npos) {
+        std::size_t start = loc_pos + location_key.length();
+        std::size_t end = headers.find("\r\n", start);
+        if (end == std::string::npos) {
+            end = headers.find("\n", start);
         }
-        if (bOutput == true) {
-            for (int i = iOutputStart; i < iBytesRead; i++) { //start reading at the offset, to remove headers.
+        if (end != std::string::npos) {
+            return headers.substr(start, end - start);
+        }
+    }
+    return "";
+}
 
-                fprintf(stdout, "%c", cBuffer[i]);
+bool send_request(aeon::socket* socket, const std::string& domain, const std::string& path) {
+    std::string http_request = "GET " + path + " HTTP/1.1\r\n";
+    http_request += "Host: " + domain + "\r\n";
+    http_request += "Connection: close\r\n";
+    http_request += "\r\n";
+
+    std::size_t offset = 0;
+    while (offset < http_request.size()) {
+        const int sent = socket->write(http_request.data() + offset,
+                                       static_cast<int>(http_request.size() - offset));
+        if (sent <= 0) return false;
+        offset += static_cast<std::size_t>(sent);
+    }
+    return true;
+}
+
+bool read_response(aeon::socket* socket, std::string& response) {
+    char buffer[512];
+    for (;;) {
+        const int received = socket->read(buffer, sizeof(buffer));
+        if (received < 0) return false;
+        if (received == 0) return true;
+        response.append(buffer, static_cast<std::size_t>(received));
+    }
+}
+
+int main(int argc, char** argv) {
+    std::cout << "Checking arguments..." << std::endl;
+    
+    if (argc < 2) {
+        std::fprintf(stderr, "Usage: %s URL [--verify] [--cacert <path>]\n", argv[0]);
+        std::fprintf(stderr, "  URL: The HTTP or HTTPS URL to fetch\n");
+        std::fprintf(stderr, "  --no-verify: Disable TLS peer certificate and hostname verification (INSECURE)\n");
+        std::fprintf(stderr, "  --cacert <path>: Path to CA certificate bundle file\n");
+        return EXIT_FAILURE;
+    }
+
+    std::string current_url = argv[1];
+    bool verify_peer = true;
+    std::string ca_cert_file;
+    
+    // Parse optional arguments
+    for (int i = 2; i < argc; i++) {
+        std::string arg = argv[i];
+        if (arg == "--verify") {
+            verify_peer = true;
+        } else if (arg == "--no-verify") {
+            verify_peer = false;
+        } else if (arg == "--cacert" && i + 1 < argc) {
+            ca_cert_file = argv[++i];
+        }
+    }
+
+    int redirect_count = 0;
+
+    while (redirect_count < MAX_REDIRECTS) {
+        url_parts parts = parse_url(current_url);
+
+        std::cout << "URL: " << current_url << std::endl;
+        std::cout << "Domain: " << parts.domain << ", Path: " << parts.path;
+        std::cout << ", Port: " << parts.port;
+        std::cout << ", Protocol: " << (parts.is_https ? "HTTPS" : "HTTP") << std::endl;
+
+        if (parts.domain.empty()) {
+            std::fprintf(stderr, "Invalid URL\n");
+            return EXIT_FAILURE;
+        }
+
+        // Create appropriate socket
+        aeon::socket* socket = nullptr;
+        bool connected = false;
+
+        if (parts.is_https) {
+#ifdef ENABLE_SSL
+            auto* ssl_sock = new aeon::ssl_client_socket();
+            
+            // Set verification mode
+            if (verify_peer) {
+                ssl_sock->set_peer_verification(aeon::ssl_verify_mode::strict);
+                if (!ca_cert_file.empty()) {
+                    int ca_result = ssl_sock->set_ca_file(ca_cert_file.c_str());
+                    if (ca_result != 0) {
+                        std::fprintf(stderr, "Failed to load CA certificate file: %s\n", ca_cert_file.c_str());
+                        delete ssl_sock;
+                        return EXIT_FAILURE;
+                    }
+                }
+            } else {
+                ssl_sock->set_peer_verification(aeon::ssl_verify_mode::off);
+            }
+            
+            if (!ssl_sock->connect(parts.domain.c_str(), parts.port)) {
+                std::fprintf(stderr, "SSL connection failed: %d\n", ssl_sock->get_error());
+                delete ssl_sock;
+                return EXIT_FAILURE;
+            }
+            socket = ssl_sock;
+            connected = ssl_sock->connected;
+            if (!connected) {
+                std::fprintf(stderr, "SSL connection failed: %d\n", ssl_sock->get_error());
+            }
+#else
+            std::fprintf(stderr, "HTTPS requested but SSL support not enabled\n");
+            return EXIT_FAILURE;
+#endif
+        } else {
+            auto* client_sock = new aeon::client_socket(parts.domain.c_str(), parts.port);
+            socket = client_sock;
+            connected = client_sock->connected;
+            if (!connected) {
+                std::fprintf(stderr, "Connection failed: %d\n", client_sock->get_error());
             }
         }
-    } while (iBytesRead > 0);
 
+        if (!connected) {
+            delete socket;
+            return EXIT_FAILURE;
+        }
 
-    sockClient->Close();  //close the socket and clean up
-    delete sockClient;
-    return 0;
+        // Send request
+        std::cout << "Sending request..." << std::endl;
+        if (!send_request(socket, parts.domain, parts.path)) {
+            std::fprintf(stderr, "Failed to send request\n");
+            delete socket;
+            return EXIT_FAILURE;
+        }
+
+        // Read response
+        std::cout << "Reading response..." << std::endl;
+        std::string response;
+        if (!read_response(socket, response)) {
+            std::fprintf(stderr, "Failed to read response: %d\n", socket->get_error());
+            delete socket;
+            return EXIT_FAILURE;
+        }
+        socket->close();
+
+        // Headers may span multiple network reads.
+        const std::size_t header_end = response.find(HTML_HEADER_BREAK);
+        if (header_end == std::string::npos) {
+            std::fprintf(stderr, "Incomplete HTTP response headers\n");
+            delete socket;
+            return EXIT_FAILURE;
+        }
+        const std::string headers = response.substr(0, header_end);
+        const std::string body = response.substr(header_end + 4);
+        const std::string status_line = headers.substr(0, headers.find("\r\n"));
+        const bool redirect = status_line.compare(0, 7, "HTTP/1.") == 0 &&
+                              status_line.size() >= 12 && status_line[8] == ' ' &&
+                              (status_line.compare(9, 3, "301") == 0 ||
+                               status_line.compare(9, 3, "302") == 0 ||
+                               status_line.compare(9, 3, "303") == 0 ||
+                               status_line.compare(9, 3, "307") == 0 ||
+                               status_line.compare(9, 3, "308") == 0);
+
+        if (redirect) {
+            
+            std::string redirect_url = extract_redirect_url(headers);
+            if (!redirect_url.empty()) {
+                std::cout << "Redirect to: " << redirect_url << std::endl;
+                current_url = redirect_url;
+                redirect_count++;
+                delete socket;
+                continue;
+            }
+        }
+
+        delete socket;
+
+        // Output response body
+        std::cout << "\n=== Response Body ===" << std::endl;
+        std::cout << body << std::endl;
+        std::cout << "=== End of Response ===" << std::endl;
+
+        return EXIT_SUCCESS;
+    }
+
+    std::fprintf(stderr, "Too many redirects\n");
+    return EXIT_FAILURE;
 }

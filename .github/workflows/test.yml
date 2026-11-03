@@ -1,0 +1,254 @@
+name: libAeon Quality and SSL Tests
+
+# Invoked by build.yml to gate releases and check every development branch.
+# Also supports manual runs without duplicating push-triggered jobs.
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Compiling with ENABLE_SSL=ON on every major OS matters: OpenSSL discovery,
+  # MSVC import libraries, MinGW headers, and ARM64 linkers differ by platform.
+  # These run the full existing test suite, including live TLS handshake and
+  # certificate validation regression tests.
+  ssl:
+    name: SSL / ${{ matrix.id }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: linux-x64-gcc,       runner: ubuntu-24.04,          compiler: gcc,  arch: x64,   config: Release }
+          - { id: linux-x64-clang,     runner: ubuntu-24.04,          compiler: clang,arch: x64,   config: Release }
+          - { id: linux-arm64-gcc,     runner: ubuntu-24.04-arm,      compiler: gcc,  arch: arm64, config: Release }
+          - { id: windows-x86-msvc22,  runner: windows-2022,          compiler: msvc, arch: Win32, config: Release, generator: 'Visual Studio 17 2022', triplet: x86-windows }
+          - { id: windows-x64-msvc22,  runner: windows-2022,          compiler: msvc, arch: x64,   config: Release, generator: 'Visual Studio 17 2022', triplet: x64-windows }
+          - { id: windows-x64-msvc26,  runner: windows-2025-vs2026,   compiler: msvc, arch: x64,   config: Release, generator: 'Visual Studio 18 2026', triplet: x64-windows }
+          - { id: windows-arm64-msvc26,runner: windows-11-vs2026-arm, compiler: msvc, arch: ARM64, config: Release, generator: 'Visual Studio 18 2026', triplet: arm64-windows }
+          - { id: windows-x64-mingw,   runner: windows-2025,          compiler: mingw,arch: x64,   config: Release }
+          - { id: macos-intel-clang,   runner: macos-15-intel,        compiler: clang,arch: x64,   config: Release }
+          - { id: macos-arm64-clang,   runner: macos-15,              compiler: clang,arch: arm64, config: Release }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install OpenSSL and build tools (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang ninja-build cmake libssl-dev
+
+      - name: Install OpenSSL and build tools (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          brew install openssl@3 ninja
+          echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+
+      - name: Install MinGW-w64 OpenSSL and toolchain
+        if: matrix.compiler == 'mingw'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-openssl
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+
+      - name: Install matching Windows MSVC OpenSSL via vcpkg
+        if: matrix.compiler == 'msvc'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = $env:VCPKG_INSTALLATION_ROOT
+          if (-not $root) { throw 'Runner does not provide VCPKG_INSTALLATION_ROOT' }
+          $vcpkg = Join-Path $root 'vcpkg.exe'
+          if (-not (Test-Path $vcpkg)) { throw "vcpkg executable missing: $vcpkg" }
+          $triplet = '${{ matrix.triplet }}'
+          & $vcpkg install "openssl:$triplet" --clean-after-build
+          if ($LASTEXITCODE -ne 0) { throw "Failed to install openssl:$triplet" }
+          $toolchain = Join-Path $root 'scripts/buildsystems/vcpkg.cmake'
+          if (-not (Test-Path $toolchain)) { throw "vcpkg toolchain file missing: $toolchain" }
+          # Dynamic OpenSSL DLLs must be accessible when the tests execute.
+          $runtime = Join-Path $root "installed/$triplet/bin"
+          if (Test-Path $runtime) { $runtime | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8 }
+
+      - name: Configure SSL build (Linux/macOS)
+        if: runner.os == 'Linux' || runner.os == 'macOS'
+        shell: bash
+        run: |
+          if [[ '${{ matrix.compiler }}' == 'gcc' ]]; then
+            export CC=gcc CXX=g++
+          else
+            export CC=clang CXX=clang++
+          fi
+          args=()
+          if [[ -n "${OPENSSL_ROOT_DIR:-}" ]]; then args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_ROOT_DIR"); fi
+          cmake -S . -B build-ssl -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_SSL=ON -DBUILD_TESTING=ON -DLIBAEON_BUILD_EXAMPLES=ON "${args[@]}"
+
+      - name: Configure SSL build (MSVC)
+        if: matrix.compiler == 'msvc'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = $env:VCPKG_INSTALLATION_ROOT
+          $toolchain = Join-Path $root 'scripts/buildsystems/vcpkg.cmake'
+          cmake -S . -B build-ssl -G '${{ matrix.generator }}' -A '${{ matrix.arch }}' `
+            '-DENABLE_SSL=ON' '-DBUILD_TESTING=ON' '-DLIBAEON_BUILD_EXAMPLES=ON' "-DCMAKE_TOOLCHAIN_FILE=$toolchain" `
+            '-DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}'
+          if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed' }
+
+      - name: Configure SSL build (MinGW-w64)
+        if: matrix.compiler == 'mingw'
+        shell: msys2 {0}
+        run: cmake -S . -B build-ssl -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_SSL=ON -DBUILD_TESTING=ON -DLIBAEON_BUILD_EXAMPLES=ON
+
+      - name: Build with SSL enabled
+        if: matrix.compiler != 'mingw'
+        shell: pwsh
+        run: cmake --build build-ssl --config Release --parallel 2
+
+      - name: Build with SSL enabled (MinGW-w64)
+        if: matrix.compiler == 'mingw'
+        shell: msys2 {0}
+        run: cmake --build build-ssl --parallel 2
+
+      - name: Execute full test suite with SSL enabled
+        if: matrix.compiler != 'mingw'
+        shell: pwsh
+        timeout-minutes: 8
+        run: ctest --test-dir build-ssl -C Release --output-on-failure --timeout 90
+
+      - name: Execute full test suite with SSL enabled (MinGW-w64)
+        if: matrix.compiler == 'mingw'
+        shell: msys2 {0}
+        timeout-minutes: 8
+        run: ctest --test-dir build-ssl --output-on-failure --timeout 90
+
+  sanitizers:
+    name: Linux x64 / ASan + UBSan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ninja-build cmake
+      - name: Configure with AddressSanitizer and UndefinedBehaviorSanitizer
+        env:
+          CC: gcc
+          CXX: g++
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DLIBAEON_BUILD_EXAMPLES=ON \
+            '-DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -fno-omit-frame-pointer' \
+            '-DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=address,undefined' \
+            '-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined'
+      - name: Build
+        run: cmake --build build --parallel 2
+      - name: Run tests with sanitizers
+        timeout-minutes: 8
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ctest --test-dir build --output-on-failure --timeout 90
+
+  # Test the installed package rather than consuming targets from the build tree.
+  installed-consumers:
+    name: Installed consumers / ${{ matrix.id }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: linux-core, runner: ubuntu-24.04, ssl: 'OFF', events: 'ON' }
+          - { id: linux-tls, runner: ubuntu-24.04, ssl: 'ON', events: 'ON' }
+          - { id: linux-no-events, runner: ubuntu-24.04, ssl: 'OFF', events: 'OFF' }
+          - { id: macos-core, runner: macos-15, ssl: 'OFF', events: 'ON' }
+          - { id: windows-core, runner: windows-2022, ssl: 'OFF', events: 'ON' }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OpenSSL headers for TLS package test
+        if: matrix.ssl == 'ON'
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
+      - name: Build, install, configure and test external consumers
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $prefix = Join-Path $PWD 'dist/installed'
+          cmake -S . -B build-package -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF '-DENABLE_SSL=${{ matrix.ssl }}' '-DLIBAEON_ENABLE_EVENTS=${{ matrix.events }}'
+          if ($LASTEXITCODE -ne 0) { throw 'Library configure failed.' }
+          cmake --build build-package --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Library build failed.' }
+          cmake --install build-package --config Release --prefix $prefix
+          if ($LASTEXITCODE -ne 0) { throw 'Library installation failed.' }
+          cmake -S tests/install_consumer -B build-installed-consumer '-DCMAKE_BUILD_TYPE=Release' "-DCMAKE_PREFIX_PATH=$prefix"
+          if ($LASTEXITCODE -ne 0) { throw 'Installed package discovery failed.' }
+          cmake --build build-installed-consumer --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Installed consumer build failed.' }
+          $libdir = Join-Path $prefix 'lib'
+          $env:PATH = (Join-Path $prefix 'bin') + [IO.Path]::PathSeparator + $env:PATH
+          $env:LD_LIBRARY_PATH = $libdir + [IO.Path]::PathSeparator + $env:LD_LIBRARY_PATH
+          $env:DYLD_LIBRARY_PATH = $libdir + [IO.Path]::PathSeparator + $env:DYLD_LIBRARY_PATH
+          ctest --test-dir build-installed-consumer -C Release --output-on-failure --timeout 90
+          if ($LASTEXITCODE -ne 0) { throw 'Installed consumer tests failed.' }
+
+  source-quality:
+    name: Whitespace and Clang-Tidy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check changed-line whitespace
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == 'pull_request' ]]; then
+            if [[ "$GITHUB_BASE_REF" == 'master' && "$GITHUB_HEAD_REF" == '2.0-devel' ]]; then
+              # Check modernization changes since the quality gate was introduced.
+              git diff --check 0199b26261ca3657c24b7791e3e4327610951182 HEAD
+            else
+              git diff --check "${{ github.event.pull_request.base.sha }}" HEAD
+            fi
+          else
+            git diff --check HEAD^ HEAD
+          fi
+      - name: Install Clang-Tidy and OpenSSL headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-tidy ninja-build libssl-dev
+      - name: Configure analysis compilation database
+        run: >-
+          cmake -S . -B build-tidy -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DENABLE_SSL=ON
+          -DBUILD_TESTING=OFF -DLIBAEON_BUILD_EXAMPLES=OFF
+      - name: Run read-only Clang-Tidy checks
+        run: |
+          clang-tidy -p build-tidy \
+            --checks='-*,clang-analyzer-core.*,clang-analyzer-cplusplus.NewDelete,bugprone-use-after-move' \
+            --warnings-as-errors='*' --quiet src/*.cpp
+
+  static-analysis:
+    name: Cppcheck
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cppcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cppcheck
+      - name: Check source and tests
+        run: |
+          cppcheck --enable=warning,performance,portability \
+            --inline-suppr --suppress=missingIncludeSystem \
+            -DLIBAEON_HAS_EVENTS=1 -DLIBAEON_HAS_SSL=0 \
+            --error-exitcode=1 src include tests
