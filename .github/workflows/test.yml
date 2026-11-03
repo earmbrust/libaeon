@@ -212,7 +212,12 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${{ github.event_name }}" == 'pull_request' ]]; then
-            git diff --check "${{ github.event.pull_request.base.sha }}" HEAD
+            if [[ "$GITHUB_BASE_REF" == 'master' && "$GITHUB_HEAD_REF" == '2.0-devel' ]]; then
+              # Check modernization changes since the quality gate was introduced.
+              git diff --check 0199b26261ca3657c24b7791e3e4327610951182 HEAD
+            else
+              git diff --check "${{ github.event.pull_request.base.sha }}" HEAD
+            fi
           else
             git diff --check HEAD^ HEAD
           fi
