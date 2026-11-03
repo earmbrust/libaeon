@@ -1,5 +1,5 @@
 v2.0.0
-=======
+========
 -added read-only whitespace and Clang-Tidy source quality checks to CI
 -scoped release-promotion whitespace checking to new changes without rewriting historical source formatting
 -fixed hello-world example peer retirement and interruptible accept loop
