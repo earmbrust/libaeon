@@ -283,6 +283,7 @@ int event_socket_set::poll(int timeout_ms) {
         watched.push_back({{}, entry, s->sockfd});
         native.push_back({s->sockfd, 0});
     }
+#if LIBAEON_HAS_SSL
     // OpenSSL may already have decrypted bytes in its record buffer even when
     // the underlying descriptor has no new readable data.
     bool buffered = false;
@@ -328,15 +329,22 @@ int event_socket_set::poll(int timeout_ms) {
             }
         }
     }
-    if (ready == 0 && !buffered && !expired) return 0;
+#else
+    const int ready = poll_readable(native, timeout_ms);
+    if (ready <= 0) return ready;
+#endif
     int handled = 0;
     char buffer[socket::max_buffer_size];
     for (size_t i = 0; i < watched.size(); ++i) {
         const auto flags = native[i].revents;
         const auto& watch = watched[i];
         // A handshake can time out without any native readiness event.
+#if LIBAEON_HAS_SSL
         if (!flags && !(watch.tcp && watch.tcp->get_if_active() &&
                         watch.tcp->get_if_active()->poll_timeout_ms() == 0)) continue;
+#else
+        if (!flags) continue;
+#endif
         if (watch.tcp) {
             auto* s = watch.tcp->get_if_active();
             if (!s || !s->is_valid_socket() || s->sockfd != watch.fd) continue;
@@ -357,6 +365,7 @@ int event_socket_set::poll(int timeout_ms) {
                 }
                 continue;
             }
+#if LIBAEON_HAS_SSL
             // TLS handshakes must finish before application I/O is dispatched.
             const int progress = s->poll_step(flags);
             if (progress <= 0) {
@@ -382,7 +391,14 @@ int event_socket_set::poll(int timeout_ms) {
                     s->sockfd == watch.fd) fire_on_socket_connect(s);
                 continue;
             }
-            if (s->poll_read_ready(flags)) {
+#endif
+            if (
+#if LIBAEON_HAS_SSL
+                s->poll_read_ready(flags)
+#else
+                (flags & (POLLIN | POLLHUP)) != 0
+#endif
+            ) {
                 const int bytes = s->poll_receive(buffer, static_cast<int>(sizeof(buffer)));
                 if (bytes > 0) {
                     ++handled;
