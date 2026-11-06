@@ -224,6 +224,11 @@ endif()
 
 # Shared library
 add_library(aeon SHARED ${LIBAEON_SOURCES})
+# Only explicitly annotated LIBAEON_API symbols belong in the shared ABI.
+set_target_properties(aeon PROPERTIES
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN YES
+)
 target_compile_definitions(aeon PRIVATE LIBAEON_BUILDING_DLL)
 target_include_directories(aeon PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
