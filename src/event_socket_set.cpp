@@ -28,40 +28,46 @@ namespace {
 // alive after removal, not the event_socket itself. Before using the pointer,
 // the poller must check get_if_active(). Deregistration is required before
 // socket destruction, and destruction must not race an active dispatch.
-template<class Socket>
-class basic_socket_registration final {
-public:
-    explicit basic_socket_registration(Socket* socket) noexcept : socket_(socket) {}
-    basic_socket_registration(const basic_socket_registration&) = delete;
-    basic_socket_registration& operator=(const basic_socket_registration&) = delete;
+class socket_registry;
 
-    Socket* get_if_active() const noexcept {
+class socket_registration final {
+public:
+    explicit socket_registration(socket* value) noexcept : socket_(value) {}
+    socket_registration(const socket_registration&) = delete;
+    socket_registration& operator=(const socket_registration&) = delete;
+
+    socket* get_if_active() const noexcept {
         return active_.load(std::memory_order_acquire) ? socket_ : nullptr;
+    }
+    event_socket* tcp_if_active() const noexcept {
+        return static_cast<event_socket*>(get_if_active());
+    }
+    udp_event_socket* udp_if_active() const noexcept {
+        return static_cast<udp_event_socket*>(get_if_active());
     }
 
 private:
-    template<class> friend class basic_socket_registry;
+    friend class socket_registry;
     void deactivate() noexcept { active_.store(false, std::memory_order_release); }
 
-    Socket* const socket_;
+    socket* const socket_;
     std::atomic<bool> active_{true};
 };
 
-template<class Socket>
-class basic_socket_registry final {
+class socket_registry final {
 public:
-    using token = std::shared_ptr<basic_socket_registration<Socket>>;
+    using token = std::shared_ptr<socket_registration>;
 
-    basic_socket_registry() = default;
-    basic_socket_registry(const basic_socket_registry&) = delete;
-    basic_socket_registry& operator=(const basic_socket_registry&) = delete;
-    ~basic_socket_registry() { clear(); }
+    socket_registry() = default;
+    socket_registry(const socket_registry&) = delete;
+    socket_registry& operator=(const socket_registry&) = delete;
+    ~socket_registry() { clear(); }
 
-    bool add(Socket* socket) {
-        if (!socket) return false;
+    bool add(socket* value) {
+        if (!value) return false;
         std::lock_guard<std::mutex> lock(mutex_);
-        if (find(socket) != entries_.end()) return false;
-        entries_.push_back(std::make_shared<basic_socket_registration<Socket>>(socket));
+        if (find(value) != entries_.end()) return false;
+        entries_.push_back(std::make_shared<socket_registration>(value));
         return true;
     }
 
@@ -73,10 +79,10 @@ public:
         return true;
     }
 
-    bool remove_socket(Socket* socket) {
-        if (!socket) return false;
+    bool remove_socket(socket* value) {
+        if (!value) return false;
         std::lock_guard<std::mutex> lock(mutex_);
-        auto it = find(socket);
+        auto it = find(value);
         if (it == entries_.end()) return false;
         (*it)->deactivate();
         entries_.erase(it);
@@ -88,9 +94,6 @@ public:
         return static_cast<int>(entries_.size());
     }
 
-    // A snapshot remains structurally valid if callbacks remove/readd sockets.
-    // Removed tokens become inactive. Not an ownership/lifetime guarantee for
-    // the pointed-to socket; that guarantee is the caller's responsibility.
     std::vector<token> snapshot() const {
         std::lock_guard<std::mutex> lock(mutex_);
         return entries_;
@@ -103,10 +106,10 @@ public:
     }
 
 private:
-    std::vector<token>::iterator find(Socket* socket) {
+    std::vector<token>::iterator find(socket* value) {
         return std::find_if(entries_.begin(), entries_.end(),
-                            [socket](const token& entry) {
-                                return entry->get_if_active() == socket;
+                            [value](const token& entry) {
+                                return entry->get_if_active() == value;
                             });
     }
 
@@ -114,8 +117,7 @@ private:
     std::vector<token> entries_;
 };
 
-using socket_registry = basic_socket_registry<event_socket>;
-using udp_socket_registry = basic_socket_registry<udp_event_socket>;
+using udp_socket_registry = socket_registry;
 
 } // namespace
 
@@ -272,13 +274,13 @@ int event_socket_set::poll(int timeout_ms) {
     watched.reserve(tcp_snapshot.size() + udp_snapshot.size());
     native.reserve(watched.capacity());
     for (const auto& entry : tcp_snapshot) {
-        auto* s = entry->get_if_active();
+        auto* s = entry->tcp_if_active();
         if (!s || !s->is_valid_socket()) continue;
         watched.push_back({entry, {}, s->sockfd});
         native.push_back({s->sockfd, 0, s->poll_wants_write()});
     }
     for (const auto& entry : udp_snapshot) {
-        auto* s = entry->get_if_active();
+        auto* s = entry->udp_if_active();
         if (!s || !s->is_valid_socket()) continue;
         watched.push_back({{}, entry, s->sockfd});
         native.push_back({s->sockfd, 0});
@@ -289,7 +291,7 @@ int event_socket_set::poll(int timeout_ms) {
     bool buffered = false;
     for (size_t i = 0; i < watched.size(); ++i) {
         if (watched[i].tcp) {
-            auto* s = watched[i].tcp->get_if_active();
+            auto* s = watched[i].tcp->tcp_if_active();
             if (s && s->is_valid_socket() && s->sockfd == watched[i].fd &&
                 s->poll_has_buffered_input()) buffered = true;
         }
@@ -302,7 +304,7 @@ int event_socket_set::poll(int timeout_ms) {
         int effective_timeout = timeout_ms;
         for (const auto& watch : watched) {
             if (!watch.tcp) continue;
-            auto* s = watch.tcp->get_if_active();
+            auto* s = watch.tcp->tcp_if_active();
             if (!s || !s->is_valid_socket() || s->sockfd != watch.fd) continue;
             const int due = s->poll_timeout_ms();
             if (due >= 0 && (effective_timeout == -1 || due < effective_timeout))
@@ -313,7 +315,7 @@ int event_socket_set::poll(int timeout_ms) {
         expired = false;
         for (const auto& watch : watched) {
             if (!watch.tcp) continue;
-            auto* s = watch.tcp->get_if_active();
+            auto* s = watch.tcp->tcp_if_active();
             if (s && s->is_valid_socket() && s->sockfd == watch.fd &&
                 s->poll_timeout_ms() == 0) expired = true;
         }
@@ -323,7 +325,7 @@ int event_socket_set::poll(int timeout_ms) {
     if (buffered) {
         for (size_t i = 0; i < watched.size(); ++i) {
             if (watched[i].tcp) {
-                auto* s = watched[i].tcp->get_if_active();
+                auto* s = watched[i].tcp->tcp_if_active();
                 if (s && s->is_valid_socket() && s->sockfd == watched[i].fd &&
                     s->poll_has_buffered_input()) native[i].revents |= POLLIN;
             }
@@ -340,13 +342,13 @@ int event_socket_set::poll(int timeout_ms) {
         const auto& watch = watched[i];
         // A handshake can time out without any native readiness event.
 #if LIBAEON_HAS_SSL
-        if (!flags && !(watch.tcp && watch.tcp->get_if_active() &&
-                        watch.tcp->get_if_active()->poll_timeout_ms() == 0)) continue;
+        if (!flags && !(watch.tcp && watch.tcp->tcp_if_active() &&
+                        watch.tcp->tcp_if_active()->poll_timeout_ms() == 0)) continue;
 #else
         if (!flags) continue;
 #endif
         if (watch.tcp) {
-            auto* s = watch.tcp->get_if_active();
+            auto* s = watch.tcp->tcp_if_active();
             if (!s || !s->is_valid_socket() || s->sockfd != watch.fd) continue;
             // A listening TCP socket signals accept readiness; the application
             // accepts and registers each client, retaining ownership itself.
@@ -361,7 +363,7 @@ int event_socket_set::poll(int timeout_ms) {
                     s->set_error(err);
                     s->n = NET_SOCKET_ERROR;
                     s->fire_on_error(err);
-                    if (watch.tcp->get_if_active()) fire_on_socket_error(s, err);
+                    if (watch.tcp->tcp_if_active()) fire_on_socket_error(s, err);
                 }
                 continue;
             }
@@ -374,20 +376,20 @@ int event_socket_set::poll(int timeout_ms) {
                     const int err = s->get_error();
                     s->n = NET_SOCKET_ERROR;
                     s->fire_on_error(err);
-                    if (watch.tcp->get_if_active()) fire_on_socket_error(s, err);
-                    if (watch.tcp->get_if_active() && s->is_valid_socket()) s->close();
+                    if (watch.tcp->tcp_if_active()) fire_on_socket_error(s, err);
+                    if (watch.tcp->tcp_if_active() && s->is_valid_socket()) s->close();
                 }
                 continue;
             }
             if (progress == 3) {
                 ++handled;
                 s->close();
-                if (watch.tcp->get_if_active()) fire_on_socket_close(s);
+                if (watch.tcp->tcp_if_active()) fire_on_socket_close(s);
                 continue;
             }
             if (progress == 2) {
                 ++handled;
-                if (watch.tcp->get_if_active() && s->is_valid_socket() &&
+                if (watch.tcp->tcp_if_active() && s->is_valid_socket() &&
                     s->sockfd == watch.fd) fire_on_socket_connect(s);
                 continue;
             }
@@ -404,11 +406,11 @@ int event_socket_set::poll(int timeout_ms) {
                     ++handled;
                     s->n = bytes;
                     s->fire_on_data(buffer, bytes);
-                    if (watch.tcp->get_if_active()) fire_on_socket_data(s, buffer, bytes);
+                    if (watch.tcp->tcp_if_active()) fire_on_socket_data(s, buffer, bytes);
                 } else if (bytes == 0) {
                     ++handled;
                     s->close();
-                    if (watch.tcp->get_if_active()) fire_on_socket_close(s);
+                    if (watch.tcp->tcp_if_active()) fire_on_socket_close(s);
                 } else {
                     const int err = GET_NET_SOCKET_ERROR();
                     if (!would_block_error(err)) {
@@ -419,8 +421,8 @@ int event_socket_set::poll(int timeout_ms) {
                         s->set_error(reported);
                         s->n = NET_SOCKET_ERROR;
                         s->fire_on_error(reported);
-                        if (watch.tcp->get_if_active()) fire_on_socket_error(s, reported);
-                        if (watch.tcp->get_if_active() && s->is_valid_socket() &&
+                        if (watch.tcp->tcp_if_active()) fire_on_socket_error(s, reported);
+                        if (watch.tcp->tcp_if_active() && s->is_valid_socket() &&
                             s->sockfd == watch.fd && s->poll_error_terminal()) s->close();
                     }
                 }
@@ -431,11 +433,11 @@ int event_socket_set::poll(int timeout_ms) {
                 s->set_error(err);
                 s->n = NET_SOCKET_ERROR;
                 s->fire_on_error(err);
-                if (watch.tcp->get_if_active()) fire_on_socket_error(s, err);
+                if (watch.tcp->tcp_if_active()) fire_on_socket_error(s, err);
             }
             // Check registration and descriptor again: the read/error handler
             // may have closed, removed or replaced this socket.
-            if (watch.tcp->get_if_active() && s->is_valid_socket() &&
+            if (watch.tcp->tcp_if_active() && s->is_valid_socket() &&
                 s->sockfd == watch.fd && s->poll_queue_ready(flags)) {
                 constexpr std::size_t send_budget = 64 * 1024;
                 const auto flushed = s->flush_queued(send_budget);
@@ -444,16 +446,16 @@ int event_socket_set::poll(int timeout_ms) {
                     s->set_error(flushed.error);
                     s->n = NET_SOCKET_ERROR;
                     s->fire_on_error(flushed.error);
-                    if (watch.tcp->get_if_active()) fire_on_socket_error(s, flushed.error);
-                    if (watch.tcp->get_if_active() && s->is_valid_socket() &&
+                    if (watch.tcp->tcp_if_active()) fire_on_socket_error(s, flushed.error);
+                    if (watch.tcp->tcp_if_active() && s->is_valid_socket() &&
                         s->sockfd == watch.fd && s->poll_error_terminal()) s->close();
                 } else if (flushed.drained) {
                     s->fire_on_drain();
-                    if (watch.tcp->get_if_active()) fire_on_socket_drain(s);
+                    if (watch.tcp->tcp_if_active()) fire_on_socket_drain(s);
                 }
             }
         } else {
-            auto* s = watch.udp->get_if_active();
+            auto* s = watch.udp->udp_if_active();
             if (!s || !s->is_valid_socket() || s->sockfd != watch.fd) continue;
             if (flags & POLLIN) {
                 sockaddr_storage peer{};
@@ -466,7 +468,7 @@ int event_socket_set::poll(int timeout_ms) {
                     s->remote_addr = peer; // Reply address, consistent with udp_socket::read.
                     const address sender(peer);
                     s->fire_on_datagram(buffer, bytes, sender);
-                    if (watch.udp->get_if_active()) fire_on_socket_datagram(s, buffer, bytes, sender);
+                    if (watch.udp->udp_if_active()) fire_on_socket_datagram(s, buffer, bytes, sender);
                 } else {
                     const int err = GET_NET_SOCKET_ERROR();
                     if (!would_block_error(err)) {
@@ -475,7 +477,7 @@ int event_socket_set::poll(int timeout_ms) {
                         s->set_error(reported);
                         s->n = NET_SOCKET_ERROR;
                         s->fire_on_error(reported);
-                        if (watch.udp->get_if_active()) fire_on_udp_socket_error(s, reported);
+                        if (watch.udp->udp_if_active()) fire_on_udp_socket_error(s, reported);
                     }
                 }
             } else if (flags & (POLLERR | POLLNVAL)) {
@@ -485,7 +487,7 @@ int event_socket_set::poll(int timeout_ms) {
                 s->set_error(err);
                 s->n = NET_SOCKET_ERROR;
                 s->fire_on_error(err);
-                if (watch.udp->get_if_active()) fire_on_udp_socket_error(s, err);
+                if (watch.udp->udp_if_active()) fire_on_udp_socket_error(s, err);
             }
         }
     }
