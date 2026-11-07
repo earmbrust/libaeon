@@ -37,7 +37,11 @@ namespace aeon {
      * Inherits from socket and adds OpenSSL/TLS encryption.
      * Should not be instantiated directly; use ssl_client_socket or ssl_server_socket.
      */
+#if defined(NET_PLATFORM_WINDOWS)
     class ssl_socket : public socket {
+#else
+    class LIBAEON_API ssl_socket : public socket {
+#endif
     protected:
         SSL_CTX* ssl_ctx;
         SSL* ssl;
