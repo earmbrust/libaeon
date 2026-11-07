@@ -626,6 +626,7 @@ int main() {
             aeon::ssl_event_socket client;
             require(client.set_ca_file(good.ca_path.string().c_str()) == 0, "queue CA");
             require(client.connect("127.0.0.1", ntohs(local.sin_port)), "queue TCP connect");
+            require(server.set_accept_timeout(1000) == 0, "queue accepted peer timeout");
             auto* peer = server.accept(false);
             require(peer != nullptr, "queue accepted peer");
             aeon::event_socket_set poller;
@@ -688,6 +689,7 @@ int main() {
             require(client.set_ca_file(good.ca_path.string().c_str()) == 0, "truncation CA");
             require(client.connect("127.0.0.1", ntohs(local.sin_port)),
                     "truncation TCP connect");
+            require(server.set_accept_timeout(1000) == 0, "truncation accepted peer timeout");
             auto* peer = server.accept(false);
             require(peer != nullptr, "truncation accepted peer");
             aeon::event_socket_set poller;
@@ -734,6 +736,7 @@ int main() {
             require(client.set_ca_file(bad.ca_path.string().c_str()) == 0,
                     "event client trusts only unrelated certificate");
             require(client.connect("127.0.0.1", ntohs(local.sin_port)), "reject TCP connect");
+            require(server.set_accept_timeout(1000) == 0, "event reject accept timeout");
             auto* peer = server.accept(false);
             require(peer != nullptr, "event reject accept");
             aeon::event_socket_set poller;
@@ -766,6 +769,7 @@ int main() {
             aeon::client_socket raw;
             require(raw.connect("127.0.0.1", ntohs(local.sin_port)),
                     "silent TCP connection");
+            require(listener.set_accept_timeout(1000) == 0, "accept silent peer timeout");
             auto* peer = listener.accept(false);
             require(peer != nullptr, "accept silent peer");
             aeon::event_socket_set poller;
@@ -908,6 +912,7 @@ int main() {
                                   &len) == 0, "plaintext event server port");
             aeon::client_socket raw;
             require(raw.connect("127.0.0.1", ntohs(local.sin_port)), "plain TCP connect");
+            require(server.set_accept_timeout(1000) == 0, "plain connection accepted for TLS handshake timeout");
             auto* peer = server.accept(false);
             require(peer != nullptr, "plain connection accepted for TLS handshake");
             aeon::event_socket_set poller;
@@ -939,6 +944,7 @@ int main() {
                     "graceful trust");
             require(client.connect("127.0.0.1", ntohs(local.sin_port)),
                     "graceful TCP connect");
+            require(server.set_accept_timeout(1000) == 0, "graceful accept timeout");
             auto* peer = server.accept(false);
             require(peer != nullptr, "graceful accept");
             aeon::event_socket_set poller;
@@ -994,6 +1000,7 @@ int main() {
                     "abort trust");
             require(client.connect("127.0.0.1", ntohs(local.sin_port)),
                     "abort TCP connect");
+            require(server.set_accept_timeout(1000) == 0, "abort accept timeout");
             auto* peer = server.accept(false);
             require(peer != nullptr, "abort accept");
             aeon::event_socket_set poller;
@@ -1032,6 +1039,7 @@ int main() {
                     "deadline trust");
             require(client.connect("127.0.0.1", ntohs(local.sin_port)),
                     "deadline TCP connect");
+            require(server.set_accept_timeout(1000) == 0, "deadline accept timeout");
             auto* peer = server.accept(false);
             require(peer != nullptr, "deadline accept");
             aeon::event_socket_set poller;

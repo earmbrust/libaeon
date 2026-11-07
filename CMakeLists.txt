@@ -19,7 +19,7 @@ if(WIN32 AND NOT Python3_EXECUTABLE)
 endif()
 
 # Get version from git tags, fall back to branch name. Detached CI builds
-# without a version tag use the current 2.0 development version.
+# without a version tag use the current 2.0 maintenance version.
 execute_process(
     COMMAND git describe --tags --always
     OUTPUT_VARIABLE GIT_DESCRIBE
@@ -65,14 +65,18 @@ else()
                 set(PROJECT_VERSION "${VERSION_PART}.0.0")
             endif()
             
+            if(GIT_BRANCH STREQUAL "2.0-devel")
+                set(PROJECT_VERSION "2.0.1")
+            endif()
+
             set(GIT_VERSION_STRING "${GIT_BRANCH}")
             message(STATUS "Version from git branch: ${PROJECT_VERSION} (branch: ${GIT_BRANCH})")
         else()
-            set(PROJECT_VERSION "2.0.0")
+            set(PROJECT_VERSION "2.0.1")
             message(STATUS "Could not extract numeric version from branch: ${GIT_BRANCH}")
         endif()
     else()
-        set(PROJECT_VERSION "2.0.0")
+        set(PROJECT_VERSION "2.0.1")
         message(STATUS "Version set to default: ${PROJECT_VERSION}")
     endif()
 endif()
