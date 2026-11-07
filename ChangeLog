@@ -1,3 +1,9 @@
+v2.0.1
+========
+-reduced shared library exports and unnecessary non-SSL event polling overhead
+-consolidated TCP and UDP event socket registration machinery
+-restored TLS base-class RTTI visibility for shared-library consumers on Linux and macOS
+
 v2.0.0
 ========
 -added read-only whitespace and Clang-Tidy source quality checks to CI
