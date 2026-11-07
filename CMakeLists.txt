@@ -65,6 +65,10 @@ else()
                 set(PROJECT_VERSION "${VERSION_PART}.0.0")
             endif()
             
+            if(GIT_BRANCH STREQUAL "2.0-devel")
+                set(PROJECT_VERSION "2.0.1")
+            endif()
+
             set(GIT_VERSION_STRING "${GIT_BRANCH}")
             message(STATUS "Version from git branch: ${PROJECT_VERSION} (branch: ${GIT_BRANCH})")
         else()
