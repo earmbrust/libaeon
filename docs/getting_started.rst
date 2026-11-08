@@ -66,9 +66,6 @@ macros and link requirements, including OpenSSL when enabled. Shared-library
 applications also require the installed runtime library to be discoverable by
 the operating system's dynamic loader. On Windows, its DLL is in ``bin``.
 
-A pull request builds a documentation preview artifact but does not deploy to
-GitHub Pages. Publication is reserved for eligible master or version-tag
-pushes, and requires the repository's Pages deployment configuration.
 
 Optional event sockets
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -113,10 +110,8 @@ bypass identity, validity dates or handshake failures. The safer default is
 ``false``. ``set_peer_verification(ssl_verify_mode::off)`` disables validation
 and must only be used when this risk is understood.
 
-The ``http-client`` example now verifies HTTPS by default. Its ``--no-verify``
-flag explicitly disables this protection. For local TLS regression tests,
-build with ``ENABLE_SSL=ON`` and ``BUILD_TESTING=ON``; CTest includes real
-loopback handshakes for the shared and static targets.
+The ``http-client`` example verifies HTTPS by default. Its ``--no-verify``
+flag explicitly disables this protection.
 
 TCP server
 ----------
@@ -213,5 +208,5 @@ I/O method allows applications to customize socket behavior:
     };
 
 See the :doc:`API Reference <api/index>` and the
-`source examples <https://github.com/earmbrust/libaeon/tree/2.0-devel/example>`_
+`source examples <https://github.com/earmbrust/libaeon/tree/v2.0.1/example>`_
 for additional usage patterns.

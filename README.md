@@ -4,11 +4,10 @@ Aeon is a lightweight, cross-platform **C++20** networking library for TCP,
 UDP, socket events, IPv4/IPv6 addressing and optional OpenSSL/TLS support.
 **`aeon` is the C++ namespace; `libaeon` is the library file name.**
 
-## Public API and naming
+## Using Aeon
 
-The 2.0 API follows the C++ Core Guidelines' preferred `underscore_style` for
-namespaces, classes, functions and methods. The generic `aeon::socket` is an
-extensible base class, replacing the original pre-2.0 `net::CSocket` spelling.
+The public API uses the `aeon` namespace and lowercase `snake_case` names.
+Include `<aeon.hpp>` for the public socket classes.
 
 ```cpp
 #include <aeon.hpp>
@@ -28,65 +27,10 @@ Other public types include `aeon::ssl_server_socket` (in SSL-enabled builds),
 `aeon::resolver`. SSL-enabled builds also expose `aeon::ssl_socket` and
 `aeon::ssl_client_socket`.
 
-### TCP server
-
-```cpp
-#include <aeon.hpp>
-
-aeon::server_socket server;
-if (server.listen(2300)) {
-    auto* client = server.accept(); // borrowed; server owns accepted TCP peer
-    if (client) {
-        client->write("Hello from server!\n");
-        server.remove_peer(client); // Reclaim this server-owned peer
-    }
-}
-```
-
-### TLS server (SSL-enabled builds)
-
-The TLS server reuses the normal TCP listener and owns accepted encrypted
-peers. Supply a PEM certificate chain and matching private key before listening:
-
-```cpp
-#ifdef ENABLE_SSL
-aeon::ssl_server_socket tls;
-if (tls.set_certificate_file("server.pem") == aeon::err_none &&
-    tls.set_private_key_file("server-key.pem") == aeon::err_none &&
-    tls.listen(8443)) {
-    if (aeon::ssl_socket* peer = tls.accept(true)) {
-        peer->write("secure response\n");
-    }
-}
-#endif
-```
-
-TLS acceptance performs a blocking handshake before returning an accepted
-peer, with a configurable per-read handshake timeout (5 seconds by default).
-Plain TCP servers and clients remain available in the same SSL-enabled build.
-
-### UDP receive with a timeout
-
-```cpp
-#include <aeon.hpp>
-
-aeon::udp_server_socket server;
-if (server.listen(2301)) {
-    server.set_read_timeout(1000); // milliseconds
-    char buffer[256]{};
-    const int count = server.read(buffer, sizeof(buffer));
-    if (count > 0) {
-        if (auto* peer = server.get_peer(server.get_remote_address()))
-            peer->write(buffer, count); // Reply using server-owned peer
-    }
-}
-```
-
-On timed-out UDP reads, the buffer overload returns `0` and the string overload
-returns an empty string. A zero-length UDP datagram is valid and does **not**
-indicate a disconnected peer. For application protocols, distinguish a timeout
-from a zero-length datagram at the protocol level if that matters.
-
+For TCP servers, UDP sockets and SSL/TLS examples, see the
+[Getting Started guide](docs/getting_started.rst). The
+[socket configuration reference](QUICK_REFERENCE.md) describes timeouts,
+read/write results and socket ownership.
 ## Build and test
 
 By default CMake builds only the shared and static libAeon libraries.
@@ -127,15 +71,7 @@ the event write-queue benchmark, set `LIBAEON_BUILD_BENCHMARKS=ON`; it also
 requires event sockets. All three options default to OFF. CI explicitly
 enables tests and examples where needed.
 
-The TCP ownership regression exercises 1,000 consecutive loopback connections,
-checks each reply and verifies server-owned peer retirement and descriptor
-closure. It replaces the obsolete interactive Telnet stress script; no separate
-stress utility is required for the 2.0 release checks.
 
-A public CI matrix builds on Windows, Linux and macOS with several compilers
-and architectures (including ARM and 32-bit targets). See
-[GitHub Actions](https://github.com/earmbrust/libaeon/actions) for current
-results; a configured platform is not automatically a passing platform.
 
 ### Optional event sockets
 
@@ -185,19 +121,15 @@ system libraries. TLS-enabled packages find OpenSSL through CMake. When using
 the shared library, the dynamic loader must find its DLL, .so or .dylib at run
 time; on Windows, the DLL is installed in `bin/`.
 
-The CI matrix verifies installed shared and static consumers separately,
-including TLS and events-disabled configurations. Versioned release archives
-contain installed headers, libraries, CMake package files, README, ChangeLog
-and BSD license. PR builds verify packaging but never publish a release.
 
 ## Documentation and examples
 
-- [Documentation sources](docs/)
-- [C++ examples](example/)
-- [GitHub repository](https://github.com/earmbrust/libaeon)
-
-The documentation build uses Doxygen, Breathe and Sphinx. The code examples
-and API reference target Aeon 2.0, not the older `net::C*` class names.
+- [Getting Started](docs/getting_started.rst)
+- [API reference](docs/api/index.rst)
+- [Socket configuration reference](QUICK_REFERENCE.md)
+- [Examples](example/)
+- [ChangeLog](ChangeLog)
+- [Stable release](https://github.com/earmbrust/libaeon/releases/tag/v2.0.1)
 
 ## License
 
