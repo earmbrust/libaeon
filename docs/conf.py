@@ -44,16 +44,18 @@ def get_version():
             ).strip()
             if branch and branch != 'HEAD':
                 print(f"Version from git branch: {branch}")
+                if branch == '2.0-devel':
+                    return '2.0.1'
                 match = re.fullmatch(r'(\d+)\.(\d+)(?:\.(\d+))?-devel', branch)
                 if match:
                     return f'{match.group(1)}.{match.group(2)}.{match.group(3) or "0"}'
-                return '2.0.0'
+                return '2.0.1'
             else:
                 raise ValueError("No branch name")
         except (subprocess.CalledProcessError, ValueError):
             # Not in a git repo or git not available
             print("Not in git repo, using default version")
-            return '2.0.0'
+            return '2.0.1'
 
 # Get release version
 release = get_version()

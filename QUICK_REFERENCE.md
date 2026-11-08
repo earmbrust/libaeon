@@ -1,4 +1,4 @@
-# Quick API Reference: Socket Configuration
+# Socket Configuration Reference
 
 Include `<aeon.hpp>` to use the libAeon 2.0 API. Public types are in the
 `aeon` namespace, and methods use lowercase `snake_case`. Timeouts are in
