@@ -1,3 +1,8 @@
+v2.0.2
+========
+-updated release documentation and changelog for the 2.0 series
+-corrected documentation and build version defaults for the maintenance release
+
 v2.0.1
 ========
 -reduced shared library exports and unnecessary event polling overhead in non-SSL builds
